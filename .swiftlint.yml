@@ -23,7 +23,6 @@ warning_threshold: 50
 
 # Default rules: opt-in everything reasonable.
 opt_in_rules:
-  - anyobject_protocol
   - array_init
   - attributes
   - balanced_xctest_lifecycle
@@ -84,7 +83,6 @@ opt_in_rules:
   - redundant_type_annotation
   - single_test_class
   - sorted_first_last
-  - sorted_imports
   - static_operator
   - strict_fileprivate
   - test_case_accessibility
@@ -93,9 +91,6 @@ opt_in_rules:
   - unavailable_function
   - unneeded_parentheses_in_closure_argument
   - untyped_error_in_catch
-  - unused_capture_list
-  - unused_declaration
-  - unused_import
   - vertical_parameter_alignment_on_call
   - vertical_whitespace_closing_braces
   - vertical_whitespace_opening_braces
@@ -104,6 +99,14 @@ opt_in_rules:
 disabled_rules:
   - todo                    # TODO/FIXME stay visible; don't lint them
   - line_length             # swift-format owns this
+  - sorted_imports          # swift-format's OrderedImports owns this; the two conflict
+                            # (sorted_imports = alphabetical; OrderedImports = regular before @testable)
+
+# Analyzer rules (run via `swiftlint analyze`, not regular `lint`).
+# Add deliberately; these need a compiled build to evaluate.
+analyzer_rules:
+  - unused_declaration
+  - unused_import
 
 # Per-rule tuning
 identifier_name:

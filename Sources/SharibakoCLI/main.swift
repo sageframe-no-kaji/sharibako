@@ -2,7 +2,6 @@ import ArgumentParser
 import Logging
 import SharibakoCore
 
-@main
 struct SharibakoCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sharibako",
@@ -16,3 +15,5 @@ struct SharibakoCommand: AsyncParsableCommand {
         print("CLI scaffold. Real commands land starting in ho-04.")
     }
 }
+
+await SharibakoCommand.main()
