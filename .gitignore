@@ -1,0 +1,70 @@
+# .gitignore
+#
+# Ho System Swift project baseline. Drop into a new project.
+# Swift + Xcode + coverage patterns.
+
+# ─── SwiftPM ────────────────────────────────────────────────────────────
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+# Note: Package.resolved is generally COMMITTED for executables, optional
+# for libraries. Leave it tracked unless you have a deliberate reason.
+
+# ─── Xcode ──────────────────────────────────────────────────────────────
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+
+# ─── Coverage ───────────────────────────────────────────────────────────
+*.profraw
+*.profdata
+coverage/
+*.xctestresult
+
+# ─── Build / distribution artifacts ─────────────────────────────────────
+*.dmg
+*.pkg
+build/
+dist/
+
+# ─── IDEs and editors ───────────────────────────────────────────────────
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# ─── Operating system ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Secrets and local config ───────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env
+!.env.example
+!.env.template
+
+# ─── Ho System build record and private prompts ─────────────────────────
+# Note: ho-process/ is NOT ignored by default. The build record is part
+# of the public artifact for projects that want a credibility trail.
+# Add `ho-process/` below if the project wants the build record private.
+prompts/
+
+# ─── Project-specific (add below) ───────────────────────────────────────
