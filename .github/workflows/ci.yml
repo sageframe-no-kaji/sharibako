@@ -19,12 +19,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16
+      - name: Select Xcode (Swift 6.2+)
         run: |
-          if [ -d /Applications/Xcode_16.app ]; then
-            sudo xcode-select -s /Applications/Xcode_16.app
+          # swift-log 1.14.0 requires swift-tools-version 6.2; select the newest available
+          # Xcode 16.x that provides Swift 6.2+. Fall back through versions to Xcode 16.0.
+          selected=""
+          for v in 16.4 16.3 16.2 16.1 16; do
+            path="/Applications/Xcode_${v}.app"
+            if [ -d "$path" ]; then
+              sudo xcode-select -s "$path"
+              selected="$path"
+              break
+            fi
+          done
+          if [ -z "$selected" ]; then
+            echo "No Xcode 16.x found — using default Xcode"
           else
-            echo "Xcode 16 not found — using default Xcode"
+            echo "Selected: $selected"
           fi
           swift --version
 
