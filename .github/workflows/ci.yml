@@ -63,5 +63,37 @@ jobs:
       - name: Build
         run: swift build
 
-      - name: Test
-        run: swift test
+      - name: Test with coverage
+        run: swift test --enable-code-coverage
+
+      - name: Enforce 90% line coverage floor
+        run: |
+          PROFDATA=$(find .build -name "default.profdata" | head -1)
+          XCTEST_BUNDLE=$(find .build -name "SharibakoPackageTests.xctest" -type d | head -1)
+          XCTEST_BINARY="$XCTEST_BUNDLE/Contents/MacOS/SharibakoPackageTests"
+          if [ -z "$PROFDATA" ] || [ ! -f "$XCTEST_BINARY" ]; then
+            echo "Could not locate coverage artifacts"
+            echo "  profdata: $PROFDATA"
+            echo "  test binary: $XCTEST_BINARY"
+            exit 1
+          fi
+          xcrun llvm-cov report \
+            -instr-profile="$PROFDATA" \
+            "$XCTEST_BINARY" \
+            --use-color=false \
+            --ignore-filename-regex=".build|Tests|checkouts"
+          COVERAGE=$(xcrun llvm-cov report \
+            -instr-profile="$PROFDATA" \
+            "$XCTEST_BINARY" \
+            --use-color=false \
+            --ignore-filename-regex=".build|Tests|checkouts" \
+            | tail -1 \
+            | awk '{print $(NF-3)}' \
+            | sed 's/%//')
+          echo ""
+          echo "Line coverage: ${COVERAGE}%"
+          if awk -v c="$COVERAGE" 'BEGIN { exit !(c < 90) }'; then
+            echo "Coverage ${COVERAGE}% is below the 90% floor"
+            exit 1
+          fi
+          echo "Coverage ${COVERAGE}% meets the 90% floor"
