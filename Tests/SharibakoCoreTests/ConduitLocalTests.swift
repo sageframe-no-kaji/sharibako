@@ -155,6 +155,48 @@ struct ConduitLocalTests {
         }
     }
 
+    @Test("status reports deletedFiles when a tracked file is removed")
+    func statusWithDeletedTrackedFile() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+            // Commit a tracked file.
+            let trackedFile = vault.appendingPathComponent("scopes/to-delete.txt")
+            try "value".write(to: trackedFile, atomically: true, encoding: .utf8)
+            _ = try conduit.commit(message: "add file to delete")
+            // Remove it from the filesystem without staging the deletion — git sees it as
+            // a worktree deletion (XY = " D") and reports it in deletedFiles.
+            try FileManager.default.removeItem(at: trackedFile)
+            let result = try conduit.status()
+            #expect(result.dirty)
+            #expect(!result.deletedFiles.isEmpty)
+            #expect(result.deletedFiles.contains(trackedFile))
+        }
+    }
+
+    @Test("status reports rename entry as a modified file")
+    func statusWithRenamedTrackedFile() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+            // Commit a file named old.txt.
+            let oldFile = vault.appendingPathComponent("scopes/old.txt")
+            try "data".write(to: oldFile, atomically: true, encoding: .utf8)
+            _ = try conduit.commit(message: "add old.txt")
+            // Use `git mv` to rename — this stages the rename, which porcelain v2 reports
+            // as a "2 R..." line (renamed/copied entry).
+            let git = try Shell.findExecutable("git")
+            _ = try Shell.run(
+                git,
+                ["mv", "scopes/old.txt", "scopes/new.txt"],
+                workingDirectory: vault
+            )
+            let newFile = vault.appendingPathComponent("scopes/new.txt")
+            let result = try conduit.status()
+            #expect(result.dirty)
+            // The new path must appear in modifiedFiles (renames are mapped there).
+            #expect(result.modifiedFiles.contains(newFile))
+        }
+    }
+
     @Test("status throws gitInvocationFailed for a non-git directory")
     func statusThrowsForNonGitDirectory() throws {
         // Use a plain temp directory that is NOT a git repo.
@@ -167,9 +209,50 @@ struct ConduitLocalTests {
         }
     }
 
-    // MARK: - commit
+    // MARK: - setIdentity error path
 
-    @Test("commit with nothing to commit returns nothingToCommit")
+    @Test("setIdentity throws gitInvocationFailed on a non-git directory")
+    func setIdentityThrowsForNonGitDirectory() throws {
+        // Use a plain temp directory that is NOT a git repo — `git config --local` requires .git/.
+        let bareDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: bareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bareDir) }
+        let conduit = try Conduit(vaultURL: bareDir)
+        #expect(throws: VaultError.self) {
+            try conduit.setIdentity(name: "Test", email: "test@example.invalid")
+        }
+    }
+
+    // MARK: - setRemote error path
+
+    @Test("setRemote throws gitInvocationFailed when git remote add fails on a non-git directory")
+    func setRemoteThrowsForNonGitDirectory() throws {
+        // In a non-git directory the probe (`git remote get-url origin`) exits non-zero, so
+        // Conduit falls into the `git remote add` branch — which also exits non-zero without .git.
+        let bareDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: bareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bareDir) }
+        let conduit = try Conduit(vaultURL: bareDir)
+        #expect(throws: VaultError.self) {
+            try conduit.setRemote("https://example.invalid/repo.git")
+        }
+    }
+
+    // MARK: - commit error path
+
+    @Test("commit throws gitInvocationFailed when git add -A fails on a non-git directory")
+    func commitThrowsWhenAddFailsForNonGitDirectory() throws {
+        // `git add -A` exits non-zero outside a git repository, hitting the guard on line 146.
+        let bareDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: bareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bareDir) }
+        let conduit = try Conduit(vaultURL: bareDir)
+        #expect(throws: VaultError.self) {
+            _ = try conduit.commit(message: "should fail")
+        }
+    }
+
+    // MARK: - commit
     func commitNothingToCommit() throws {
         try VaultTestSupport.withEphemeralGitVault { vault in
             let conduit = try Conduit(vaultURL: vault)

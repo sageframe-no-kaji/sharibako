@@ -92,6 +92,108 @@ struct ConduitRemoteTests {
         }
     }
 
+    // MARK: - Unreachable remote errors
+
+    @Test("push throws gitInvocationFailed when fetch fails due to unreachable remote")
+    func pushThrowsWhenFetchFails() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+            // Point origin at a path that doesn't exist — `git fetch` will exit non-zero.
+            try conduit.setRemote("/nonexistent/bogus.git")
+            // Write and commit a file so the branch is non-empty.
+            let file = vault.appendingPathComponent("scopes/dummy.txt")
+            try "data".write(to: file, atomically: true, encoding: .utf8)
+            _ = try conduit.commit(message: "initial")
+            #expect(throws: VaultError.self) {
+                _ = try conduit.push()
+            }
+        }
+    }
+
+    @Test("pull throws gitInvocationFailed when fetch fails due to unreachable remote")
+    func pullThrowsWhenFetchFails() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+            // Point origin at a path that doesn't exist — `git fetch` will exit non-zero.
+            try conduit.setRemote("/nonexistent/bogus.git")
+            #expect(throws: VaultError.self) {
+                _ = try conduit.pull()
+            }
+        }
+    }
+
+    // MARK: - Pull upstream tracking setup
+
+    @Test("pull sets upstream tracking when it is not configured and pulls new commits")
+    func pullSetsUpstreamTrackingOnFirstPull() throws {
+        try VaultTestSupport.withEphemeralBareRemote { vaultA, vaultB, _ in
+            // vaultA was set up via init+setRemote+push (NOT git clone), so its local
+            // branch has no upstream tracking configured — `@{upstream}` fails.
+            // vaultB (set up via git clone) pushes a new commit to the bare remote.
+            let conduitB = try Conduit(vaultURL: vaultB)
+            let scopesB = vaultB.appendingPathComponent("scopes")
+            try FileManager.default.createDirectory(at: scopesB, withIntermediateDirectories: true)
+            let fileB = scopesB.appendingPathComponent("fromB.txt")
+            try "new commit".write(to: fileB, atomically: true, encoding: .utf8)
+            _ = try conduitB.commit(message: "commit from B for tracking test")
+            _ = try conduitB.push()
+
+            // Now pull from vaultA — which has no upstream tracking. pull() must detect
+            // the missing tracking (exitCode != 0 from @{upstream} probe), call
+            // currentBranchName(), set the upstream, and then successfully pull.
+            let conduitA = try Conduit(vaultURL: vaultA)
+            let result = try conduitA.pull()
+            guard case .success(let pulled) = result else {
+                Issue.record("Expected pull success after upstream setup, got \(result)")
+                return
+            }
+            #expect(pulled >= 1)
+        }
+    }
+
+    // MARK: - Pull non-conflict unexpected failure
+
+    @Test("pull throws gitInvocationFailed for non-CONFLICT git failure")
+    func pullThrowsForNonConflictGitFailure() throws {
+        try VaultTestSupport.withEphemeralBareRemote { vaultA, vaultB, _ in
+            // vaultB pushes a new commit so vaultA is behind (remoteBehind > 0).
+            let conduitB = try Conduit(vaultURL: vaultB)
+            let scopesDirB = vaultB.appendingPathComponent("scopes")
+            try FileManager.default.createDirectory(at: scopesDirB, withIntermediateDirectories: true)
+            let fileB = scopesDirB.appendingPathComponent("fromB.txt")
+            try "from B".write(to: fileB, atomically: true, encoding: .utf8)
+            _ = try conduitB.commit(message: "commit from B")
+            _ = try conduitB.push()
+
+            // vaultA (set up via init+setRemote+push without clone) needs upstream set.
+            // Pull once from vaultA to ensure upstream tracking is configured.
+            let conduitA = try Conduit(vaultURL: vaultA)
+            let firstPull = try conduitA.pull()
+            guard case .success = firstPull else {
+                Issue.record("Expected first pull success, got \(firstPull)")
+                return
+            }
+
+            // vaultB pushes another commit so vaultA is behind again.
+            let fileB2 = scopesDirB.appendingPathComponent("fromB2.txt")
+            try "from B 2".write(to: fileB2, atomically: true, encoding: .utf8)
+            _ = try conduitB.commit(message: "commit from B 2")
+            _ = try conduitB.push()
+
+            // Create an index lock file before calling pull() — git fetch does not need
+            // the index, so fetch succeeds; git pull (merge step) cannot acquire the lock
+            // and fails with a non-CONFLICT error message, triggering the throw at the
+            // `guard combined.contains("CONFLICT") else { throw ... }` guard.
+            let lockFile = vaultA.appendingPathComponent(".git/index.lock")
+            try "locked".write(to: lockFile, atomically: false, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: lockFile) }
+
+            #expect(throws: VaultError.self) {
+                _ = try conduitA.pull()
+            }
+        }
+    }
+
     // MARK: - Push rejected
 
     @Test("push rejected when remote has diverged (non-fast-forward)")

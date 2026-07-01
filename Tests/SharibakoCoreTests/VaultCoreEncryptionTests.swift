@@ -305,4 +305,40 @@ struct VaultCoreEncryptionTests {
             }
         }
     }
+
+    @Test("getValue throws ageInvocationFailed when the .age file is corrupt (not age format)")
+    func getValueThrowsOnCorruptAgeFile() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            // Write raw non-age-format bytes directly as the .age ciphertext. When age
+            // tries to decrypt this, it fails with a header-parse error and exits non-zero,
+            // hitting the ageInvocationFailed guard in decryptSecretContent (line 168).
+            let target = VaultLayout.secretURL("CORRUPT_AGE", inScope: "kanyo-dev", in: vault)
+            try "this is NOT age-format ciphertext".write(to: target, atomically: true, encoding: .utf8)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            #expect(throws: VaultError.self) {
+                _ = try core.getValue("CORRUPT_AGE", inScope: "kanyo-dev")
+            }
+        }
+    }
+
+    @Test("addSecret throws ageInvocationFailed when the public key is invalid")
+    func addSecretThrowsOnInvalidPublicKey() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, _ in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            // Build a fake age key file whose `# public key:` header exists but contains
+            // a value that age rejects as a recipient. VaultCore.init parses the header and
+            // caches the key; the failure surfaces in encryptAndWrite when age --encrypt
+            // rejects the bad recipient key (exit non-zero, line 210).
+            let fakeKeyFile = FileManager.default.temporaryDirectory
+                .appendingPathComponent("fake-key-\(UUID().uuidString).txt")
+            try "# created: 2026-01-01\n# public key: NOTAVALIDKEYFORMAT\nAGE-SECRET-KEY-FAKEFAKEFAKEFAKE"
+                .write(to: fakeKeyFile, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: fakeKeyFile) }
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fakeKeyFile)
+            #expect(throws: VaultError.self) {
+                try core.addSecret("KEY", value: "value", inScope: "kanyo-dev")
+            }
+        }
+    }
 }
