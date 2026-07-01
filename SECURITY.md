@@ -332,7 +332,7 @@ These are honest constraints of the design, not TODOs.
 
 If you have found a security issue in Sharibako, please report it privately. Do not open a public GitHub issue.
 
-- Email: `security@sageframe.net` (or `atmarcus@gmail.com` as a fallback if the sageframe.net domain does not deliver)
+- Email: `andrew@sageframe.net`
 - Include: what you found, how to reproduce it, what version you're on (`sharibako --version`), and what you think the impact is.
 - Please give a reasonable window (14 days) for triage and a fix before public disclosure. We will confirm receipt within 3 business days.
 
