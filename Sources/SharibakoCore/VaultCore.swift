@@ -10,19 +10,71 @@ public struct VaultCore: Sendable {
     /// Absolute URL of the vault root (the directory containing `shared/` and `scopes/`).
     public let vaultURL: URL
 
-    /// Binds to an existing vault directory.
+    /// Absolute URL of the age private-key file, if the vault was opened with encryption.
+    ///
+    /// `nil` when the caller used ``init(vaultURL:)``; encryption operations refuse to
+    /// run in that state.
+    let ageKeyURL: URL?
+
+    /// Cached recipient public key extracted from the age key file at init time.
+    let publicKey: String?
+
+    /// Binds to an existing vault directory (no encryption operations available).
     ///
     /// - Parameter vaultURL: Absolute URL of the vault root.
     /// - Throws: `VaultError.vaultNotFound(path:)` if the directory does not exist.
     ///   Does not create the vault; call `VaultLayout.createVaultLayout(at:)` first
     ///   when initializing a fresh vault.
     public init(vaultURL: URL) throws {
+        try Self.assertVaultDirectoryExists(vaultURL)
+        self.vaultURL = vaultURL
+        self.ageKeyURL = nil
+        self.publicKey = nil
+    }
+
+    /// Binds to an existing vault directory with an age identity for encryption.
+    ///
+    /// Reads the age private-key file to extract and cache the recipient public key
+    /// so subsequent encryption calls don't re-parse it. The private-key file
+    /// itself is not validated further at init time — a corrupt or missing key
+    /// surfaces as `VaultError.ageInvocationFailed` on first encrypt or decrypt.
+    ///
+    /// - Parameters:
+    ///   - vaultURL: Absolute URL of the vault root.
+    ///   - ageKeyURL: Absolute URL of the age private-key file (as produced by `age-keygen`).
+    /// - Throws: `VaultError.vaultNotFound(path:)` if the vault directory is missing;
+    ///   `VaultError.fileSystemError` if the age key file cannot be read;
+    ///   `VaultError.ageInvocationFailed` if the public-key header line is not found.
+    public init(vaultURL: URL, ageKeyURL: URL) throws {
+        try Self.assertVaultDirectoryExists(vaultURL)
+        self.vaultURL = vaultURL
+        self.ageKeyURL = ageKeyURL
+        self.publicKey = try Self.extractPublicKey(from: ageKeyURL)
+    }
+
+    private static func assertVaultDirectoryExists(_ vaultURL: URL) throws {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: vaultURL.path, isDirectory: &isDirectory)
         guard exists, isDirectory.boolValue else {
             throw VaultError.vaultNotFound(path: vaultURL)
         }
-        self.vaultURL = vaultURL
+    }
+
+    private static func extractPublicKey(from ageKeyURL: URL) throws -> String {
+        let contents: String
+        do {
+            contents = try String(contentsOf: ageKeyURL, encoding: .utf8)
+        } catch {
+            throw VaultError.fileSystemError(path: ageKeyURL, underlying: error)
+        }
+        let prefix = "# public key: "
+        for line in contents.split(whereSeparator: \.isNewline) where line.hasPrefix(prefix) {
+            return String(line.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+        }
+        throw VaultError.ageInvocationFailed(
+            exitCode: -1,
+            stderr: "age key at \(ageKeyURL.path) has no '# public key:' header line"
+        )
     }
 
     /// Lists every scope in the vault, sorted by identity.
@@ -249,7 +301,10 @@ public struct VaultCore: Sendable {
     }
 
     /// Reads a `.link` file's shared-entry-ID payload, trimming surrounding whitespace.
-    private func readLinkTarget(at url: URL) throws -> String {
+    ///
+    /// Shared with the encryption extension so `unlink` and `getValue` can resolve
+    /// the same link format without duplicating the parser.
+    func readLinkTarget(at url: URL) throws -> String {
         let raw: String
         do {
             raw = try String(contentsOf: url, encoding: .utf8)

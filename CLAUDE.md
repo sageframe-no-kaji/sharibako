@@ -21,6 +21,20 @@ A small local vault for API keys and env vars — native Mac app and cross-platf
 - Touch ID gating via macOS Keychain happens at the CLI/GUI boundary, not in `SharibakoCore`. Library tests use an ephemeral age key, no Keychain.
 - Xcode project deferred to ho-05. Until then, `swift build` / `swift run` from the command line handles all surfaces.
 
+## Development prerequisites
+
+In addition to the Swift toolchain, the following must be on `PATH` to run the full test suite:
+
+- `age` — encryption binary (`brew install age`)
+- `age-keygen` — ships with the same `age` Homebrew formula
+
+`VaultCoreFilesystemTests` does not require `age`. `VaultCoreEncryptionTests` does.
+
+`swift-format` and `swiftlint` are also required for the pre-commit hooks and CI:
+
+- `swift-format` — `brew install swift-format`
+- `swiftlint` — `brew install swiftlint`
+
 ## Ho process
 
 Ho documents for this project live in `ho-process/` (publicly tracked):
