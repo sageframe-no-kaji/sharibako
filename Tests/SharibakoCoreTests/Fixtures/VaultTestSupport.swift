@@ -109,6 +109,89 @@ enum VaultTestSupport {
         try body(tempDir)
     }
 
+    /// Creates a bare-remote git repo plus two vaults that both point at it.
+    ///
+    /// Both vaults share the same age key so encryption round-trips work across
+    /// them: a secret added in vaultA and pushed can be pulled in vaultB and
+    /// decrypted with the same key. Useful for bare-remote integration tests.
+    ///
+    /// Layout inside the temp root:
+    /// ```
+    /// <root>/
+    ///   remote.git/   — bare git repository (the "server")
+    ///   vaultA/       — initialized vault, pointed at remote.git
+    ///   vaultB/       — clone of remote.git
+    /// ```
+    ///
+    /// After setup:
+    /// - vaultA has an initial commit pushed to remote.git.
+    /// - vaultB is a `git clone` of remote.git and already tracks `origin/main`.
+    /// - Both directories are removed after `body` returns, even if it throws.
+    ///
+    /// - Parameter body: Receives the absolute URLs of vaultA and vaultB, and the
+    ///   shared `AgeKeyFixture` whose key both vaults use for encryption.
+    /// - Throws: Any error thrown by git setup or `body` itself.
+    static func withEphemeralBareRemote(
+        _ body: (_ vaultA: URL, _ vaultB: URL, _ fixture: AgeKeyFixture) throws -> Void
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-remote-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let remoteGit = root.appendingPathComponent("remote.git")
+        let vaultAURL = root.appendingPathComponent("vaultA")
+        let vaultBURL = root.appendingPathComponent("vaultB")
+
+        // 1. Create the bare remote.
+        let git = try Shell.findExecutable("git")
+        let bareResult = try Shell.run(
+            git,
+            ["init", "--bare", "--initial-branch=main", remoteGit.path]
+        )
+        guard bareResult.exitCode == 0 else {
+            throw VaultError.gitInvocationFailed(exitCode: bareResult.exitCode, stderr: bareResult.stderr)
+        }
+
+        // 2. Set up vaultA.
+        try FileManager.default.createDirectory(at: vaultAURL, withIntermediateDirectories: true)
+        try VaultLayout.createVaultLayout(at: vaultAURL)
+        let conduitA = try Conduit(vaultURL: vaultAURL)
+        try conduitA.initializeRepository()
+
+        // Force the local branch name to match the bare remote's default branch.
+        _ = try Shell.run(git, ["checkout", "-b", "main"], workingDirectory: vaultAURL)
+
+        try conduitA.setIdentity(name: "Sharibako A", email: "a@example.invalid")
+        try conduitA.setRemote(remoteGit.path)
+
+        // Create an initial commit so the branch exists before pushing.
+        let placeholder = vaultAURL.appendingPathComponent(".gitkeep")
+        try "".write(to: placeholder, atomically: true, encoding: .utf8)
+        _ = try conduitA.commit(message: "Initial vault setup")
+        let firstPush = try conduitA.push()
+        guard case .success = firstPush else {
+            throw VaultError.gitInvocationFailed(exitCode: -1, stderr: "Initial push failed: \(firstPush)")
+        }
+
+        // 3. Set up vaultB by cloning the bare remote.
+        let cloneResult = try Shell.run(
+            git,
+            ["clone", remoteGit.path, vaultBURL.path]
+        )
+        guard cloneResult.exitCode == 0 else {
+            throw VaultError.gitInvocationFailed(exitCode: cloneResult.exitCode, stderr: cloneResult.stderr)
+        }
+        let conduitB = try Conduit(vaultURL: vaultBURL)
+        try conduitB.setIdentity(name: "Sharibako B", email: "b@example.invalid")
+
+        // 4. Generate one shared age key for both vaults.
+        let fixture = try AgeKeyFixture.generate()
+        defer { try? fixture.cleanup() }
+
+        try body(vaultAURL, vaultBURL, fixture)
+    }
+
     /// Encrypts `value` and writes it to a shared entry via a throwaway scope.
     ///
     /// AT-02 needs real ciphertext in `shared/<id>.age` so `getValue` through a

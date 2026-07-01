@@ -179,7 +179,10 @@ public struct Conduit: Sendable {
     /// All git invocations in `Conduit` go through this helper so the working
     /// directory is always set to ``vaultURL``. Non-zero exits are NOT thrown
     /// here — the caller interprets them (some are informational, not errors).
-    private func git(_ arguments: [String]) throws -> ShellResult {
+    ///
+    /// `internal` (not `private`) so that extension files in the same module
+    /// (`Conduit+Remote.swift`) can share this single invocation surface.
+    func git(_ arguments: [String]) throws -> ShellResult {
         let binary = try Shell.findExecutable("git")
         return try Shell.run(binary, arguments, workingDirectory: vaultURL)
     }

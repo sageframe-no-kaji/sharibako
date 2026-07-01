@@ -27,8 +27,9 @@ In addition to the Swift toolchain, the following must be on `PATH` to run the f
 
 - `age` — encryption binary (`brew install age`)
 - `age-keygen` — ships with the same `age` Homebrew formula
+- `git` — version control, required for `ConduitLocalTests` and `ConduitRemoteTests`; already present on any machine with Xcode Command Line Tools (`xcode-select --install`)
 
-`VaultCoreFilesystemTests` does not require `age`. `VaultCoreEncryptionTests` does.
+`VaultCoreFilesystemTests` does not require `age`. `VaultCoreEncryptionTests` does. `ConduitLocalTests` and `ConduitRemoteTests` require `git`.
 
 `swift-format` and `swiftlint` are also required for the pre-commit hooks and CI:
 
