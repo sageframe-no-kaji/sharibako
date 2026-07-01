@@ -49,12 +49,22 @@ enum Shell {
     /// - Parameters:
     ///   - executableURL: Absolute URL of the binary to run.
     ///   - arguments: Command-line arguments (excluding argv[0]).
+    ///   - workingDirectory: Optional directory to set as the process's working directory.
+    ///     When `nil` (the default), the process inherits the caller's working directory.
     /// - Returns: The captured `ShellResult`.
     /// - Throws: Any error thrown by `Process.run()` (typically wrapped `POSIXError`).
-    static func run(_ executableURL: URL, _ arguments: [String]) throws -> ShellResult {
+    static func run(
+        _ executableURL: URL,
+        _ arguments: [String],
+        workingDirectory: URL? = nil
+    ) throws -> ShellResult {
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments
+
+        if let workingDirectory {
+            process.currentDirectoryURL = workingDirectory
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

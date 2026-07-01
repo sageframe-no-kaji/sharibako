@@ -91,6 +91,24 @@ enum VaultTestSupport {
         try Data([0x00]).write(to: url)
     }
 
+    /// Materializes a temp vault, initializes a git repository inside it, and
+    /// sets a deterministic test identity before calling `body`.
+    ///
+    /// - `git init` is called so commit operations work out of the box.
+    /// - The committer identity is set to `"Sharibako Tests" / tests@example.invalid`
+    ///   so the test suite does not depend on the host machine's git config.
+    /// - The vault directory is removed after `body` returns, even if it throws.
+    static func withEphemeralGitVault(_ body: (URL) throws -> Void) throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try VaultLayout.createVaultLayout(at: tempDir)
+        let conduit = try Conduit(vaultURL: tempDir)
+        try conduit.initializeRepository()
+        try conduit.setIdentity(name: "Sharibako Tests", email: "tests@example.invalid")
+        try body(tempDir)
+    }
+
     /// Encrypts `value` and writes it to a shared entry via a throwaway scope.
     ///
     /// AT-02 needs real ciphertext in `shared/<id>.age` so `getValue` through a

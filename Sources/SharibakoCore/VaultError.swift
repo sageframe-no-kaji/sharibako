@@ -5,6 +5,13 @@ import Foundation
 /// Callers on the CLI and GUI switch over these cases to produce user-facing
 /// messages without string-parsing an underlying `Error`. Cases are added
 /// only when a genuinely new failure mode reaches the surface.
+///
+/// Cases: ``vaultNotFound(path:)``, ``scopeNotFound(id:)``,
+/// ``secretNotFound(scope:key:)``, ``scopeAlreadyExists(id:)``,
+/// ``sharedEntryNotFound(id:)``, ``linkTargetMissing(id:)``,
+/// ``ageInvocationFailed(exitCode:stderr:)``, ``yamlEncodeError(path:underlying:)``,
+/// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
+/// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``.
 public enum VaultError: Error {
     /// The vault directory does not exist at the given path.
     case vaultNotFound(path: URL)
@@ -28,4 +35,6 @@ public enum VaultError: Error {
     case fileSystemError(path: URL, underlying: Error)
     /// The named external binary could not be located on PATH.
     case shellNotFound(name: String)
+    /// A `git` invocation exited non-zero.
+    case gitInvocationFailed(exitCode: Int32, stderr: String)
 }

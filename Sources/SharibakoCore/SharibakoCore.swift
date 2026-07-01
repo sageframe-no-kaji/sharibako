@@ -10,7 +10,9 @@
 /// not supported (cases-less enum).
 ///
 /// Public types exported by this library: ``VaultCore``, ``VaultError``,
-/// ``ScopeMetadata``, ``ScopeType``, ``SecretInfo``.
+/// ``ScopeMetadata``, ``ScopeType``, ``SecretInfo``, ``Conduit``,
+/// ``CommitResult``, ``PushResult``, ``PullResult``, ``StatusResult``,
+/// ``ConflictedFile``.
 public enum SharibakoCore {
     /// Library version.
     ///
