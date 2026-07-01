@@ -72,6 +72,30 @@ extension VaultCore {
         try encryptAndWrite(updated, to: target)
     }
 
+    /// Encrypts and writes a new shared entry.
+    ///
+    /// Overwrites any existing `shared/<id>.age` at the same path. Semantics mirror
+    /// ``addSecret(_:value:inScope:notes:)`` but the destination is the vault's
+    /// `shared/` directory rather than a scope. Used by the Materializer's ingest
+    /// path when the user promotes a scope-local secret to a shared entry.
+    ///
+    /// - Parameters:
+    ///   - id: Shared entry identifier (becomes the filename stem).
+    ///   - value: Plaintext value to encrypt.
+    ///   - notes: Optional freeform notes stored alongside the value.
+    /// - Throws: ``VaultError/ageInvocationFailed(exitCode:stderr:)`` if `age` exits non-zero;
+    ///   ``VaultError/shellNotFound(name:)`` if no age binary is on PATH;
+    ///   ``VaultError/yamlEncodeError(path:underlying:)`` if the payload cannot be encoded.
+    public func addSharedEntry(
+        _ id: String,
+        value: String,
+        notes: String? = nil
+    ) throws {
+        let target = VaultLayout.sharedEntryURL(id, in: vaultURL)
+        let content = SecretContent(value: value, notes: notes, rotatedAt: Self.todayISODate())
+        try encryptAndWrite(content, to: target)
+    }
+
     /// Rotates a shared entry to a new value, preserving notes.
     ///
     /// Every scope that links to this shared entry will resolve the new value on

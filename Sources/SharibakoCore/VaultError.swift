@@ -13,7 +13,7 @@ import Foundation
 /// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
 /// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
 /// ``markerNotFound(startingFrom:)``, ``markerMalformed(path:reason:)``,
-/// ``envParseFailed(path:reason:)``.
+/// ``envParseFailed(path:reason:)``, ``ingestKeyMismatch(unknownKey:)``.
 public enum VaultError: Error {
     /// The vault directory does not exist at the given path.
     case vaultNotFound(path: URL)
@@ -48,4 +48,6 @@ public enum VaultError: Error {
     /// Distinct from parse warnings, which are collected in ``ParseWarning`` and returned to
     /// callers without throwing.
     case envParseFailed(path: URL, reason: String)
+    /// A ``KeyDecision`` passed to `acceptIngest` names a key absent from the proposal.
+    case ingestKeyMismatch(unknownKey: String)
 }

@@ -83,6 +83,31 @@ struct VaultCoreEncryptionTests {
         }
     }
 
+    // MARK: - addSharedEntry
+
+    @Test("addSharedEntry writes an encrypted file that decrypts through a link")
+    func addSharedEntryRoundTrip() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSharedEntry("openai-personal", value: "sk-live-abc", notes: "primary API key")
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "sk-live-abc")
+        }
+    }
+
+    @Test("addSharedEntry overwrites an existing shared entry with the new value")
+    func addSharedEntryOverwrites() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSharedEntry("openai-personal", value: "first")
+            try core.addSharedEntry("openai-personal", value: "second")
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "second")
+        }
+    }
+
     // MARK: - rotateShared
 
     @Test("rotateShared propagates through every linking scope")

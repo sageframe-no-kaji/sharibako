@@ -155,6 +155,50 @@ public struct VaultCore: Sendable {
         return try decodeScopeYAML(at: yamlURL)
     }
 
+    /// Creates a new scope directory and its `scope.yaml` metadata file.
+    ///
+    /// Requires that the scope does not already exist; throws
+    /// ``VaultError/scopeAlreadyExists(id:)`` otherwise. Does not encrypt anything,
+    /// so no age key is required to create an empty scope.
+    ///
+    /// - Parameters:
+    ///   - id: Scope identifier (becomes the directory name).
+    ///   - type: Category driving Workshop grouping and CLI display.
+    ///   - displayName: Optional human-friendly display label.
+    /// - Throws: ``VaultError/scopeAlreadyExists(id:)`` if the scope directory or its
+    ///   `scope.yaml` is already present; ``VaultError/yamlEncodeError(path:underlying:)``
+    ///   if metadata encoding fails; ``VaultError/fileSystemError(path:underlying:)``
+    ///   for other IO failures.
+    public func createScope(
+        _ id: String,
+        type: ScopeType,
+        displayName: String? = nil
+    ) throws {
+        let scopeDir = VaultLayout.scopeDirectoryURL(id, in: vaultURL)
+        let yamlURL = VaultLayout.scopeYAMLURL(id, in: vaultURL)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: scopeDir.path) || fileManager.fileExists(atPath: yamlURL.path) {
+            throw VaultError.scopeAlreadyExists(id: id)
+        }
+        do {
+            try fileManager.createDirectory(at: scopeDir, withIntermediateDirectories: true)
+        } catch {
+            throw VaultError.fileSystemError(path: scopeDir, underlying: error)
+        }
+        let metadata = ScopeMetadata(identity: id, type: type, displayName: displayName)
+        let yaml: String
+        do {
+            yaml = try YAMLEncoder().encode(metadata)
+        } catch {
+            throw VaultError.yamlEncodeError(path: yamlURL, underlying: error)
+        }
+        do {
+            try yaml.write(to: yamlURL, atomically: true, encoding: .utf8)
+        } catch {
+            throw VaultError.fileSystemError(path: yamlURL, underlying: error)
+        }
+    }
+
     /// Enumerates a scope's secrets without decrypting.
     ///
     /// Returns one `SecretInfo` per `.age` or `.link` file in the scope directory

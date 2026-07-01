@@ -193,3 +193,105 @@ public struct ParseWarning: Sendable, Equatable {
         self.reason = reason
     }
 }
+
+/// A proposal produced by ``Materializer/ingest(directory:)``.
+///
+/// The Materializer suggests a scope identity, scope type, and per-key
+/// classification; the surface layer collects user decisions and passes them
+/// back through ``Materializer/acceptIngest(_:decisions:scopeID:scopeType:)``.
+public struct ProposedScope: Sendable, Equatable {
+    /// The project directory the proposal was built from.
+    public let directory: URL
+
+    /// Suggested scope ID.
+    ///
+    /// Derived from ``directory``'s last path component with sanitization and
+    /// vault-side collision avoidance. The caller may override at accept time.
+    public let suggestedScopeID: String
+
+    /// Suggested ``ScopeType`` for the new scope.
+    ///
+    /// Defaults to `.projectDev` — ingest by nature means a project directory
+    /// with a `.env`-family file. Callable can override at accept time.
+    public let suggestedScopeType: ScopeType
+
+    /// One entry per key detected in `.env`/`.env.local` with a real value.
+    ///
+    /// Ordered by first appearance; `.env.local` overrides `.env` for shared keys.
+    public let detectedKeys: [DetectedKey]
+
+    /// Keys that appeared only in `.env.example` (no value).
+    ///
+    /// Sorted alphabetically. Callers surface these as "you'll need values for these."
+    public let suggestedKeysNeedingValues: [String]
+
+    /// Parse warnings collected across all of the `.env`-family files read.
+    public let parseWarnings: [ParseWarning]
+
+    /// Memberwise initializer.
+    public init(
+        directory: URL,
+        suggestedScopeID: String,
+        suggestedScopeType: ScopeType,
+        detectedKeys: [DetectedKey],
+        suggestedKeysNeedingValues: [String],
+        parseWarnings: [ParseWarning]
+    ) {
+        self.directory = directory
+        self.suggestedScopeID = suggestedScopeID
+        self.suggestedScopeType = suggestedScopeType
+        self.detectedKeys = detectedKeys
+        self.suggestedKeysNeedingValues = suggestedKeysNeedingValues
+        self.parseWarnings = parseWarnings
+    }
+}
+
+/// A single key/value pair detected during ingest.
+public struct DetectedKey: Sendable, Equatable {
+    /// The key name as read from the file.
+    public let key: String
+
+    /// The parsed value.
+    public let value: String
+
+    /// Which of `.env`/`.env.local` the key was read from (`.env.local` wins on collision).
+    public let sourceFile: URL
+
+    /// The shared entry ID with an exact case-sensitive name match, if any.
+    ///
+    /// The Materializer suggests `.linkToShared` for these; the surface can
+    /// still choose otherwise.
+    public let nameMatchedSharedID: String?
+
+    /// Memberwise initializer.
+    public init(key: String, value: String, sourceFile: URL, nameMatchedSharedID: String?) {
+        self.key = key
+        self.value = value
+        self.sourceFile = sourceFile
+        self.nameMatchedSharedID = nameMatchedSharedID
+    }
+}
+
+/// One of five per-key routing choices `acceptIngest` accepts.
+public enum KeyDecision: Sendable, Equatable {
+    /// Encrypt the detected value into `vault/scopes/<scopeID>/<key>.age`.
+    case importAsLocal(key: String)
+    /// Link this key to an existing shared entry (no new encryption).
+    case linkToShared(key: String, sharedID: String)
+    /// Create a new shared entry with the detected value and link this scope to it.
+    case moveToShared(key: String, newSharedID: String)
+    /// Confirmed non-secret; write nothing.
+    case leaveAlone(key: String)
+    /// Deferred decision; write nothing this run.
+    case skip(key: String)
+}
+
+/// Outcome of an `update` call.
+public enum UpdateResult: Sendable, Equatable {
+    /// One or more owned keys' vault values were rewritten to match the file.
+    case updated(keysUpdated: [String], warnings: [ParseWarning])
+    /// The file exists and parses, but no owned-key values differ from the vault.
+    case noChanges(warnings: [ParseWarning])
+    /// The marker points at a nonexistent target file.
+    case fileMissing(path: URL)
+}

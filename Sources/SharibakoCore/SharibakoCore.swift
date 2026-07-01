@@ -14,7 +14,8 @@
 /// ``CommitResult``, ``PushResult``, ``PullResult``, ``StatusResult``,
 /// ``ConflictedFile``, ``Materializer``, ``ScopeMarker``, ``ScopeState``,
 /// ``MaterializeResult``, ``MaterializeDiff``, ``DriftReport``, ``KeyDrift``,
-/// ``CleanResult``, ``ParseWarning``.
+/// ``CleanResult``, ``ParseWarning``, ``ProposedScope``, ``DetectedKey``,
+/// ``KeyDecision``, ``UpdateResult``.
 public enum SharibakoCore {
     /// Library version.
     ///
