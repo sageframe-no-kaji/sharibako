@@ -12,7 +12,9 @@
 /// Public types exported by this library: ``VaultCore``, ``VaultError``,
 /// ``ScopeMetadata``, ``ScopeType``, ``SecretInfo``, ``Conduit``,
 /// ``CommitResult``, ``PushResult``, ``PullResult``, ``StatusResult``,
-/// ``ConflictedFile``.
+/// ``ConflictedFile``, ``Materializer``, ``ScopeMarker``, ``ScopeState``,
+/// ``MaterializeResult``, ``MaterializeDiff``, ``DriftReport``, ``KeyDrift``,
+/// ``CleanResult``, ``ParseWarning``.
 public enum SharibakoCore {
     /// Library version.
     ///

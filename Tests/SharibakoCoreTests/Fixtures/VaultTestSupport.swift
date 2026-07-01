@@ -7,6 +7,19 @@ import Foundation
 /// Housed in an enum namespace so both the filesystem and encryption suites
 /// can compose the same seed data without duplicating boilerplate.
 enum VaultTestSupport {
+    /// Materializes an ephemeral empty temp directory (a stand-in for a user's project
+    /// directory) and calls `body` with its URL.
+    ///
+    /// Distinct from ``withEphemeralVault(_:)`` — this directory has no vault layout;
+    /// it's the place `.env` files and `.sharibako` markers live. Removed on scope exit.
+    static func withEphemeralProjectDirectory(_ body: (URL) throws -> Void) throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-project-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try body(tempDir)
+    }
+
     /// Materializes a fresh temp directory + vault layout and calls `body` with the vault URL.
     ///
     /// The directory is removed even if `body` throws.

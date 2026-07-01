@@ -11,7 +11,9 @@ import Foundation
 /// ``sharedEntryNotFound(id:)``, ``linkTargetMissing(id:)``,
 /// ``ageInvocationFailed(exitCode:stderr:)``, ``yamlEncodeError(path:underlying:)``,
 /// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
-/// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``.
+/// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
+/// ``markerNotFound(startingFrom:)``, ``markerMalformed(path:reason:)``,
+/// ``envParseFailed(path:reason:)``.
 public enum VaultError: Error {
     /// The vault directory does not exist at the given path.
     case vaultNotFound(path: URL)
@@ -37,4 +39,13 @@ public enum VaultError: Error {
     case shellNotFound(name: String)
     /// A `git` invocation exited non-zero.
     case gitInvocationFailed(exitCode: Int32, stderr: String)
+    /// Scope resolution walked up from a starting directory without finding a `.sharibako` file.
+    case markerNotFound(startingFrom: URL)
+    /// A `.sharibako` file was found but its YAML could not be parsed or is missing required fields.
+    case markerMalformed(path: URL, reason: String)
+    /// A `.env`-style file could not be read or is fundamentally unusable (encoding failure, etc.).
+    ///
+    /// Distinct from parse warnings, which are collected in ``ParseWarning`` and returned to
+    /// callers without throwing.
+    case envParseFailed(path: URL, reason: String)
 }
