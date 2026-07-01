@@ -99,10 +99,12 @@ internal func parseEnvString(_ text: String, sourceFile: URL) -> ParseResult {
 /// Renders a list of `EnvLine`s back to text.
 ///
 /// Joins line texts with `\n` and appends a trailing `\n` when `withTrailingNewline`
-/// is `true`. Mirrors the split behavior of `parseEnvString`.
+/// is `true`. Mirrors the split behavior of `parseEnvString` byte-for-byte —
+/// including files that end with an actual blank line (`"A=1\n\n"`), whose last
+/// `EnvLine` is `.blank("")` and whose terminating `\n` is separately tracked.
 internal func renderEnvLines(_ lines: [EnvLine], withTrailingNewline: Bool) -> String {
     var output = lines.map(\.text).joined(separator: "\n")
-    if withTrailingNewline, !output.hasSuffix("\n") {
+    if withTrailingNewline {
         output += "\n"
     }
     return output

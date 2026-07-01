@@ -248,4 +248,52 @@ struct MaterializerMergeTests {
             }
         }
     }
+
+    @Test("materialize inserts appended owned keys BEFORE a trailing blank line, preserving structure")
+    func materializeAppendsBeforeTrailingBlank() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("A", value: "1", inScope: "kanyo-dev")
+            try core.addSecret("B", value: "2", inScope: "kanyo-dev")
+
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let markerURL = project.appendingPathComponent(".sharibako")
+                let targetURL = project.appendingPathComponent(".env")
+                // File has A plus a blank spacer line, then a trailing newline.
+                // B is owned but missing — should be appended BEFORE the trailing blank.
+                try "A=1\n\n".write(to: targetURL, atomically: true, encoding: .utf8)
+                let marker = ScopeMarker(scope: "kanyo-dev", materializeTo: "./.env", markerURL: markerURL)
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+                _ = try mat.materialize(marker: marker)
+                let after = try String(contentsOf: targetURL, encoding: .utf8)
+                #expect(after == "A=1\nB=2\n\n")
+            }
+        }
+    }
+
+    @Test("materialize creates the target's parent directory when it does not exist yet")
+    func materializeCreatesParentDirectory() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("API_KEY", value: "sk", inScope: "kanyo-dev")
+
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let markerURL = project.appendingPathComponent(".sharibako")
+                // Target is inside a nested directory that doesn't exist yet.
+                let marker = ScopeMarker(
+                    scope: "kanyo-dev",
+                    materializeTo: "./config/env/.env",
+                    markerURL: markerURL
+                )
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+                _ = try mat.materialize(marker: marker)
+                let expectedURL = project.appendingPathComponent("config/env/.env")
+                #expect(FileManager.default.fileExists(atPath: expectedURL.path))
+                let contents = try String(contentsOf: expectedURL, encoding: .utf8)
+                #expect(contents.contains("API_KEY=sk"))
+            }
+        }
+    }
 }

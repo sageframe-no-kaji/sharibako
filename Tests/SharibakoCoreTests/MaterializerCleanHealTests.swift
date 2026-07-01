@@ -209,4 +209,34 @@ struct MaterializerCleanHealTests {
             }
         }
     }
+
+    @Test("heal reports .fileMissing alongside .match / .fileValueDiffers when file is partial")
+    func healMixedPresentAndMissing() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("A", value: "alpha", inScope: "kanyo-dev")
+            try core.addSecret("B", value: "beta", inScope: "kanyo-dev")
+            try core.addSecret("C", value: "gamma", inScope: "kanyo-dev")
+
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let markerURL = project.appendingPathComponent(".sharibako")
+                let targetURL = project.appendingPathComponent(".env")
+                // A matches vault; B drifts (file value differs); C is absent from the file.
+                try "A=alpha\nB=drifted\n".write(to: targetURL, atomically: true, encoding: .utf8)
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+                let marker = ScopeMarker(scope: "kanyo-dev", materializeTo: "./.env", markerURL: markerURL)
+                let report = try mat.heal(marker: marker)
+
+                #expect(report.owned.count == 3)
+                #expect(report.owned[0] == .match(key: "A"))
+                if case .fileValueDiffers(let key, _, _) = report.owned[1] {
+                    #expect(key == "B")
+                } else {
+                    Issue.record("expected B to be .fileValueDiffers")
+                }
+                #expect(report.owned[2] == .fileMissing(key: "C"))
+            }
+        }
+    }
 }
