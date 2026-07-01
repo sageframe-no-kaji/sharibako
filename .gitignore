@@ -66,5 +66,6 @@ Desktop.ini
 # of the public artifact for projects that want a credibility trail.
 # Add `ho-process/` below if the project wants the build record private.
 prompts/
+private-docs/
 
 # ─── Project-specific (add below) ───────────────────────────────────────

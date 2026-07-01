@@ -4,12 +4,15 @@ status: draft
 type: system-design
 project: sharibako
 stage: kamae-2
-kamae-chain: seed → **system-design** → readme → ho-overview
+kamae-chain: seed → **system-design** → injection-decision → readme → ho-overview
 builds-on: kamae-1-sharibako-seed
 next: kamae-3-sharibako-readme
+superseded-in-part-by: kamae-2.1-sharibako-injection-decision (§7 "No runtime injection" line only; all other commitments stand)
 ---
 
 # Sharibako — System Design (Kamae 2)
+
+> **Reader's note (2026-07-01):** §7's line "No runtime injection... The Materializer's only output verb is `materialize`" has been superseded by [`kamae-2.1-sharibako-injection-decision.md`](kamae-2.1-sharibako-injection-decision.md). `sharibako run` is now a peer output verb alongside `sharibako materialize`, with a fourth threat-model class (workspace file-readers) documented in [`../SECURITY.md`](../SECURITY.md). All other commitments in this document — four-component slice, age-per-secret, filesystem-as-schema, git-backed, macOS Keychain gating — stand unchanged. This document is preserved as-authored to record what was decided when.
 
 **Sharibako is disciplined so you don't have to be.**
 

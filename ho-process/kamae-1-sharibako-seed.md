@@ -1,6 +1,8 @@
 # Sharibako — Project Seed
 
-_Kamae 1: Seed. Drafted 2026-06-30 from `sharibako-pre-seed.md` plus a seed-conversation pass. The pre-seed remains as the working dump it was; this is the parti the project will be evaluated against from here forward._
+_Kamae 1: Seed. Drafted 2026-06-30 from `sharibako-pre-seed.md` plus a seed-conversation pass. Revised 2026-07-01: injection non-goal loosened (see kamae-2.1); PassStore, PX Secrets, 1Password `op run`, and dotenvx added to landscape; threat model expanded to include AI agents as workspace actors; "made by a user, for users" framing and robustness bar added to Project Nature and Intent. This remains a build-phase document — the tool's shape, not its go-to-market. The pre-seed remains as the working dump it was; this is the parti the project will be evaluated against from here forward._
+
+_The injection loosening is specified in detail in `kamae-2.1-sharibako-injection-decision.md`, which is authoritative for that decision._
 
 ---
 
@@ -29,14 +31,18 @@ Engaged and evaluated. Comp table preserved in `sharibako-pre-seed.md`. Summariz
 - **Apple Passwords / iCloud Keychain.** Good UI, things already in it, but: data model is for website logins, not env vars; no per-project organization beyond ad-hoc naming; not CLI-readable.
 - **macOS login keychain.** CLI works. GUI is dated enough that I won't actually use it.
 - **Vaultwarden / Bitwarden.** I already run Vaultwarden. The data shape is wrong — Login / Card / Identity / Note / SSH Key. None of those are "a bag of env vars for a project." Forcing it through Secure Notes is a textarea wall; forcing it through Login records misuses the record type. Both lose per-project hygiene support.
-- **Infisical.** Closest in spirit: self-hostable, env-var-shaped, per-project. But Postgres-backed, a full new service to deploy and maintain alongside Vaultwarden, and team-tool DNA throughout.
-- **sops + age (CLI only).** Right substrate. Wrong UX. Sharibako sits on top of this, not against it.
+- **PassStore.** The nearest thing in market — a polished local Mac app for developer secrets, workspaces + environments + secret types, Touch ID, Keychain integration. The right shape for *its* pitch; the wrong shape for *this* one. PassStore is a proprietary local vault-in-a-database; the DB is opaque and not `git`-native. Sharibako's vault IS a directory of encrypted files that any age-capable client can inspect, back up, and recover independent of the app. PassStore is also Mac-only and doesn't model runtime injection or reference-based project files. Fights on GUI polish; loses on substrate honesty and CLI-first ergonomics.
+- **PX Secrets.** Closest in technical direction — claims SOPS + age, local GUI + CLI. Less mature than PassStore, less visible, appears to be one developer's early product. Validates that the "SOPS/age-based local GUI" thought is in the air. Not a reason to stop; a reason to move.
+- **1Password `op` CLI + `op run`.** The reference-and-inject pattern proven in market. `op://vault/item/field` in `.env`; `op run` resolves and injects. Sharibako learns from the *shape* of the pattern (secrets in memory, no plaintext at rest when possible) but rejects the cloud-account substrate and the subscription model. Ships the injection verb without the account/vault-server dependency.
+- **Infisical.** Closest in spirit for developer-secret framing: self-hostable, env-var-shaped, per-project. But Postgres-backed, a full new service to deploy and maintain alongside Vaultwarden, and team-tool DNA throughout.
+- **sops + age (CLI only).** Right substrate for other tools. Wrong UX for humans. Sharibako uses age directly, drops sops as an intermediate layer (see kamae-2 §5), and sits on top of a plain filesystem instead.
+- **dotenvx.** Encrypts `.env` files and decrypts at runtime. Solves one narrow shape (this one file, encrypted); does not solve inventory, linking, rotation, cross-project reuse, GUI management, or agent-safe workflows. Adjacent; not competing head-on.
 - **chezmoi + age.** Dotfile *manager*. Encrypts as a feature, but it's about symlinking and template materialization — wrong abstraction for "browse and edit my secrets." Possibly a downstream consumer, not part of sharibako's storage layer.
 - **git-crypt, pass, ejson, chamber.** Each gives up one of: GUI, per-project shape, modern encryption, single-user simplicity.
 - **Doppler, EnvKey, similar SaaS.** Not self-hosted. Off the table.
 - **HashiCorp Vault.** Enterprise scale, massive overkill.
 
-**The gap, named directly:** no tool combines (a) native local app on disk, (b) git-backed source of truth, (c) age-encrypted, (d) shaped to projects and machines as primary, (e) opinionated about per-project hygiene, (f) single-user scale. Sharibako sits in the empty quadrant.
+**The gap, named directly:** no tool combines (a) native local app on disk, (b) git-backed source of truth (encrypted files, not opaque DB), (c) age-encrypted, (d) shaped to projects and machines as primary, (e) opinionated about per-project hygiene, (f) single-user scale, (g) both materialize-to-file and inject-into-process as first-class output verbs. PassStore is closest but misses (b), (c), and (g); PX Secrets attempts (b) and (c) but is immature and misses (g). Sharibako sits in the empty quadrant.
 
 ---
 
@@ -81,11 +87,12 @@ Fits the existing Sageframe sushi-house naming convention alongside koan, jodo, 
 ## Project Nature and Intent
 
 - **Open source.** GPL-3.0 (matching M4Bookmaker). Hosted on the `sageframe-no-kaji` GitHub org.
-- **Two distribution paths:**
+- **Two distribution paths (m4bookmaker lineage):**
   - **Free if you build it yourself.** Clone the repo, `swift build`, run. The Swift toolchain handles everything; no external build complexity.
-  - **Paid signed binary.** A signed and notarized `.dmg` distributed via `sharibako.sageframe.net` (Cloudflare Pages). The download is the commercial product; the convenience of not building it yourself is what people pay for.
+  - **Signed binary.** A signed and notarized `.dmg` distributed via `sharibako.sageframe.net` (Cloudflare Pages). The signed download is the paid convenience; build-from-source is always the free path. Pricing and purchase mechanics are ship-phase concerns, not build-phase concerns — this document commits to the distribution shape only.
 - **First Swift project.** Deliberately small as a learning vehicle for the Swift toolchain before larger Swift work (Sutra eventually).
-- **Personal tool ethic.** Sharibako serves me first. Public distribution is a real audience but never at the cost of changing the tool's core shape to satisfy users I don't have.
+- **Made by a user, for users.** Sharibako serves indie developers, vibe coders, and homelabbers — including me. My own daily use is the primary validation loop *because* I am one of the users the tool is for. Design decisions are shaped by what the audience actually needs, tested against my own workflow first because it is the workflow I know deepest. Feature requests from outside the parti are declined; feature requests inside the parti are taken seriously.
+- **Robustness bar.** This is a tool for others, not a personal script that happens to be public. Error paths matter. Documentation matters. Safe defaults matter. Edge cases surface honestly. The build discipline is the same as any tool intended for real use by real people.
 
 ---
 
@@ -134,7 +141,10 @@ _First-pass thinking. Opinions, not commitments. System Design will turn these i
 - **First Swift project.** I have not written Swift before. This is the dominant time constraint. The project's scope is deliberately tuned to fit a first-Swift effort — likely 1,000–3,000 LOC.
 - **Single developer.** No team. Time is spare-cycles, not full-time.
 - **Apple Silicon Mac only.** My development machines, my test machines, my personal use case — all Apple Silicon. Intel Mac support would double the test matrix without serving anyone I know.
-- **Personal threat model.** Single user, trusted machine, trusted homelab. Sharibako does not need to defend against state actors or hostile users. The threat model is "laptop gets stolen and someone reads the disk" — covered by age encryption — not "someone gains code execution on my machine."
+- **Threat model.** Single user, trusted machine, trusted homelab. Sharibako does not defend against state actors, hostile users on the same machine, or code execution / malware. The threats Sharibako *does* address:
+  - **Offline disk theft.** "Laptop gets stolen and someone reads the disk." Covered by age encryption of the vault + Keychain gating of the age key. FileVault on top is an additional layer, not a substitute.
+  - **AI agents and workspace-file readers.** AI coding agents in the practitioner's workspace — Claude Code, Cursor, Codex, IDE indexers, LSPs, search tools, backup daemons — legitimately read files. A materialized plaintext `.env` is exposure to this class. Sharibako's answer: `sharibako run` for interactive dev (values in child-process memory, never on disk), materialize only where consumers cannot be wrapped (docker-compose services, systemd units, cron jobs). This class is new in the 2026 workspace — added in the 2026-07-01 revision. See `kamae-2.1-sharibako-injection-decision.md` for the full architecture and `SECURITY.md` for the trust-document articulation.
+  - **Transcript leak.** "I pasted the key into a Claude conversation." The friction fix (fast retrieval + `sharibako run` for wrapping the command) removes the need to paste at all.
 
 ---
 
@@ -143,13 +153,14 @@ _First-pass thinking. Opinions, not commitments. System Design will turn these i
 **This is:**
 - A native Mac app + first-class CLI for personal / small-scale secrets management
 - A tool that handles project secrets, deployed Docker container secrets, homelab machine secrets, and dev-environment secrets — all sharing the same model
+- **Two output verbs.** `sharibako materialize` writes an `.env` at a marker's target (for consumers that can't be wrapped). `sharibako run -- <cmd>` decrypts to memory and spawns the command with values in its environment (for interactive dev; nothing on disk). Both are first-class; users pick per situation. See `kamae-2.1-sharibako-injection-decision.md`.
 - Opinionated about per-project hygiene through interface design, not configuration
 
 **This is NOT:**
 - **NOT a password manager.** No website logins, no card storage, no identity records, no SSH-key store. Vaultwarden and Apple Passwords keep their jobs.
 - **NOT a team tool.** No RBAC, no SSO, no multi-user model, no audit compliance.
-- **NOT a runtime secret injector.** Sharibako materializes files at known paths; consumers (docker-compose, direnv, app loaders) read those files. Sharibako does not inject env vars into running processes.
-- **NOT cross-platform.** Mac only, Apple Silicon only. No Windows. No Linux GUI. No Intel Mac.
+- **NOT a reference-based-`.env` loader.** Sharibako does not require project files to contain `shari://` references and does not ship a Sharibako-aware `dotenv` shim per language. Consumers see either a materialized `.env` (their choice, their exposure) or an already-populated environment (from `sharibako run`). Per-language loader shims are declined — the surface is larger than the rest of v1 combined, and injection covers the same ground with less coupling. See kamae-2.1 §"Declined alternatives" for the full reasoning.
+- **NOT cross-platform GUI.** Mac only for the GUI, Apple Silicon only. No Windows. No Linux GUI. No Intel Mac. The CLI (including `run`) builds for Mac + Linux.
 - **NOT a key issuer.** Sharibako stores what you put in it. It does not call provider APIs to mint Stripe secrets, register OAuth apps, or generate API tokens.
 - **NOT shaped for high-secret-count use.** The mental model assumes tens to low hundreds of secrets, not thousands.
 
@@ -161,8 +172,9 @@ A working Mac app that can:
 3. Add / edit / delete projects and their secrets through the GUI
 4. **Link two project secrets** (the rotation-propagation feature — this is parti-defining and ships in MVP)
 5. Materialize a project's secrets to a `.env` file at a configured path
-6. `sharibako sync` (git pull + push when a remote is configured)
-7. CLI parity for adding / showing / materializing / syncing — no GUI required for the developer path
+6. **`sharibako run -- <cmd>`** — spawn a command with the current scope's secrets in its environment, values never written to disk (added 2026-07-01; ships in MVP via ho-04.5)
+7. `sharibako sync` (git pull + push when a remote is configured)
+8. CLI parity for adding / showing / materializing / running / syncing — no GUI required for the developer path
 
 Deferred to post-MVP hos:
 - Machines section

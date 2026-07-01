@@ -18,7 +18,12 @@ Underneath all of it is hygiene. The friction of doing it right is higher than t
 
 ## What Sharibako Does
 
-A small local vault that holds your secrets in a shape that matches how you work — by **project** and by **machine** — and writes them out as `.env` files where your code expects them.
+A small local vault that holds your secrets in a shape that matches how you work — by **project** and by **machine**. Sharibako has two output verbs:
+
+- **`sharibako materialize <scope>`** — writes a plaintext `.env` at the scope's target path, for consumers that can't be wrapped (docker-compose services on a homelab host, systemd units, cron jobs).
+- **`sharibako run [--scope <id>] -- <cmd>`** — decrypts to memory, spawns your command with the values set in its environment, and exits when it exits. Nothing on disk. This is the right verb for interactive dev — `npm run dev`, `python app.py`, `cargo run`, `docker-compose up`.
+
+Both verbs share the same age-decrypt path and the same Touch ID gating. Use `run` when you can; use `materialize` when the consumer can't be wrapped. See [SECURITY.md](SECURITY.md) for the exposure trade-off.
 
 Vocabulary:
 
@@ -49,20 +54,23 @@ The vault commits the change. You sync. On your homelab box that pulls the vault
 
 - **Not a password manager.** No website logins, no cards, no identity records, no SSH key management. Keychain and 1Password keep their jobs.
 - **Not a team tool.** No RBAC, no SSO, no per-user audit log. Two humans CAN share a vault by sharing the age key — the same way SSH keys get shared — but Sharibako does not model them as distinct identities.
-- **Not a runtime injector.** Sharibako materializes `.env` files. Reading those into running processes is your loader's job (`dotenv`, `direnv`, docker-compose, whatever you use today).
-- **Not cross-platform.** Mac app on Apple Silicon only. CLI on Mac + Linux. No Windows. No Linux GUI. No Intel Mac.
+- **Not a reference-based `.env` loader.** Sharibako does not require project files to contain `shari://` references or ship a Sharibako-aware loader shim per language. Runtime injection via `sharibako run` covers the same ground with less coupling.
+- **Not cross-platform GUI.** Mac app on Apple Silicon only. CLI on Mac + Linux. No Windows. No Linux GUI. No Intel Mac.
 - **Not a key issuer.** Sharibako stores what you put in. It does not call provider APIs to mint Stripe secrets, register OAuth apps, or generate tokens.
 
 ## How Sharibako Differs
 
-The closest existing tool in spirit is **Infisical** — self-hostable, env-var-shaped, organized by project. The differences are structural:
+**Against PassStore** — the closest tool in market. PassStore is a polished local Mac vault for developer secrets: workspaces, environments, secret types, Touch ID, Keychain, biometric unlock. Sharibako differs on substrate and mechanism. PassStore's vault is a proprietary local database; if PassStore disappears you have a data-recovery problem. Sharibako's vault is a plain directory of `age`-encrypted files that any `age` binary can decrypt. PassStore is Mac-only; Sharibako's CLI runs on Mac and Linux, which matters for homelab deployment. And PassStore does not offer runtime injection — you copy values out of it. Sharibako's `run` verb never puts values on disk in the first place.
 
-- **Sharibako is local-first.** No service to deploy. No Postgres. The vault is a directory on your disk.
-- **Sharibako is git-backed by design.** The vault IS a git repo of encrypted files. History, sync, multi-machine, and backup all happen through git the way you already use it. There's no database "with git as an export target."
-- **Sharibako is shaped for single-user scale.** No team features, no audit-compliance overhead, no enterprise complexity around the tool itself.
-- **Sharibako is a native Mac app + CLI**, not a web app behind a self-hosted service.
+**Against 1Password `op run`** — the reference-and-inject pattern proven in market. `op://vault/item/field` in `.env`; `op run` resolves and injects. Sharibako learns from the *shape* of the pattern (values in memory, not on disk when possible) but rejects the account/vault-server substrate and the subscription. Ships injection without a cloud account.
 
-Tools like sops, age, chezmoi, and git-crypt occupy the substrate Sharibako sits on top of. Vaultwarden and 1Password are the right shape for website logins, not env vars. HashiCorp Vault is enterprise scale. Doppler and EnvKey are SaaS.
+**Against Infisical** — closest in spirit for developer-secret framing: self-hostable, env-var-shaped, organized by project. Structural differences: Sharibako is local-first (no service to deploy, no Postgres), git-backed by design (the vault IS a git repo of encrypted files — no database "with git as an export target"), and shaped for single-user scale (no team features, no audit-compliance overhead).
+
+**Against dotenvx** — encrypts individual `.env` files. Sharibako manages the secrets *behind* many `.env` files, across projects and machines, with a linking model for shared values and both materialize and inject as output verbs.
+
+**Against sops + age (CLI only)** — Sharibako builds on `age` directly (dropping sops as an intermediate layer; see docs/architecture.md), and adds the workshop UX that sops doesn't try to provide.
+
+**Not in the same category:** Vaultwarden and 1Password (right shape for website logins, not env vars); HashiCorp Vault (enterprise scale); Doppler and EnvKey (SaaS, off the table).
 
 ## Naming
 
@@ -151,8 +159,18 @@ sharibako get kanyo-dev OPENAI_API_KEY
 # Rotate a shared value (propagates to all linked scopes)
 sharibako rotate shared/openai-personal "sk-new-value"
 
-# Materialize a scope's .env
+# Materialize a scope's .env (writes plaintext file at target path)
 sharibako materialize kanyo-dev
+
+# Run a command with the scope's secrets in its environment (nothing on disk)
+sharibako run -- npm run dev
+sharibako run --scope kanyo-dev -- docker-compose up
+
+# Show which secrets `run` would set, without values (safe to share with an AI agent)
+sharibako run --dry-run -- npm run dev
+
+# Remove materialized files for a scope
+sharibako clean kanyo-dev
 
 # git pull + push the vault
 sharibako sync
@@ -163,6 +181,8 @@ sharibako scan
 # Status of a scope (live here / live elsewhere / orphaned)
 sharibako status kanyo-dev
 ```
+
+For the difference between `materialize` and `run` and the security implications of each, see [SECURITY.md](SECURITY.md).
 
 ## Requirements
 
@@ -190,4 +210,4 @@ This pattern follows [m4Bookmaker](https://m4bookmaker.sageframe.net), which Sha
 
 ---
 
-*Sharibako is a [Sageframe](https://atmarcus.net) project by [Andrew Marcus](https://atmarcus.net), built with the [Ho System](https://github.com/sageframe-no-kaji/ho-system). Last meaningful update: 2026-06-30.*
+*Sharibako is a [Sageframe](https://atmarcus.net) project by [Andrew Marcus](https://atmarcus.net), built with the [Ho System](https://github.com/sageframe-no-kaji/ho-system). Last meaningful update: 2026-07-01.*

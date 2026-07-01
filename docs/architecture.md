@@ -2,6 +2,8 @@
 
 A public extract of Sharibako's architecture. Component shape, data model, and key technical decisions. The full design document — including evaluation traces, deferred decisions, and the build sequence — lives in the project's `ho-process/` directory.
 
+_Last revised 2026-07-01 to reflect the injection decision (see `ho-process/kamae-2.1-sharibako-injection-decision.md`). `sharibako run` is now a peer output verb alongside `sharibako materialize`. Security implications of the two verbs are covered in [SECURITY.md](../SECURITY.md)._
+
 ---
 
 ## Components
@@ -69,9 +71,27 @@ Responsibilities:
 - Computing per-scope state — **live here**, **live elsewhere**, **orphaned**
 - Ingesting existing `.env` files into proposed scope schemas for user review
 - Writing materialized `.env` files at marker-relative paths
+- Retracting materialized files (`sharibako clean`)
 - Detecting drift between materialized files and vault state
 
 Nothing in the Materializer ever deletes a scope automatically. Deletion is always an explicit user action and only ever touches the vault — markers on other machines become orphans on next scan, surfaced for cleanup but not destroyed.
+
+### The Runner (part of The Tool)
+
+The second output verb. Not a separate component — implemented inside the CLI, using the Vault Core's `get_all_secrets` for its data.
+
+Responsibilities:
+
+- Resolve the scope (from `--scope` flag or from `.sharibako` marker walking up from cwd)
+- Unlock the age key (same path as `get` and `materialize`)
+- Load all secrets for the scope from the Vault Core, decrypt into memory, resolve `.link` files
+- Compose child environment: parent env + scope secrets, scope wins on conflict
+- `fork()` + `exec()` the child command with the composed environment
+- Forward stdio (inherited FDs) and signals (SIGINT, SIGTERM, SIGHUP) to the child
+- Wait for the child, exit with its status
+- Best-effort in-memory scrub on all exit paths
+
+Values live only in wrapper and child process memory. No file is written. This is the injection path that closes Class 4 (workspace file-reader) exposure for wrappable consumers. See `SECURITY.md` for the threat-model articulation.
 
 ### The Conduit
 
@@ -220,7 +240,7 @@ A remote is supported but not required. A vault works fully local; adding a remo
 
 The same threat model SSH keys live under. The age private key is stored in Keychain with access controlled by "Touch ID or password" per access. The vault file on disk is age-encrypted at rest; the age key is Keychain-protected; FileVault is an additional layer on top.
 
-This is FileVault-independent — if FileVault is off, the vault is still age-encrypted and the age key is still Keychain-gated. The only plaintext-on-disk artifacts are the materialized `.env` files, which are by-design regenerable from the vault and conventionally `gitignore`d.
+This is FileVault-independent — if FileVault is off, the vault is still age-encrypted and the age key is still Keychain-gated. The only plaintext-on-disk artifacts are materialized `.env` files (opt-in by verb; use `sharibako run` for wrappable consumers to avoid them entirely) and `.sharibako` markers (which contain no secret values). Both are conventionally `gitignore`d for markers of code-consuming projects, though markers may be committed deliberately when the scope name is public.
 
 On Linux, the age key is a passphrase-protected file at a conventional path.
 
@@ -241,7 +261,8 @@ No App Store distribution. No telemetry. No auto-collected metrics. The Mac app 
 The data model and component contracts encode several decisions that cannot be added later without redesign:
 
 - **Single-user.** The Vault Core has no concept of "user." Multiple humans can share a vault by sharing the age key, but Sharibako does not model them as distinct identities. No permissions, no audit-by-actor, no per-user views.
-- **No runtime injection.** The Materializer's only output is a written file. There is no API for injecting env vars into running processes.
+- **Two output verbs, both first-class.** `materialize` writes a plaintext `.env` on disk for consumers that can't be wrapped. `run` decrypts to memory and spawns a child with values in its environment (nothing on disk). Users pick per situation. See `../ho-process/kamae-2.1-sharibako-injection-decision.md` for the decision and `../SECURITY.md` for the exposure comparison.
+- **No reference-based `.env` with a Sharibako-aware loader.** Ships in neither v1 nor any planned iteration. Runtime injection covers the same threat-model territory with less coupling; per-language loader shims would be larger than the rest of v1 combined. Declined categorically.
 - **No password-manager fields.** Encrypted file content is `{ value, notes?, rotated_at? }`. No login records, no cards, no identities, no SSH-key entries.
 - **Mac GUI is Apple Silicon only.** No Intel Mac, no universal binary.
 - **No Linux GUI.** SwiftUI does not port; no Qt/GTK alternative is pursued.

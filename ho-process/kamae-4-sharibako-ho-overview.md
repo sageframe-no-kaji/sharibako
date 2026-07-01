@@ -1,17 +1,20 @@
 ---
 created: 2026-06-30
+updated: 2026-07-01
 status: draft
 type: ho-overview
 project: sharibako
 stage: kamae-4
-kamae-chain: seed → system-design → readme → **ho-overview**
-builds-on: kamae-2-sharibako-system-design, kamae-3-sharibako-readme
+kamae-chain: seed → system-design → injection-decision → readme → **ho-overview**
+builds-on: kamae-2-sharibako-system-design, kamae-2.1-sharibako-injection-decision, kamae-3-sharibako-readme
 next: per-ho dandori specs authored via ho-kamae-5
 ---
 
 # Sharibako — Ho Overview
 
-Ten hos across seven phases. Phase 0 sets up the project. Phases 1–2 build the vault substrate and the bridge to the user's filesystem with no UI at all. Phase 3 puts a CLI on top of that and earns the first real dogfooding. Phases 4–5 add the Workshop and the linking UX that the parti is built around. Phase 6 ships v1.0 through signing, notarization, and a download site.
+Eleven hos across seven phases (v1.0 target). Phase 0 sets up the project. Phases 1–2 build the vault substrate and the bridge to the user's filesystem with no UI at all. Phase 3 puts a CLI on top of that and earns the first real dogfooding, then ho-04.5 adds runtime injection (`sharibako run`) as a peer output verb alongside materialize. Phases 4–5 add the Workshop and the linking UX that the parti is built around. Phase 6 ships v1.0 through signing, notarization, website, and release.
+
+_Revision 2026-07-01: ho-04.5 inserted after the injection decision (kamae-2.1). This is a build-phase document; ship/commercial concerns sit in ho-09 as they always did — not elevated to Kamae content._
 
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
@@ -34,7 +37,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 0. Foundation | ho-00 | Swift package, GitHub repo, signing reused from M4Bookmaker, CI, baseline tests |
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
-| 3. The Tool | ho-04 | CLI usable for real personal work. First dogfooding moment |
+| 3. The Tool | ho-04, **ho-04.5** | CLI usable for real personal work. First dogfooding moment. **Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft** |
 | 4. The Workshop | ho-05, ho-06 | SwiftUI app with three-state UI, first-run wizard, ingest decision matrix |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
@@ -234,6 +237,51 @@ Swift ArgumentParser implementation of every CLI command listed in the system de
 
 **Phase boundary — replan checkpoint.** Andrew uses the CLI for real secrets work. The questions that surface here drive the next phase: what's awkward, what's missing, what's actually fine, and — critically — whether the SwiftUI investment in Phase 4 is the right next move or whether further CLI polish should come first. See "Replan checkpoints" below for the explicit checkpoint structure.
 
+### ho-04.5 — Runtime injection (`sharibako run`), `clean`, and SECURITY.md draft
+
+The injection verb specified in kamae-2.1. `sharibako run [--scope <id>] -- <command>` decrypts the current scope's secrets into memory, spawns the child with those values set in its environment, forwards stdio and signals, waits, exits with the child's status. No file is written; values live only in wrapper and child process memory. Pair verb `sharibako clean [<scope>]` retracts materialized files. `sharibako run --dry-run` prints secret names without values for pre-flight verification and safe agent-summarization. And this ho drafts `SECURITY.md` — the trust document that reflects the four-class threat model and the materialize/run exposure difference. The doc is written *as if the software is done*; it will be revised as v1 lands but its skeleton exists here.
+
+**Depends on:** ho-01 (Vault Core), ho-03 (scope resolution from marker), ho-04 (CLI base + Keychain integration)
+
+**What's in scope:**
+- `sharibako run [--scope <id>] [--dry-run] [--] <command> [args...]` — full implementation
+- Signal forwarding: SIGINT, SIGTERM, SIGHUP (at minimum) forwarded from wrapper to child's PID with a short grace timeout before SIGKILL
+- stdio pass-through (inherited FDs, not piped)
+- Environment merge: parent env + scope secrets, scope wins on conflict
+- Vault Core addition: `get_all_secrets(scopeID:) throws -> [String: String]` — loops the existing per-secret decrypt, resolves links, returns dict
+- Best-effort in-memory scrub on exit paths (`memset_s` over the decrypted string bytes where the language allows)
+- `sharibako clean [<scope>]` — remove materialized files at each scope's target path, idempotent, confirms unless `--force`
+- `sharibako run --dry-run` — print secret names without values, exit 0
+- Integration tests: spawn a shell subcommand, assert env vars land, assert exit codes propagate, assert signals forward
+- SECURITY.md draft covering: four-class threat model, what age protects, materialize vs. run exposure, keychain story, git store, backups, recovery, rotation, known risks, vulnerability disclosure
+
+**What "done" means:**
+- `sharibako run -- npm run dev` (or equivalent) works against a real vault
+- `sharibako run -- docker-compose up` works and secrets land in the containers via `environment:` block references to inherited env vars
+- Signal forwarding works: Ctrl-C on the wrapper terminates the child cleanly
+- SECURITY.md exists, is honest, links from README, and covers every documented item
+- Andrew can run his actual dev workflows via `run` and stop materializing plaintext `.env` files for wrappable consumers
+
+**What's out of scope:**
+- GUI "Run" button — CLI-native use case in v1; revisit post-v1 if user requests surface
+- The `sharibako-agent` daemon for cross-invocation key holding (post-MVP; Deferred Decision #3)
+- Reference-based `.env` with a Sharibako-aware loader (declined categorically in kamae-2.1)
+- Linux passphrase caching for `run` (v1: prompt per invocation; concretize a cache only if Linux use shows friction)
+- Materialize-to-tmpfs helper (documented in SECURITY.md as a manual technique; not automated in v1)
+
+**Decisions required:**
+- **Signal set to forward**: SIGINT + SIGTERM + SIGHUP at minimum. SIGQUIT and SIGUSR1/2 as follow-ons if the dandori session finds a real use case.
+- **Grace period before SIGKILL**: on wrapper receiving a signal, forward to child, wait N seconds, then SIGKILL. v1 default: 5 seconds. Tune based on real dev-server behavior (Node HMR, Python dev servers, etc.).
+- **`--dry-run` output format**: one line per secret name, or JSON with `--json`. v1 default: one line per secret; add JSON when a real user needs it.
+- **`sharibako clean` scope**: `clean <scope>` cleans one scope's materialized file; `clean` with no arg cleans every scope with a marker on this machine. v1 default: require an explicit scope name; add `--all` as an opt-in flag.
+- **SECURITY.md location**: top-level `SECURITY.md` (GitHub-conventional, appears in the Security tab) vs. `docs/security.md` (matches `docs/architecture.md`). v1 default: top-level. GitHub renders it in the Security tab and vulnerability reporters expect to find it there; robust-tool-for-others practice wants that path. Cross-linked from README and from `docs/architecture.md`.
+
+**Possible split:**
+- ho-04.5a: `sharibako run` + `sharibako clean` + `--dry-run` (the code work)
+- ho-04.5b: SECURITY.md drafting (the writing work)
+
+Split only if the ho spills a session. The pairing is deliberate — writing SECURITY.md while injection is fresh in mind produces a stronger document than either could produce alone.
+
 ---
 
 ## Phase 4 — The Workshop
@@ -412,17 +460,18 @@ These have different infrastructure (Xcode + Apple ecosystem vs. Homebrew + Linu
 
 ### ho-09 — Website, release, v1.0
 
-Cloudflare Pages site at `sharibako.sageframe.net` (matches the M4Bookmaker pattern), release manifest endpoint, in-app update check, GitHub release for v1.0 with both the `.dmg` and the CLI `.tar.gz` attached, README updates reflecting the actual download flow, and resolution of the remaining deferred decisions (pricing, shared-vault doc, auto-update specifics).
+Cloudflare Pages site at `sharibako.sageframe.net` (matches the M4Bookmaker pattern), release manifest endpoint, in-app update check, GitHub release for v1.0 with both the `.dmg` and the CLI `.tar.gz` attached, README and architecture.md and SECURITY.md final pass against actual shipped behavior, and resolution of the remaining deferred decisions (pricing, shared-vault doc, auto-update specifics).
 
 **Depends on:** ho-08
 
 **What's in scope:**
 - Cloudflare Pages site (Eleventy or similar static stack — matches Sageframe convention)
 - Download page with the DMG, Homebrew install command, `.tar.gz` link
+- Prominent link from the site to `SECURITY.md` — non-optional for a tool that holds secrets
 - Release manifest at a stable URL (e.g., `sharibako.sageframe.net/release.json`) that the app fetches on launch
 - In-app update check (manifest version vs. running version → notification with download link)
 - GitHub release for v1.0 with attached binaries
-- README and architecture.md final pass against actual shipped behavior
+- README, `docs/architecture.md`, and `SECURITY.md` final pass against actual shipped behavior
 - Pricing decision, applied to the website's purchase flow
 
 **What "done" means:**
@@ -433,12 +482,13 @@ Cloudflare Pages site at `sharibako.sageframe.net` (matches the M4Bookmaker patt
 
 **What's out of scope:**
 - Marketing beyond the project site (Hacker News post, blog announcement) — handle separately; not a v1.0 blocker
+- Extensive commercial-site design work (differentiator copy, purchase-funnel analysis) — this is a build-phase ho for a working release; commercial polish lands in ship-phase work if and when it earns the scope
 - Telemetry (categorically out per README)
 - Analytics on the download site beyond what Cloudflare Pages provides by default
 
 **Decisions required:**
-- **Pricing for the signed DMG** (Deferred Decision #1): one-time / donation / patron / per-major-version. Survey comparable indie Mac tools (1Password indie alternatives, Drafts, BBEdit's licensing). Land on a model the site can implement.
-- **Shared-vault use documentation** (Deferred Decision #8): silent vs. explicit. Default plan from the system design: brief explicit mention ("two humans sharing one age key works fine; no team features"). Confirm or override here.
+- **Pricing for the signed DMG** (Deferred Decision #1): one-time / donation / patron / per-major-version. Whatever fits; the ho executes what's decided.
+- **Shared-vault use documentation** (Deferred Decision #8): silent vs. explicit. Default plan: brief explicit mention ("two humans sharing one age key works fine; no team features"). Confirm or override here.
 - **Auto-update mechanism specifics** (Deferred Decision #11): simple manifest-on-Cloudflare check on launch vs. Sparkle. v1 default: simple manifest check (no auto-download). Sparkle is the obvious post-v1 upgrade if the simple version becomes annoying.
 - **Site stack**: Eleventy (matches `atmarcus.net`), Astro, or hand-rolled HTML. v1 default: Eleventy.
 
@@ -465,13 +515,13 @@ Tracked for v1.5 / post-v1; explicitly out of v1:
 
 Three explicit pause points. At each one, the practitioner stops, evaluates progress against real evidence, and decides whether to continue as planned, insert a polish ho, or replan.
 
-### Checkpoint 1 — After ho-04 (CLI usable)
+### Checkpoint 1 — After ho-04.5 (CLI + injection usable)
 
-**What's true:** the substrate works end-to-end and the CLI is usable. Andrew has been consolidating real personal secrets into the vault.
+**What's true:** the substrate works end-to-end, the CLI is usable, and both output verbs (`materialize` and `run`) are wired. Andrew has been consolidating real personal secrets into the vault and running his actual dev workflows via `sharibako run`. SECURITY.md exists in draft form.
 
-**What to evaluate:** is the CLI awkward in ways the GUI won't fix on its own? Is the init flow's terminal UX painful enough to insert ho-04.5 (interactive polish) before opening Phase 4? Is Touch ID frequency tolerable, or does the `sharibako-agent` daemon need to move forward from post-MVP? Are there missing CLI commands real use surfaced?
+**What to evaluate:** is the CLI awkward in ways the GUI won't fix on its own? Is Touch ID frequency on `run` tolerable, or does the `sharibako-agent` daemon need to move forward from post-MVP? Is signal forwarding robust against real dev-server behavior? Does SECURITY.md pass an outside-eye reading, or does it need another pass before Phase 6? Are there missing CLI commands real use surfaced?
 
-**Why this is a checkpoint:** Phase 4 is a substantial investment (SwiftUI from scratch is half the project). Reality from Phase 3 should shape what Phase 4 actually needs to be — not the other way around.
+**Why this is a checkpoint:** Phase 4 is a substantial investment (SwiftUI from scratch is half the project). Reality from Phase 3 should shape what Phase 4 actually needs to be — not the other way around. Injection specifically carries the threat-model coverage for Class 4 (workspace file-readers); if it's rough, Phase 4 shouldn't paper over it.
 
 ### Checkpoint 2 — After ho-06 (GUI polish complete)
 
@@ -514,7 +564,7 @@ Candidates surfaced during the overview, by pattern:
 
 **Insertions likely after replan checkpoints:**
 
-- **ho-04.5** after Checkpoint 1: interactive CLI polish or `sharibako-agent` daemon move-forward if dogfooding surfaces friction the original ho-04 didn't cover.
+- **ho-04.5** was originally speculative here; it is now a committed ho carrying `sharibako run`, `sharibako clean`, and the SECURITY.md draft (see Phase 3). A *separate* ho-04.6 could still be inserted after Checkpoint 1 if dogfooding surfaces distinct interactive-CLI polish work or moves the `sharibako-agent` daemon forward from post-MVP.
 - **ho-06.5** after Checkpoint 2: first-run UX polish if vibe-coder testing fails the 15-minute criterion.
 - **ho-07.5** after Checkpoint 3: any final polish needed before locking in the v1 promise.
 
@@ -550,9 +600,10 @@ Phase 2 — The bridge
 └── ho-03 (Materializer) ────────────────────────────── v0.2
 
 Phase 3 — The Tool
-└── ho-04 (CLI MVP)
+├── ho-04 (CLI MVP)
+└── ho-04.5 (sharibako run, clean, SECURITY.md draft)
         ▲
-        │  ◆ Replan Checkpoint 1 (CLI dogfooding) ─── v0.3
+        │  ◆ Replan Checkpoint 1 (CLI dogfooding, both verbs) ── v0.3
 
 Phase 4 — The Workshop
 ├── ho-05 (SwiftUI shell)
@@ -575,7 +626,8 @@ Dependencies:
 - ho-02 depends on ho-01.
 - ho-03 depends on ho-01 and ho-02.
 - ho-04 depends on ho-01, ho-02, ho-03.
-- ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows.
+- ho-04.5 depends on ho-01 (Vault Core), ho-03 (scope resolution), ho-04 (CLI base + Keychain integration).
+- ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows. ho-04.5's `run` verb has no GUI counterpart in v1, so ho-05 does not depend on ho-04.5.
 - ho-06 depends on ho-05.
 - ho-07 depends on ho-04 (CLI base) and ho-06 (GUI polish base).
 - ho-08 depends on ho-05, ho-06 (the Mac app must build and run cleanly before signing matters).
@@ -592,3 +644,5 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
 The next dandori session is **ho-00 — Project scaffolding**. Open it via the Kamae 5 collaborator when ready.
+
+_Ho-01 and ho-02 dandori specs already exist under `agent-tasks/`; they were authored before the 2026-07-01 revision and do not need to be reopened. Ho-04.5's dandori spec will be authored after ho-04 lands, informed by whatever the ho-04 dogfooding session surfaces about the CLI's actual shape._
