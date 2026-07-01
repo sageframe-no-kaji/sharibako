@@ -109,6 +109,12 @@ analyzer_rules:
   - unused_import
 
 # Per-rule tuning
+trailing_comma:
+  # Aligned with swift-format's multiElementCollectionTrailingCommas: true —
+  # the two tools disagree by default. swift-format is the canonical formatter,
+  # so SwiftLint follows its style here.
+  mandatory_comma: true
+
 identifier_name:
   min_length: 2
   max_length:

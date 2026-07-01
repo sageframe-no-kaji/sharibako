@@ -8,6 +8,9 @@
 ///
 /// Holds the public API surface and shared utilities. Instantiation is
 /// not supported (cases-less enum).
+///
+/// Public types exported by this library: ``VaultCore``, ``VaultError``,
+/// ``ScopeMetadata``, ``ScopeType``, ``SecretInfo``.
 public enum SharibakoCore {
     /// Library version.
     ///
