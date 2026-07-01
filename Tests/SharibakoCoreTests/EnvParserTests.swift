@@ -221,6 +221,35 @@ struct EnvParserTests {
         #expect(result.warnings.count == 2)
     }
 
+    @Test("leading whitespace before the key is permitted and parses normally")
+    func leadingWhitespaceBeforeKey() {
+        let raw = "   KEY=value"
+        let result = parse(raw)
+        #expect(result.lines == [.keyValue(key: "KEY", value: "value", rawText: raw)])
+    }
+
+    @Test("bare value ending in backslash (line continuation) is malformed")
+    func bareValueBackslashContinuation() {
+        let raw = "KEY=value\\"
+        let result = parse(raw)
+        guard case .malformed(_, let reason) = result.lines[0] else {
+            Issue.record("expected .malformed")
+            return
+        }
+        #expect(reason.contains("backslash line continuation"))
+    }
+
+    @Test("unterminated backslash escape at end of double-quoted value is malformed")
+    func unterminatedBackslashInQuoted() {
+        let raw = "KEY=\"value\\"
+        let result = parse(raw)
+        guard case .malformed(_, let reason) = result.lines[0] else {
+            Issue.record("expected .malformed")
+            return
+        }
+        #expect(reason.contains("backslash escape") || reason.contains("unterminated"))
+    }
+
     @Test("bare value with $ is flagged as unsupported interpolation")
     func bareInterpolation() {
         let result = parse("KEY=$OTHER")

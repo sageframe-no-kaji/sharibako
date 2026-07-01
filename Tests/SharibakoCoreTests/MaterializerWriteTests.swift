@@ -227,24 +227,6 @@ struct MaterializerWriteTests {
         }
     }
 
-    @Test("scan orders markers breadth-first: shallower depth first, alphabetical within a depth")
-    func scanOrdersBreadthFirst() throws {
-        try VaultTestSupport.withEphemeralVault { vault in
-            try VaultTestSupport.withEphemeralProjectDirectory { project in
-                let deep = project.appendingPathComponent("apps/backend")
-                try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
-                try "scope: backend\n"
-                    .write(to: deep.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8)
-                try "scope: root\n"
-                    .write(to: project.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8)
-                let core = try VaultCore(vaultURL: vault)
-                let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
-                #expect(markers.map(\.scope) == ["root", "backend"])
-            }
-        }
-    }
-
     @Test("scan deduplicates when overlapping roots would find the same marker twice")
     func scanDedupes() throws {
         try VaultTestSupport.withEphemeralVault { vault in

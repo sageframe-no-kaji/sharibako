@@ -253,6 +253,8 @@ struct ConduitLocalTests {
     }
 
     // MARK: - commit
+
+    @Test("commit on a clean working tree with no changes returns .nothingToCommit")
     func commitNothingToCommit() throws {
         try VaultTestSupport.withEphemeralGitVault { vault in
             let conduit = try Conduit(vaultURL: vault)
