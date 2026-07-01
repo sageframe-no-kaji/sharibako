@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: |
+          if [ -d /Applications/Xcode_16.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.app
+          else
+            echo "Xcode 16 not found — using default Xcode"
+          fi
+          swift --version
+
+      - name: Install swift-format and SwiftLint
+        run: |
+          brew install swift-format swiftlint
+          swift-format --version
+          swiftlint version
+
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            swiftpm-${{ runner.os }}-
+
+      - name: Lint — swift-format
+        run: swift-format lint --recursive --strict Sources Tests
+
+      - name: Lint — SwiftLint
+        run: swiftlint lint --strict --quiet
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
