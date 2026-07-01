@@ -199,15 +199,74 @@ AT-01 completes and passes before AT-02 opens. AT-02's tests build on AT-01's lo
 
 ## Phase 3 — Reflect
 
-*To be filled in after execution.*
+Executed 2026-07-01 as two subagent tasks on Sonnet with fresh context, orchestrated in-session. AT-01 (`4f85ef3`) and AT-02 (`b857bbb`) both green in CI on first push. 72 tests, 91.69% line coverage across `SharibakoCore`.
 
-- **Did `Shell.run()` carry over cleanly?** Any surprises invoking `git` vs `age`?
-- **Conflict detection.** What did `git pull` actually surface in the conflict case? Did the auto-abort return cleanly? Did the `ConflictedFile` shape hold, or did it need refinement (e.g. is `localSHA` really useful vs a file diff)?
-- **`git` binary location.** Was the current `Shell.findExecutable` probe list sufficient?
-- **VaultError additions.** Was `gitInvocationFailed` alone sufficient, or did another case surface?
-- **Status parsing.** Was `--porcelain=v2` clean to parse, or did we fall back?
-- **Coverage.** Same shape as ho-01 — which lines resisted testing?
-- **Followups for ho-03.** What does the Materializer actually want from the Conduit? Does `commit(message:)` take a rich enough message shape, or does the Materializer need to construct multi-line messages?
+### `Shell.run()` carried over cleanly
+
+The `workingDirectory: URL?` extension in AT-01 required no changes to any existing `age` call site — the default `nil` leaves them untouched. Same wrapper handled `age`, `age-keygen`, and every `git` invocation without modification. This is the Followup for ho-02 the ho-01 Reflect anticipated ("`Shell.run()` is ready for `git` as-is") holding up: correct.
+
+### Conflict detection: shape held, one surprise about output stream
+
+The `ConflictedFile(path:, localSHA:, remoteSHA:)` shape held. The auto-abort returned cleanly — `Conduit(vault).status().dirty == false` immediately after every aborted conflict, with no half-merged state.
+
+**Surprise:** `git pull` writes the conflict marker (`CONFLICT (content): Merge conflict in <path>`) to **stdout**, not stderr. Stderr only carries the fetch line (`From /path/to/bare: main -> origin/main`). This is the opposite of `git push`, where diagnostics go to stderr. The parser handles both streams — but if we hadn't tested carefully, we'd have read the wrong stream and returned `.success` on a conflicting pull.
+
+`git ls-files --stage <path>` produced stage 2 (ours/local) and stage 3 (theirs/remote) entries as expected on any content conflict. Format is `<mode> <sha> <stage>\t<path>` — tab separates the metadata block from the path, so parsing correctly requires splitting on tab first, then space.
+
+### `git` binary location: no probe-list changes needed
+
+`Shell.findExecutable("git")` found the binary at `/usr/bin/git` (Xcode Command Line Tools) on the dev machine and at `/usr/local/bin/git` on the CI runner. Both are in the existing probe list. No changes.
+
+### `VaultError` additions: exactly one, as planned
+
+`gitInvocationFailed(exitCode:, stderr:)` covered every real failure mode. `noRemote`, `abortedConflict`, `upToDate`, `rejected` all live as enum return values on `PushResult`/`PullResult` per Decision 4, and none of them ever wanted to be an error. The taxonomy held.
+
+### Status parsing: `--porcelain=v2 --branch` clean
+
+Git 2.48.1 on the dev machine and 2.51.0 on CI both emitted the documented `--porcelain=v2 --branch` format. No fallback to v1 needed. The one code path not exercised is the `2 <XY>` rename/copy branch — no test currently creates a rename, so that parsing branch is theoretically correct but untested.
+
+### Coverage: 91.69%, with named untested paths
+
+| File | Line cover |
+|---|---:|
+| Models/*.swift | 100.00% |
+| VaultLayout.swift | 97.22% |
+| Shell.swift | 97.37% |
+| VaultCore.swift | 96.52% |
+| VaultCore+Encryption.swift | 94.93% |
+| Conduit.swift | 88.96% |
+| Conduit+Remote.swift | 81.18% |
+| ConduitTypes.swift | 100.00% |
+| **TOTAL** | **91.69%** |
+
+Down from ho-01's 96.02% because two new files landed with defensive branches the tests don't exercise. The specifically-untested paths, named:
+
+- **`Conduit.swift` `parseStatusOutput` rename/copy branch (`2 <XY>`)** — no test creates a git-tracked rename. Correct code, no exercise.
+- **`Conduit.swift` no-identity-configured commit path** — testable but required a workaround (write empty `[user]` block into local `.git/config` to override global config), which turned out to be the wrong shape once implemented. Left as a known gap for a future coverage pass.
+- **`Conduit+Remote.swift` `currentBranchName()`** — defensive upstream-tracking setup that never fires because `git clone` sets tracking automatically. Would only trigger on a `git init` + manual remote + `pull()` sequence.
+- **`Conduit+Remote.swift` several `noRemote` early-returns** — `push()` and `pull()`'s "no remote" paths ARE tested at the entry point, but subsequent internal helpers each re-check and their re-check paths never fire in isolation.
+
+Above the 90% floor with no chmod tricks. If we want to push higher, targeting `Conduit+Remote.swift` specifically would gain the most — probably 2-3 tests worth.
+
+### One Swift/extension mechanic worth naming
+
+`Conduit.swift`'s internal `git(_:)` helper started as `private` in AT-01. AT-02's `Conduit+Remote.swift` extension file can't see private helpers from another file, so AT-02 changed it to `internal` (no modifier — the default). Worth carrying forward for ho-03: any helper the extension pattern will share across files needs to be at least `internal`. `private` and `fileprivate` don't cross the file boundary.
+
+The `VaultCore+Encryption.swift` precedent worked because its private helpers were self-contained — the encryption code calls back into public/internal `VaultCore` methods, not shared `private` helpers. `Conduit` differs because both the local and remote halves shell out to git through the same helper.
+
+### Default branch surprise: `master` vs `main`
+
+Git 2.51+ still defaults to `master` when `init.defaultBranch` isn't set globally — with a deprecation hint but no behavior change. The bare-remote fixture had to be explicit: `git init --bare --initial-branch=main` for the remote, `git checkout -b main` after `git init` for the local vaults, or `git clone` (which respects the remote's default). Silent misalignment (fixture creates `master`, remote expects `main`) would produce cryptic push failures.
+
+The Conduit itself doesn't hardcode a branch name — it uses `git push origin HEAD` and `git pull ... origin`. That's the right shape; the branch name convention is a fixture concern, not a Conduit concern.
+
+### Followups for ho-03 (Materializer)
+
+- **Commit message shape.** `Conduit.commit(message: String)` takes any string. The Materializer will want multi-line commit messages (subject + body) — Swift string literals with `\n` work fine. No API change needed.
+- **`currentBranchName()` visibility.** Currently `private` in `Conduit+Remote.swift`. If the Materializer wants to display "on branch <name>" in status surfaces, hoist it to `public`. Small change.
+- **Untracked-file protection.** `git pull` refuses to merge when untracked files would be overwritten (the Conduit surfaces this as `gitInvocationFailed`, which is correct — it's not a conflict, it's a state error). The Materializer should be aware: if it materializes into a scope that then gets pulled, and the pull would overwrite the materialized files, the pull fails with a specific error. Handling: materialize AFTER pull, not before.
+
+---
 
 ---
 
