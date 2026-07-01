@@ -10,63 +10,12 @@ import Testing
 /// down on exit. Requires `age` and `age-keygen` on PATH.
 @Suite("VaultCore Encryption")
 struct VaultCoreEncryptionTests {
-    // MARK: - Fixtures
-
-    /// Builds a temp vault + age key pair and hands both to `body`.
-    ///
-    /// The vault directory and key material are removed after `body` returns
-    /// (even if it throws).
-    static func withEphemeralVaultAndKey(_ body: (URL, AgeKeyFixture) throws -> Void) throws {
-        let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: vault) }
-        try VaultLayout.createVaultLayout(at: vault)
-
-        let fixture = try AgeKeyFixture.generate()
-        defer { try? fixture.cleanup() }
-
-        try body(vault, fixture)
-    }
-
-    /// Creates a scope directory and its `scope.yaml`.
-    static func writeScope(_ id: String, type: ScopeType, in vault: URL) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(id, in: vault)
-        try FileManager.default.createDirectory(at: scopeDir, withIntermediateDirectories: true)
-        let yaml = "identity: \(id)\ntype: \(type.rawValue)\n"
-        try yaml.write(
-            to: VaultLayout.scopeYAMLURL(id, in: vault),
-            atomically: true,
-            encoding: .utf8
-        )
-    }
-
-    /// Encrypts `content` and writes it to a shared entry via `VaultCore`.
-    ///
-    /// Uses a throwaway scope with `addSecret` and moves the file into `shared/`.
-    /// Kept out of the public API so tests don't need to build shared entries
-    /// through some CLI helper that ho-04 will add.
-    static func writeSharedEntry(
-        _ sharedID: String,
-        value: String,
-        notes: String? = nil,
-        vault: URL,
-        fixture: AgeKeyFixture
-    ) throws {
-        try writeScope("__stager__", type: .other, in: vault)
-        let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
-        try core.addSecret("__staged__", value: value, inScope: "__stager__", notes: notes)
-        let staged = VaultLayout.secretURL("__staged__", inScope: "__stager__", in: vault)
-        let sharedURL = VaultLayout.sharedEntryURL(sharedID, in: vault)
-        try FileManager.default.moveItem(at: staged, to: sharedURL)
-        try FileManager.default.removeItem(at: VaultLayout.scopeDirectoryURL("__stager__", in: vault))
-    }
-
     // MARK: - Round-trip
 
     @Test("addSecret then getValue returns the original value")
     func addSecretRoundTrip() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.addSecret("DATABASE_URL", value: "postgres://x@y/z", inScope: "kanyo-dev")
             let got = try core.getValue("DATABASE_URL", inScope: "kanyo-dev")
@@ -76,8 +25,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("addSecret preserves notes through encrypt/decrypt")
     func addSecretPreservesNotes() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.addSecret(
                 "DATABASE_URL",
@@ -99,9 +48,9 @@ struct VaultCoreEncryptionTests {
 
     @Test("getValue on a linked key returns the shared entry's value")
     func getValueThroughLink() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
-            try Self.writeSharedEntry(
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeSharedEntry(
                 "openai-personal",
                 value: "sk-live-123",
                 vault: vault,
@@ -117,8 +66,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("rotate updates the value and leaves notes alone")
     func rotateUpdatesValue() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.addSecret(
                 "TOKEN",
@@ -138,10 +87,10 @@ struct VaultCoreEncryptionTests {
 
     @Test("rotateShared propagates through every linking scope")
     func rotateSharedPropagates() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
-            try Self.writeScope("kanyo-prod", type: .projectProd, in: vault)
-            try Self.writeSharedEntry(
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeScope("kanyo-prod", type: .projectProd, in: vault)
+            try VaultTestSupport.writeSharedEntry(
                 "openai-personal",
                 value: "sk-original",
                 vault: vault,
@@ -162,9 +111,9 @@ struct VaultCoreEncryptionTests {
 
     @Test("unlink converts a linked key back to a local .age with the former shared value")
     func unlinkConvertsToLocal() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
-            try Self.writeSharedEntry(
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeSharedEntry(
                 "openai-personal",
                 value: "sk-was-shared",
                 vault: vault,
@@ -191,20 +140,20 @@ struct VaultCoreEncryptionTests {
 
     @Test("orphanedSharedEntries surfaces unreferenced entries after real encryption")
     func orphansEndToEnd() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeSharedEntry(
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeSharedEntry(
                 "openai-personal",
                 value: "sk-live",
                 vault: vault,
                 fixture: fixture
             )
-            try Self.writeSharedEntry(
+            try VaultTestSupport.writeSharedEntry(
                 "abandoned-service",
                 value: "unused",
                 vault: vault,
                 fixture: fixture
             )
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
 
@@ -216,8 +165,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("getValue on a missing key throws secretNotFound")
     func getValueMissing() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             #expect(throws: VaultError.self) {
                 _ = try core.getValue("GHOST", inScope: "kanyo-dev")
@@ -227,8 +176,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("getValue on a link whose target is missing throws linkTargetMissing")
     func getValueDanglingLink() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "nonexistent-shared")
             #expect(throws: VaultError.self) {
@@ -239,8 +188,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("rotate on a nonexistent key throws secretNotFound")
     func rotateMissing() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             #expect(throws: VaultError.self) {
                 try core.rotate("GHOST", inScope: "kanyo-dev", newValue: "nope")
@@ -250,7 +199,7 @@ struct VaultCoreEncryptionTests {
 
     @Test("rotateShared on a nonexistent id throws sharedEntryNotFound")
     func rotateSharedMissing() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             #expect(throws: VaultError.self) {
                 try core.rotateShared("ghost-shared", newValue: "nope")
@@ -260,8 +209,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("unlink on a non-linked key throws secretNotFound")
     func unlinkNonLinked() throws {
-        try Self.withEphemeralVaultAndKey { vault, fixture in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             #expect(throws: VaultError.self) {
                 try core.unlink("NOT_A_LINK", inScope: "kanyo-dev")
@@ -271,8 +220,8 @@ struct VaultCoreEncryptionTests {
 
     @Test("addSecret from a vault opened without an age key throws shellNotFound")
     func addSecretWithoutKeyRefuses() throws {
-        try Self.withEphemeralVaultAndKey { vault, _ in
-            try Self.writeScope("kanyo-dev", type: .projectDev, in: vault)
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, _ in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault)  // no ageKeyURL
             #expect(throws: VaultError.self) {
                 try core.addSecret("K", value: "v", inScope: "kanyo-dev")
@@ -280,9 +229,73 @@ struct VaultCoreEncryptionTests {
         }
     }
 
+    @Test("getValue from a vault opened without an age key throws shellNotFound")
+    func getValueWithoutKeyRefuses() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            // Seed a real .age file so getValue reaches the decrypt path
+            let seeded = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try seeded.addSecret("K", value: "v", inScope: "kanyo-dev")
+
+            let noKey = try VaultCore(vaultURL: vault)
+            #expect(throws: VaultError.self) {
+                _ = try noKey.getValue("K", inScope: "kanyo-dev")
+            }
+        }
+    }
+
+    @Test("addSecret throws scopeNotFound when the scope directory is absent")
+    func addSecretMissingScope() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            #expect(throws: VaultError.self) {
+                try core.addSecret("K", value: "v", inScope: "ghost-scope")
+            }
+        }
+    }
+
+    @Test("unlink on a link whose shared target is missing throws linkTargetMissing")
+    func unlinkDanglingLink() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            // Create a .link file pointing at a shared entry that doesn't exist.
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            #expect(throws: VaultError.self) {
+                try core.unlink("OPENAI_API_KEY", inScope: "kanyo-dev")
+            }
+        }
+    }
+
+    @Test("getValue throws yamlDecodeError when the decrypted payload is not valid YAML")
+    func getValueRejectsCorruptPayload() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            // Encrypt a non-YAML plaintext directly with age so decryption succeeds
+            // but YAML decoding fails.
+            let tempFile = FileManager.default.temporaryDirectory
+                .appendingPathComponent("corrupt-\(UUID().uuidString).txt")
+            try "@@@ this is not: :::valid yaml".write(to: tempFile, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tempFile) }
+
+            let target = VaultLayout.secretURL("CORRUPT", inScope: "kanyo-dev", in: vault)
+            let ageBinary = try Shell.findExecutable("age")
+            let result = try Shell.run(
+                ageBinary,
+                ["--encrypt", "--recipient", fixture.publicKey, "-o", target.path, tempFile.path]
+            )
+            #expect(result.exitCode == 0)
+
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            #expect(throws: VaultError.self) {
+                _ = try core.getValue("CORRUPT", inScope: "kanyo-dev")
+            }
+        }
+    }
+
     @Test("init with a malformed age key file throws ageInvocationFailed")
     func initRejectsMalformedKey() throws {
-        try Self.withEphemeralVaultAndKey { vault, _ in
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, _ in
             let bogusKey = FileManager.default.temporaryDirectory
                 .appendingPathComponent("bogus-\(UUID().uuidString).txt")
             try "not a real age key file".write(to: bogusKey, atomically: true, encoding: .utf8)
