@@ -55,6 +55,22 @@ struct MaterializerIngestTests {
         }
     }
 
+    @Test("ingest keeps incrementing the suffix past -dev-2 when more scopes collide")
+    func scopeIDThirdCollision() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            try VaultTestSupport.writeScope("bento", type: .projectDev, in: vault)
+            try VaultTestSupport.writeScope("bento-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeScope("bento-dev-2", type: .projectDev, in: vault)
+            try VaultTestSupport.withEphemeralProjectDirectory { root in
+                let project = root.appendingPathComponent("bento")
+                try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+                let mat = Materializer(vaultCore: try VaultCore(vaultURL: vault), vaultURL: vault)
+                let proposal = try mat.ingest(directory: project)
+                #expect(proposal.suggestedScopeID == "bento-dev-3")
+            }
+        }
+    }
+
     @Test("ingest sanitizes uppercase, spaces, and punctuation in directory names")
     func scopeIDSanitizesWeirdName() throws {
         try VaultTestSupport.withEphemeralVault { vault in

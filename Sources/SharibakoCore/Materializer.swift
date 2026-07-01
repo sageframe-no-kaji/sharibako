@@ -107,11 +107,8 @@ extension Materializer {
             if fileManager.fileExists(atPath: candidate.path) {
                 return try loadMarker(at: candidate)
             }
-            if current == home || current.path == "/" || current.path.isEmpty {
-                throw VaultError.markerNotFound(startingFrom: startingFrom)
-            }
             let parent = current.deletingLastPathComponent().standardizedFileURL
-            if parent == current {
+            if current == home || parent == current {
                 throw VaultError.markerNotFound(startingFrom: startingFrom)
             }
             current = parent

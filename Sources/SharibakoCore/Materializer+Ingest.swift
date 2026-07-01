@@ -88,17 +88,20 @@ extension Materializer {
         for detected in proposal.detectedKeys {
             detectedByKey[detected.key] = detected
         }
-        for decision in decisions {
+        // Validate every decision up-front against the proposal's detected keys,
+        // and pair each with its DetectedKey so `apply` receives a non-Optional value.
+        let plan: [(KeyDecision, DetectedKey)] = try decisions.map { decision in
             let key = keyName(of: decision)
-            if detectedByKey[key] == nil {
+            guard let detected = detectedByKey[key] else {
                 throw VaultError.ingestKeyMismatch(unknownKey: key)
             }
+            return (decision, detected)
         }
 
         try ensureScopeExists(scopeID: resolvedScopeID, type: resolvedScopeType)
 
-        for decision in decisions {
-            try apply(decision: decision, scopeID: resolvedScopeID, detectedByKey: detectedByKey)
+        for (decision, detected) in plan {
+            try apply(decision: decision, scopeID: resolvedScopeID, detected: detected)
         }
 
         let markerURL = proposal.directory.appendingPathComponent(".sharibako")
@@ -257,13 +260,10 @@ extension Materializer {
     private func apply(
         decision: KeyDecision,
         scopeID: String,
-        detectedByKey: [String: DetectedKey]
+        detected: DetectedKey
     ) throws {
         switch decision {
         case .importAsLocal(let key):
-            guard let detected = detectedByKey[key] else {
-                throw VaultError.ingestKeyMismatch(unknownKey: key)
-            }
             try vaultCore.addSecret(key, value: detected.value, inScope: scopeID)
         // swiftlint:disable:next pattern_matching_keywords
         case .linkToShared(let key, let sharedID):
@@ -274,9 +274,6 @@ extension Materializer {
             try vaultCore.link(key, inScope: scopeID, toShared: sharedID)
         // swiftlint:disable:next pattern_matching_keywords
         case .moveToShared(let key, let newSharedID):
-            guard let detected = detectedByKey[key] else {
-                throw VaultError.ingestKeyMismatch(unknownKey: key)
-            }
             try vaultCore.addSharedEntry(newSharedID, value: detected.value)
             try vaultCore.link(key, inScope: scopeID, toShared: newSharedID)
         case .leaveAlone, .skip:
