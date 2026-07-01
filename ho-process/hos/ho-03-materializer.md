@@ -362,7 +362,19 @@ AT-01 completes and passes before AT-02 opens. AT-02 imports AT-01's parser and 
 
 ## Phase 3 — Reflect
 
-_To be filled in after AT-01 and AT-02 complete._
+Executed 2026-07-01 as two agent tasks on Sonnet, in-session and interactively watched. AT-01 (`330fc9a`) landed clean; AT-02 (`b4af23f`) needed a short mid-flight design conversation and a small `VaultCore` surface change before proceeding.
+
+**Mid-execution design refinement.** AT-02's spec assumed `acceptIngest` had a natural `ScopeType` to reach for; it didn't. Rather than defaulting silently, the ingest surface now suggests `.projectDev` on `ProposedScope.suggestedScopeType` and lets the caller override via `acceptIngest(_:decisions:scopeID:scopeType:)`. This mirrors the same "library suggests, surface can override" pattern already used for `scopeID` — worth naming as a repeated shape when the CLI (ho-04) and GUI (ho-05/06) inherit both suggestions.
+
+**VaultCore surface gaps surfaced by the spec.** AT-02's routing needed `vaultCore.addSharedEntry(...)` and `vaultCore.createScope(...)`, neither of which existed. Both were small compositions of existing operations and got added inside the AT-02 commit. Lesson for spec authoring: verify the surface the spec references actually exists before dispatching. Two ~15-line methods later, not a blocker.
+
+**Coverage audit found two things worth naming.** `commitNothingToCommit` in `ConduitLocalTests` had been defined without a `@Test` annotation, so it silently never ran — the `.nothingToCommit` branch in `Conduit.commit(message:)` was uncovered even after ho-02 shipped. Coverage caught what test discovery didn't. Separately, the audit surfaced a real byte-preservation bug in `renderEnvLines`: a `!output.hasSuffix("\n")` guard broke round-trip for files ending in an actual blank line (`"A=1\n\n"`). AT-01 had 95%+ line coverage on the parser but no test exercised that specific shape. Line coverage tells you what code ran, not what edge cases you actually tested.
+
+**Dead defensive code, removed once seen.** The same audit exposed two guards in the ingest `apply()` helper that could never fire (the caller already validated), and a redundant `markerNotFound` throw path in `resolveMarker` that overlapped with an adjacent guard. Both cleaned up (`6479edd`) — the operating discipline says not to write validation for scenarios that can't happen, and I had.
+
+**Final state.** Materializer public surface: markers, `scan`, `status`, `materialize`, `clean`, `heal`, `ingest`, `acceptIngest`, `update`. 203 tests across 16 suites, all green. Line coverage 97.2% across `Sources/SharibakoCore/*.swift`; remaining uncovered is almost entirely `catch { throw fileSystemError/gitInvocationFailed(...) }` paths that need OS-level fault injection to reach. Five commits: `330fc9a`, `b4af23f`, `ebc7900`, `8ef46af`, `6479edd`.
+
+The Materializer is the point at which sharibako becomes usable end-to-end — a vault plus a marker plus `.env` file can now round-trip through ingest → materialize → hand-edit → update without dropping the kamae-2.2 byte-for-byte preservation guarantee. But nothing user-facing exists yet. The next practitioner-visible motion is ho-04 (CLI).
 
 ---
 
