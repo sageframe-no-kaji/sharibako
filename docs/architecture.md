@@ -2,7 +2,7 @@
 
 A public extract of Sharibako's architecture. Component shape, data model, and key technical decisions. The full design document — including evaluation traces, deferred decisions, and the build sequence — lives in the project's `ho-process/` directory.
 
-_Last revised 2026-07-01 to reflect the injection decision (see `ho-process/kamae-2.1-sharibako-injection-decision.md`). `sharibako run` is now a peer output verb alongside `sharibako materialize`. Security implications of the two verbs are covered in [SECURITY.md](../SECURITY.md)._
+_Last revised 2026-07-01 to reflect two decisions from the same session: the injection decision (`ho-process/kamae-2.1-sharibako-injection-decision.md`) added `sharibako run` as a peer output verb alongside `sharibako materialize`; the ownership decision (`ho-process/kamae-2.2-sharibako-ownership-decision.md`) committed sharibako to per-key ownership — sharibako owns only the keys the user selected at ingest, merges owned values into `.env` on materialize, and preserves every non-owned line. A new `update` operation closes the bidirectional loop (`.env` → vault). Security implications are covered in [SECURITY.md](../SECURITY.md)._
 
 ---
 
@@ -62,19 +62,20 @@ The Vault Core knows nothing about the user's filesystem outside the vault. It d
 
 ### The Materializer
 
-Bridges the vault and the user's filesystem.
+Bridges the vault and the user's filesystem — and does so with per-key ownership. Sharibako owns only the keys chosen at ingest (recorded implicitly by which `<KEY>.age` and `<KEY>.link` files exist under `vault/scopes/<id>/`); every other line in the user's `.env` is left alone.
 
 Responsibilities:
 
 - Reading and writing `.sharibako` marker files at project directories
 - Walking configured scan roots to find markers
 - Computing per-scope state — **live here**, **live elsewhere**, **orphaned**
-- Ingesting existing `.env` files into proposed scope schemas for user review
-- Writing materialized `.env` files at marker-relative paths
-- Retracting materialized files (`sharibako clean`)
-- Detecting drift between materialized files and vault state
+- Ingesting existing `.env` files into proposed scope schemas for user review, with four decision types per detected key (*import as scope-local secret*, *link to shared*, *move to shared*, *leave alone*)
+- **Merging owned values into `.env` on `materialize`** — replaces only the lines whose keys the scope owns; preserves comments, blank lines, non-owned key/value pairs, ordering, and user quote style exactly
+- **Reading `.env` back into the vault on `update`** — the bidirectional close; picks up hand-edits to owned keys, ignores non-owned lines
+- Retracting owned lines from `.env` (`sharibako clean`) — preserves the rest of the file
+- Reporting per-key drift between vault and `.env` (`heal`), for owned keys only
 
-Nothing in the Materializer ever deletes a scope automatically. Deletion is always an explicit user action and only ever touches the vault — markers on other machines become orphans on next scan, surfaced for cleanup but not destroyed.
+Nothing in the Materializer ever deletes a scope automatically. Deletion is always an explicit user action and only ever touches the vault — markers on other machines become orphans on next scan, surfaced for cleanup but not destroyed. The Materializer also never touches non-owned lines: they are the user's, sharibako doesn't inspect them, doesn't report on them, doesn't delete them.
 
 ### The Runner (part of The Tool)
 

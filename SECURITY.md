@@ -12,7 +12,9 @@ If you find a security issue, see [Reporting a vulnerability](#reporting-a-vulne
 
 **Filesystem is the schema.** No proprietary database. The vault is a directory of encrypted files. If Sharibako disappeared tomorrow, an `age` binary and standard shell tools would let you recover every secret.
 
-**Two output verbs, two exposure profiles.** `materialize` writes plaintext files at rest (for consumers that can't be wrapped). `run` puts values in a child process's environment (nothing on disk). Users pick per situation. This document explains the difference honestly.
+**Two output verbs, two exposure profiles.** `materialize` writes plaintext values on disk (for consumers that can't be wrapped). `run` puts values in a child process's environment (nothing on disk). Users pick per situation. This document explains the difference honestly.
+
+**Per-key ownership.** Sharibako owns only the keys you selected at ingest — the specific `<KEY>.age` and `<KEY>.link` files under `vault/scopes/<id>/`. Every other line in your `.env` (comments, blank lines, non-owned key/value pairs like `DEBUG=true` or `PORT=3000`) is your territory. Sharibako doesn't read those values into decisions; doesn't include them in drift reports; doesn't rewrite or delete them. See "What Sharibako doesn't touch" below.
 
 **We do not defend against code execution on your machine.** If an attacker gets a shell as you, or malware runs with your privileges, they can read the same files Sharibako reads and inspect the same process memory. Nothing in this document changes that. Full-disk encryption, OS security updates, and not running untrusted binaries are your job.
 
@@ -125,13 +127,13 @@ Outside the vault:
 
 ### `sharibako materialize <scope>`
 
-**Where the value lives:** in a plaintext `.env` file at the marker's target path. Persists on disk until overwritten or cleaned.
+**Where the value lives:** in the plaintext `.env` file at the marker's target path — but *only the lines whose keys are sharibako-owned* carry sharibako's exposure. Non-owned lines are the user's; sharibako neither writes them nor reads them. Owned-line values persist on disk until overwritten by another materialize, cleaned by `sharibako clean`, or rotated in place by a user's editor.
 
 **Who can read it:** any process with read access to that file. This includes your own code (intended), your loader (dotenv, docker-compose, direnv), AI agents that read your workspace (Class 4), backups that include your project tree, cloud sync clients (iCloud Drive, Dropbox) if the project is in a synced folder, and any user with read permissions on the file.
 
 **When to use it:** when a consumer cannot be wrapped. docker-compose services, systemd units, cron jobs, anything that starts on boot or on a schedule.
 
-**Mitigations:** `sharibako clean`, `.gitignore` entries, `tmpfs` targets on Linux, restrictive filesystem permissions.
+**Mitigations:** `sharibako clean` (removes owned lines only), `.gitignore` entries, `tmpfs` targets on Linux, restrictive filesystem permissions.
 
 ### `sharibako run [--scope <id>] -- <command>`
 
@@ -158,6 +160,24 @@ Outside the vault:
 **Where the value lives:** nowhere. Prints only the *names* of the secrets that would be set. Values are neither decrypted nor displayed.
 
 **When to use it:** to verify scope resolution before running a real command, and to produce a safe summary for an AI agent that needs to know what secrets exist without needing the values.
+
+### `sharibako update <scope>`
+
+**Where the value lives:** the vault, after the operation. Sharibako reads the `.env` file at the marker's target, extracts values for keys the scope owns, and rewrites the corresponding `<KEY>.age` files if the values differ. Non-owned lines in `.env` are ignored entirely — sharibako doesn't read them.
+
+**Who can read the file being read:** anyone with read access to the `.env`. This is the user's file at rest; the same exposure it has always had. `update` doesn't change that exposure — it just picks up hand-edits.
+
+**When to use it:** after hand-editing `.env` in your editor. Also useful for "git-track the whole `.env`" workflows where sharibako owns every key, and the practitioner edits `.env` as the working surface with sharibako as the versioned store.
+
+**What it doesn't do:** it does not touch non-owned lines and does not report on them. If you hand-edit `DEBUG=false` and sharibako doesn't own `DEBUG`, `update` sees nothing about `DEBUG`.
+
+### `sharibako clean [<scope>]`
+
+**Where the value lives:** nowhere, after the operation. Sharibako removes only the lines whose keys the scope owns from `.env`. Non-owned lines are preserved. If the resulting file is empty or contains only whitespace and comments, sharibako deletes the file; otherwise it leaves the file with the user's remaining content intact.
+
+**When to use it:** after a session ends, when the materialized owned values should not persist on disk. Also as a hygiene action before committing a project's changes if `.env` accidentally ended up staged.
+
+**Mitigations built in:** confirms before deleting unless `--force` is passed. Never touches non-owned user content.
 
 ---
 
@@ -252,6 +272,33 @@ cd vault && git log --follow shared/openai-personal.age
 ```
 
 If Sharibako has a bug in encryption or link resolution, you can verify it against the raw files. If Sharibako disappears, you can recover with just the `age` binary.
+
+---
+
+## What Sharibako doesn't touch
+
+Per-key ownership means sharibako has a specific list of things it interacts with and a specific list of things it treats as user territory. Naming both explicitly:
+
+**Sharibako reads and writes:**
+
+- `.age` and `.link` files inside the vault directory (`vault/scopes/<id>/*.age`, `vault/scopes/<id>/*.link`, `vault/shared/*.age`)
+- `scope.yaml` files inside scope directories
+- `.sharibako` marker files at project roots that the user has run `sharibako init` in
+- The single line for each owned key inside a project's `.env` file (on `materialize`), read-only inspection of those same lines (on `update`), and removal of only those lines (on `clean`)
+- The scope's assigned target path (default `./.env`; overridable in the marker)
+
+**Sharibako does not touch:**
+
+- Non-owned lines in the user's `.env` (comments, blank lines, non-secret config like `DEBUG=true`, `PORT=3000`, `NODE_ENV=development`)
+- The user's `.env.example`, `.env.local`, `.env.production`, or any other `.env.<suffix>` unless the marker explicitly points at one
+- Any file outside the vault directory and the marker-declared target path
+- The user's shell config, dotfiles, or global git config
+- The user's global age keys or SSH keys (except for using them read-only through the OS to authenticate git operations)
+- Any file the user has not opted in to through `sharibako init`
+
+**Sharibako does not "observe":**
+
+- Non-owned line values are read by the parser during `update` and `materialize` only to preserve them byte-for-byte in the file. Their values are not decoded, not compared, not surfaced in drift reports, not logged, not sent anywhere. They pass through the parser like blank lines do: preserved, not inspected.
 
 ---
 

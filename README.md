@@ -18,12 +18,15 @@ Underneath all of it is hygiene. The friction of doing it right is higher than t
 
 ## What Sharibako Does
 
-A small local vault that holds your secrets in a shape that matches how you work — by **project** and by **machine**. Sharibako has two output verbs:
+A small local vault that holds your secrets in a shape that matches how you work — by **project** and by **machine**. Sharibako owns only the keys you tell it to own; the rest of your `.env` stays yours, untouched.
 
-- **`sharibako materialize <scope>`** — writes a plaintext `.env` at the scope's target path, for consumers that can't be wrapped (docker-compose services on a homelab host, systemd units, cron jobs).
-- **`sharibako run [--scope <id>] -- <cmd>`** — decrypts to memory, spawns your command with the values set in its environment, and exits when it exits. Nothing on disk. This is the right verb for interactive dev — `npm run dev`, `python app.py`, `cargo run`, `docker-compose up`.
+Two output verbs and one bidirectional-sync verb:
 
-Both verbs share the same age-decrypt path and the same Touch ID gating. Use `run` when you can; use `materialize` when the consumer can't be wrapped. See [SECURITY.md](SECURITY.md) for the exposure trade-off.
+- **`sharibako materialize <scope>`** — merges the scope's owned keys into `.env` at the marker's target path, preserving every non-owned line (comments, blank lines, `DEBUG=true`, `PORT=3000`, whatever you have). For consumers that can't be wrapped: docker-compose services on a homelab host, systemd units, cron jobs.
+- **`sharibako run [--scope <id>] -- <cmd>`** — decrypts to memory, spawns your command with the owned values set in its environment, exits when it exits. Nothing on disk. This is the right verb for interactive dev — `npm run dev`, `python app.py`, `cargo run`, `docker-compose up`.
+- **`sharibako update <scope>`** — reads the current `.env`, notices which owned keys the user hand-edited in an editor, and updates the vault to match. Bidirectional close: `materialize` goes vault→file; `update` goes file→vault.
+
+All three share the same age-decrypt path and the same Touch ID gating. Use `run` when you can; use `materialize` when the consumer needs a file; use `update` after you've been hand-editing `.env`. See [SECURITY.md](SECURITY.md) for the exposure trade-off between materialize and run.
 
 Vocabulary:
 
@@ -42,13 +45,15 @@ You drag `Sharibako.app` to Applications and open it. It asks where you keep you
 
 Touch ID. The app opens to an empty vault.
 
-In Terminal, you `cd` into a project that already has a `.env` — say `bento`, your weekend Python app. You run `sharibako init`. It reads the `.env`, sees three secrets — `OPENAI_API_KEY`, `DATABASE_URL`, `DEBUG` — and asks what to do with each. `OPENAI_API_KEY` name-matches a shared entry you don't have yet, so you choose *move to shared*; the other two you import as project-local. A `.sharibako` file appears next to `.env`. The secrets are now in the vault, encrypted.
+In Terminal, you `cd` into a project that already has a `.env` — say `bento`, your weekend Python app. Its `.env` has five keys: `OPENAI_API_KEY`, `DATABASE_URL`, `DEBUG`, `PORT`, `NODE_ENV`. You run `sharibako init`. It reads the `.env` and asks what to do with each. For `OPENAI_API_KEY` you choose *move to shared*; `DATABASE_URL` you import as project-local; `DEBUG`, `PORT`, and `NODE_ENV` you *leave alone* — they're not secrets, and sharibako stays out of them. A `.sharibako` file appears next to `.env`. Two secrets are now in the vault, encrypted. Your other three lines in `.env` are untouched; you can still toggle `DEBUG=false` in your editor at 3 a.m. without sharibako in the loop.
 
-A week later you start a new project, `momiji`, which also wants `OPENAI_API_KEY`. You `sharibako init` there. This time it sees the shared entry and suggests linking. You accept. Both projects now point at the same value.
+A week later you start a new project, `momiji`, which also wants `OPENAI_API_KEY`. You `sharibako init` there. This time sharibako sees the shared entry and suggests linking. You accept. Both projects now point at the same value.
 
-Tomorrow OpenAI mails you about a quota refresh and you mint a new key. You open the workshop, find `shared/openai-personal`, paste the new value, hit save. Both `bento` and `momiji` show "stale" beside their materialized `.env`. You hit *Materialize all stale*. Done.
+Tomorrow OpenAI mails you about a quota refresh and you mint a new key. You open the workshop, find `shared/openai-personal`, paste the new value, hit save. Both `bento` and `momiji` show "stale" beside their materialized `.env`. You hit *Materialize all stale*. Sharibako rewrites the `OPENAI_API_KEY` line in each project's `.env` — nothing else — and leaves your `DEBUG`, `PORT`, `NODE_ENV` as they were.
 
 The vault commits the change. You sync. On your homelab box that pulls the vault on a cron and runs `sharibako materialize` for the services living there, the same key flows out within the hour.
+
+_A different practitioner might import all five keys into the vault at ingest, giving sharibako the whole `.env` as a git-tracked, encrypted, sync-across-machines artifact. After editing `.env` in a scratchpad on a different machine, they'd run `sharibako update <scope>` and the vault picks up the change. Same code path, different starting checklist. Whichever pattern fits your project is the right one._
 
 ## What Sharibako Is Not
 
@@ -159,17 +164,20 @@ sharibako get kanyo-dev OPENAI_API_KEY
 # Rotate a shared value (propagates to all linked scopes)
 sharibako rotate shared/openai-personal "sk-new-value"
 
-# Materialize a scope's .env (writes plaintext file at target path)
+# Materialize a scope's .env (merges owned keys, preserves non-owned lines)
 sharibako materialize kanyo-dev
 
-# Run a command with the scope's secrets in its environment (nothing on disk)
+# Run a command with the scope's owned secrets in its environment (nothing on disk)
 sharibako run -- npm run dev
 sharibako run --scope kanyo-dev -- docker-compose up
 
 # Show which secrets `run` would set, without values (safe to share with an AI agent)
 sharibako run --dry-run -- npm run dev
 
-# Remove materialized files for a scope
+# Pull hand-edits to .env back into the vault
+sharibako update kanyo-dev
+
+# Remove sharibako-owned lines from a scope's .env (preserves user's other lines)
 sharibako clean kanyo-dev
 
 # git pull + push the vault

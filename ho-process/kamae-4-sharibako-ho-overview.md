@@ -14,7 +14,7 @@ next: per-ho dandori specs authored via ho-kamae-5
 
 Eleven hos across seven phases (v1.0 target). Phase 0 sets up the project. Phases 1–2 build the vault substrate and the bridge to the user's filesystem with no UI at all. Phase 3 puts a CLI on top of that and earns the first real dogfooding, then ho-04.5 adds runtime injection (`sharibako run`) as a peer output verb alongside materialize. Phases 4–5 add the Workshop and the linking UX that the parti is built around. Phase 6 ships v1.0 through signing, notarization, website, and release.
 
-_Revision 2026-07-01: ho-04.5 inserted after the injection decision (kamae-2.1). This is a build-phase document; ship/commercial concerns sit in ho-09 as they always did — not elevated to Kamae content._
+_Revision 2026-07-01: ho-04.5 inserted after the injection decision (kamae-2.1). Ho-03 entry updated to reflect the ownership decision (kamae-2.2) — per-key ownership, `.env` merge-not-overwrite, `update` verb, four-way ingest matrix. This is a build-phase document; ship/commercial concerns sit in ho-09 as they always did — not elevated to Kamae content._
 
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
@@ -157,41 +157,56 @@ The Vault Core knows about the vault; the user's filesystem knows about `.env` f
 
 *Release on phase complete: v0.2 (library + materializer; programmatically usable)*
 
-### ho-03 — The Materializer: markers, ingest, materialize, heal
+### ho-03 — The Materializer: markers, ingest, materialize, update, heal
 
-The bridge's full responsibility set. Reads and writes `.sharibako` marker YAML; walks `scan_roots` to find markers; parses `.env` and `.env.local` (falling back to `.env.example` for key schema); proposes scope schemas for user review; writes materialized `.env` files; computes the three-state model (`live_here`, `live_elsewhere`, `orphaned`) by checking marker presence on this machine. The `heal` operation reconciles surface drift. Nothing in this layer ever deletes a scope automatically — deletion is always an explicit user action against the Vault Core.
+The bridge's full responsibility set. Reads and writes `.sharibako` marker YAML; walks `scan_roots` to find markers; parses `.env` files; proposes scope schemas for user review through a four-way decision matrix (per kamae-2.2); merges owned keys into `.env` on `materialize` while preserving all non-owned lines exactly; reads `.env` back into the vault on `update` (bidirectional flow); computes the three-state model (`live_here`, `live_elsewhere`, `orphaned`); reports per-key drift via `heal`; retracts owned lines via `clean`. Nothing in this layer ever deletes a scope automatically — deletion is always an explicit user action against the Vault Core.
 
 **Depends on:** ho-01, ho-02
 
+**Reflects:** kamae-2.2 ownership decision — per-key ownership; `.env` merge-not-overwrite; `update` verb; four-way ingest matrix (import-local / link-shared / move-to-shared / leave-alone).
+
 **What's in scope:**
 - `.sharibako` marker read/write
-- `scan(roots) → [marker]`
-- `.env` / `.env.local` / `.env.example` parsing (KEY=value, quoted values, comments, blank lines)
-- `ingest(directory) → ProposedScope` returning a structured proposal for surface review
-- `materialize(scope_id)` writing the composed `.env` at the marker's target
+- `scan(roots) → [ScopeMarker]`
+- `.env` / `.env.local` / `.env.example` parsing (KEY=value, quoted values, comments, blank lines, `export` prefix, malformed-line warnings)
+- Line-preserving merge: composed materialize output replaces only owned-key lines, preserving comments / blank lines / non-owned pairs / user quote style
+- `ingest(directory) → ProposedScope` returning a structured proposal with four decision types per detected key
+- `acceptIngest(proposal, decisions)` writing the vault-side result of an ingest decision matrix
+- `materialize(scope_id, overwriteDrift: Bool)` composing the merged `.env` at the marker's target; returns `.diffPending` when drift would be overwritten and `overwriteDrift == false`
+- `update(scope_id)` reading `.env`, updating vault values for owned keys that differ (bidirectional close)
+- `clean(scope_id)` removing only owned lines; deletes the file if the result is empty/whitespace
 - `status(scope_id) → live_here | live_elsewhere | orphaned`
-- `heal(scope_id)` surfacing drift between vault and marker target
-- Integration test: simulated project dir, ingest, mark, materialize, assert `.env` content
+- `heal(scope_id)` returning a structured `DriftReport` for owned keys only
+- Integration test: simulated project dir, ingest with mixed decisions (some owned, some left-alone), materialize, hand-edit non-owned line + owned line, run `update`, assert vault picked up owned change but non-owned edit was preserved
 
 **What "done" means:**
 - All operations pass tests
-- Ingest correctly identifies name-matched shared-entry suggestions
-- Materialize composes secrets in a stable order (alphabetical, probably) so `git diff` on the materialized `.env` is meaningful in user-side repos
-- Three-state computation matches reality across a multi-machine simulation (vault has a scope; marker present on machine A → `live_here`; absent on machine B → `live_elsewhere`)
+- Merge preserves non-owned lines byte-for-byte across a full round-trip (materialize → hand-edit non-owned → update → materialize)
+- Ingest presents all four decision types; each resolves to the correct vault-side action
+- Update correctly rewrites `<KEY>.age` for keys whose file value differs from vault value; leaves non-owned lines and matching-value owned keys untouched
+- Materialize composes owned lines in a stable order (alphabetical for new files; preserves user's existing order when the file already had those keys)
+- Three-state computation matches reality across a multi-machine simulation
+- Drift report never surfaces non-owned keys
 
 **What's out of scope:**
 - Multi-root scanning UI (config field is `[String]`; v1 exposes single root — Deferred Decision #4, post-MVP)
 - Additional materialization formats beyond `.env` (Deferred Decision #5, post-MVP)
 - Remote-host materialization (Deferred Decision #6, post-MVP)
 - Background filesystem watching (FSEvents) — manual `scan` only in v1
+- CLI subcommands (`sharibako materialize`, `sharibako update`, `sharibako ingest`) — ho-04
+- Any GUI surface — ho-05/ho-06
 
 **Decisions required:**
-- **`.env` parser strictness**: how to handle malformed lines (skip with warning vs. fail), how to handle multi-line values (probably reject in v1), how to handle export-prefix (`export FOO=bar` — accept and strip the `export`)
-- **Default `materialize_to`**: `./.env` (matches the seed). Resolved here; documented in the marker spec.
-- **Materialize behavior when target file exists and differs**: show a diff and require confirmation (CLI prompt / GUI modal), versus overwrite silently. v1 default: confirm on non-trivial diff.
-- **Ingest fallback when only `.env.example` exists**: import key schema with empty values and surface a "fill these in" state, versus skip the scope entirely. v1 default: import the keys, mark them unset.
+- **`.env` parser strictness**: accept `export FOO=bar` and strip the `export`; reject multi-line values in v1 with a warning; skip malformed lines with warnings collected in a `ParseWarnings` return, do not fail ingest (Q4 from ownership-decision conversation)
+- **Default `materialize_to`**: `./.env` when the marker omits it (matches system design)
+- **Materialize behavior on drift**: return `.diffPending(diff:)` from `materialize` when owned-key values differ; surfaces re-invoke with `overwriteDrift: true` (Q1 from ownership-decision conversation)
+- **Ingest fallback when only `.env.example` exists**: surface keys via `suggestedKeysNeedingValues` — a checklist, not vault entries with empty values (Q2 from ownership-decision conversation)
+- **Ingest name-matching for shared entries**: exact match only, no fuzzy, no case-insensitive (Q3 from ownership-decision conversation)
+- **Materializer public type shape**: `public struct Materializer`, extended across files for the write path and read path (matches `Conduit` + `Conduit+Remote` precedent)
+- **DriftReport shape**: contains SHA-256 of vault value and file value per owned key, not plaintext; plaintext retrieval via `VaultCore.get_value` on demand
+- **Whether "leave alone" is persistent**: ephemeral in v1 (not recorded in `scope.yaml`); persistent-if-needed is a post-v1 refinement
 
-**Possible split:** the Materializer is the densest single ho in the vault substrate. If ingest's decision matrix or `.env` parsing edge cases sprawl, split into ho-03.1 (markers + materialize + status + heal, the write path) and ho-03.2 (ingest + `.env` parsing + name-matching, the read path).
+**Not splitting into ho-03.1 / ho-03.2.** The original ho-overview speculated a split. Ho-03 stays a single ho; the two-agent-task decomposition (write path + read path) carries the density without needing a ho-level split.
 
 ---
 
