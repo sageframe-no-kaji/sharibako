@@ -11,6 +11,7 @@ struct SharibakoCommand: AsyncParsableCommand {
         version: SharibakoCore.version,
         subcommands: [
             KeyCommand.self,
+            InitCommand.self,
             StatusCommand.self,
             ScanCommand.self,
             ListCommand.self,

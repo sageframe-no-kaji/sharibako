@@ -75,21 +75,7 @@ struct GenerateCommand: AsyncParsableCommand {
             }
             try fileManager.removeItem(at: path)
         }
-        // Ensure parent directory exists.
-        let parent = path.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: parent.path) {
-            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        }
-
-        let ageKeygen = try CLIShell.findExecutable("age-keygen")
-        let result = try CLIShell.run(ageKeygen, ["-o", path.path])
-        guard result.exitCode == 0 else {
-            throw VaultError.ageInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
-        }
-        // Fix permissions to 0600.
-        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
-
-        let publicKey = try extractPublicKey(from: path)
+        let publicKey = try AgeKeyBootstrap.generateToFile(at: path)
         fputs("Save this recipient key somewhere safe:\n", stderr)
         print(publicKey)
     }
@@ -110,21 +96,7 @@ struct GenerateCommand: AsyncParsableCommand {
                     }
                 }
             }
-
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("sharibako-keygen-\(UUID().uuidString)")
-            defer { try? FileManager.default.removeItem(at: tempURL) }
-
-            let ageKeygen = try CLIShell.findExecutable("age-keygen")
-            let result = try CLIShell.run(ageKeygen, ["-o", tempURL.path])
-            guard result.exitCode == 0 else {
-                throw VaultError.ageInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
-            }
-
-            let data = try Data(contentsOf: tempURL)
-            try keychain.storeIdentity(data)
-
-            let publicKey = try extractPublicKey(from: tempURL)
+            let publicKey = try AgeKeyBootstrap.generateToKeychain()
             fputs("Save this recipient key somewhere safe:\n", stderr)
             print(publicKey)
         }
