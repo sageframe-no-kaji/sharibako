@@ -8,4 +8,7 @@
 enum TerminalDetector {
     /// `true` when stdout is connected to a TTY (not a pipe or file redirect).
     static var isColorTerminal: Bool { isatty(STDOUT_FILENO) != 0 }
+
+    /// `true` when stdin is an interactive terminal (not a pipe/redirect/CI).
+    static var isInteractiveInput: Bool { isatty(STDIN_FILENO) != 0 }
 }

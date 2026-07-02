@@ -255,6 +255,18 @@ enum ErrorReporter {
                 message: "Pull conflict (detail above). Resolve manually, then run `sharibako sync` again.",
                 remediation: nil
             )
+        case .notInteractiveTerminal:
+            return ErrorReport(
+                code: .userError,
+                message: "`init` needs an interactive terminal; scriptable flags are a followup.",
+                remediation: nil
+            )
+        case .aborted:
+            return ErrorReport(
+                code: .success,
+                message: "Aborted.",
+                remediation: nil
+            )
         }
     }
 }

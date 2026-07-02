@@ -88,4 +88,8 @@ enum CLIError: Error, Equatable {
     case syncRejected
     /// `sync pull` encountered a merge conflict (merge aborted); files already printed to stderr.
     case syncConflict
+    /// `init` was invoked without an interactive terminal; non-interactive flags are a followup.
+    case notInteractiveTerminal
+    /// The user cancelled the interactive prompt (Ctrl-C).
+    case aborted
 }
