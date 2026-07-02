@@ -267,6 +267,12 @@ enum ErrorReporter {
                 message: "Aborted.",
                 remediation: nil
             )
+        case .nothingToInitialize(let directory):
+            return ErrorReport(
+                code: .userError,
+                message: "No secrets found in \(directory.path). Nothing to initialize.",
+                remediation: "Add a `.env` with at least one KEY=value, or `sharibako add` to an existing scope."
+            )
         }
     }
 }

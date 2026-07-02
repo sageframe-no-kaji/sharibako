@@ -286,8 +286,8 @@ struct InitCommandTests {
 
     // MARK: - Empty .env
 
-    @Test("empty .env: writes a zero-secret marker binding the directory to a scope")
-    func emptyEnvWritesMarker() throws {
+    @Test("empty .env: refuses, writes nothing — no empty scope or marker as chaff")
+    func emptyEnvRefuses() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             // Directory with no .env file at all (ingest returns empty detectedKeys).
             let projectDir = FileManager.default.temporaryDirectory
@@ -295,29 +295,20 @@ struct InitCommandTests {
             try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            // scope-ID prompt → "empty-scope", scope-type → "".
-            var lineReaderQueue = ["empty-scope", ""]
-            let lineReader = { () -> String? in
-                lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
-            }
             var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
-            // Use allSkip as a safeguard — should not be called for an empty proposal.
-            try cmd._run(
-                cwd: projectDir,
-                decisionSource: ScriptedIngestDecisionSource.allSkip(),
-                lineReader: lineReader
-            )
+            // allSkip is a safeguard — the decision source must not be reached for an empty proposal.
+            #expect(throws: CLIError.nothingToInitialize(directory: projectDir)) {
+                try cmd._run(
+                    cwd: projectDir,
+                    decisionSource: ScriptedIngestDecisionSource.allSkip()
+                ) { nil }
+            }
 
-            // Marker exists and binds to "empty-scope".
+            // Nothing written: no marker, no scope in the vault.
             let markerURL = projectDir.appendingPathComponent(".sharibako")
-            #expect(FileManager.default.fileExists(atPath: markerURL.path))
+            #expect(!FileManager.default.fileExists(atPath: markerURL.path))
             let vault = try VaultCore(vaultURL: vaultURL)
-            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
-            let marker = try materializer.loadMarker(at: markerURL)
-            #expect(marker.scope == "empty-scope")
-
-            // Scope exists in vault with zero secrets.
-            #expect(try vault.inspect("empty-scope").isEmpty)
+            #expect(try vault.listScopes().isEmpty)
         }
     }
 

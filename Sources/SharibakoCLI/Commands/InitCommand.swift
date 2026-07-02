@@ -50,44 +50,50 @@ struct InitCommand: AsyncParsableCommand {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let markerFileURL = targetURL.appendingPathComponent(".sharibako")
         let existingMarker = try loadExistingMarker(at: markerFileURL, vaultURL: vaultURL)
+
+        // Ingest needs no private key — it parses `.env` and reads the vault's
+        // filesystem. Run it up front so a directory with nothing to import is
+        // rejected before we generate a key or write a scope/marker: no empty
+        // scopes as chaff (Decision 4 / practitioner intent).
+        let scanVault = try VaultCore(vaultURL: vaultURL)
+        let scanMaterializer = Materializer(vaultCore: scanVault, vaultURL: vaultURL)
+        let fullProposal = try scanMaterializer.ingest(directory: targetURL)
+        let proposal: ProposedScope
+        if let marker = existingMarker {
+            proposal = filterProposal(fullProposal, existingScope: marker.scope, vault: scanVault)
+        } else {
+            proposal = fullProposal
+        }
+
+        guard !proposal.detectedKeys.isEmpty else {
+            if let marker = existingMarker {
+                print("Directory already initialized as scope '\(marker.scope)'. No new secrets to reconcile.")
+                return
+            }
+            throw CLIError.nothingToInitialize(directory: targetURL)
+        }
+
+        // At least one secret to import. Resolve the scope, then the age key.
+        let scopeID: String
+        let scopeType: ScopeType
         if let marker = existingMarker {
             print("Directory already initialized as scope '\(marker.scope)'. Reconciling new keys...")
+            scopeID = marker.scope
+            scopeType = proposal.suggestedScopeType
         } else {
             let shouldContinue = try offerKeyGeneration(lineReader: lineReader)
             guard shouldContinue else { return }
+            let selection = try promptScopeIDAndType(proposal: proposal, vault: scanVault, lineReader: lineReader)
+            scopeID = selection.scopeID
+            scopeType = selection.scopeType
         }
+
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let handle = try provider.loadIdentity(reason: "Encrypt secrets during sharibako init")
         defer { handle.release() }
         let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
         let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
-        let fullProposal = try materializer.ingest(directory: targetURL)
-        let proposal: ProposedScope
-        if let marker = existingMarker {
-            proposal = filterProposal(fullProposal, existingScope: marker.scope, vault: vault)
-        } else {
-            proposal = fullProposal
-        }
-        let scopeID: String
-        let scopeType: ScopeType
-        if let marker = existingMarker {
-            scopeID = marker.scope
-            scopeType = proposal.suggestedScopeType
-        } else {
-            let selection = try promptScopeIDAndType(proposal: proposal, vault: vault, lineReader: lineReader)
-            scopeID = selection.scopeID
-            scopeType = selection.scopeType
-        }
-        if proposal.detectedKeys.isEmpty {
-            try acceptEmpty(
-                proposal: proposal,
-                scopeID: scopeID,
-                scopeType: scopeType,
-                materializer: materializer,
-                markerURL: markerFileURL
-            )
-            return
-        }
+
         let sharedIDs = try vault.listShared()
         let decisions = try decisionSource.decisions(for: proposal, sharedIDs: sharedIDs)
         try materializer.acceptIngest(
@@ -239,28 +245,6 @@ struct InitCommand: AsyncParsableCommand {
         let scopeType = ScopeType(rawValue: rawType) ?? .projectDev
 
         return ScopeSelection(scopeID: scopeID, scopeType: scopeType)
-    }
-
-    /// Handles the empty-`.env` case: writes a zero-secret marker, then returns.
-    ///
-    /// An empty scope is legitimate — the practitioner can `sharibako add` secrets
-    /// later. This mirrors `git init` in an empty directory: the binding is the
-    /// first-class act, not the initial content.
-    private func acceptEmpty(
-        proposal: ProposedScope,
-        scopeID: String,
-        scopeType: ScopeType,
-        materializer: Materializer,
-        markerURL: URL
-    ) throws {
-        try materializer.acceptIngest(
-            proposal,
-            decisions: [],
-            scopeID: scopeID,
-            scopeType: scopeType
-        )
-        print("No `.env` secrets found. Initialized scope '\(scopeID)' at \(markerURL.path) with 0 secrets.")
-        print("Add secrets later with `sharibako add`.")
     }
 
     /// Prints the post-ingest decision summary.

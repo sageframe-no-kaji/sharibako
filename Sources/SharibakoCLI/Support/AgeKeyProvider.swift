@@ -92,4 +92,6 @@ enum CLIError: Error, Equatable {
     case notInteractiveTerminal
     /// The user cancelled the interactive prompt (Ctrl-C).
     case aborted
+    /// `init` found no secrets to import in the target directory; nothing was written.
+    case nothingToInitialize(directory: URL)
 }
