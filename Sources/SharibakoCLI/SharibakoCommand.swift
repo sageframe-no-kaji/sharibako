@@ -5,6 +5,8 @@ import SharibakoCore
 ///
 /// Registers every subcommand. Commands that are not yet implemented
 /// (AT-02 write verbs) will be added here when they land.
+@available(macOS 10.15, *)
+@main
 struct SharibakoCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sharibako",

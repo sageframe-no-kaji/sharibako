@@ -19,6 +19,10 @@ struct ListCommand: AsyncParsableCommand {
     var shared: Bool = false
 
     func run() async throws {
+        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+    }
+
+    private func _run() throws {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let vault = try VaultCore(vaultURL: vaultURL)
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)

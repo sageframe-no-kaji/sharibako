@@ -43,6 +43,10 @@ struct HealCommand: AsyncParsableCommand {
     var scope: String?
 
     func run() async throws {
+        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+    }
+
+    private func _run() throws {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let handle = try provider.loadIdentity(reason: "Read vault secrets for heal")

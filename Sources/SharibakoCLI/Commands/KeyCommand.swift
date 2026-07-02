@@ -38,6 +38,10 @@ struct GenerateCommand: AsyncParsableCommand {
     var yes: Bool = false
 
     func run() async throws {
+        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+    }
+
+    private func _run() throws {
         let destPath = VaultLocator.resolveAgeKey(globalFlag: global.ageKeyURL)
 
         if let path = destPath {
@@ -148,6 +152,10 @@ struct ImportCommand: AsyncParsableCommand {
     var keepSource: Bool = false
 
     func run() async throws {
+        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+    }
+
+    private func _run() throws {
         let sourceURL = URL(fileURLWithPath: sourcePath)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             throw CLIError.ageKeyFileNotFound(path: sourceURL)
@@ -233,6 +241,10 @@ struct ExportCommand: AsyncParsableCommand {
     var iKnowThisIsPlaintext: Bool = false
 
     func run() async throws {
+        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+    }
+
+    private func _run() throws {
         if `private` {
             guard iKnowThisIsPlaintext else {
                 throw CLIError.exportRequiresPlaintextAcknowledgement

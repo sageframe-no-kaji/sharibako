@@ -130,19 +130,11 @@ struct KeyCommandTests {
     }
 
     @Test("import rejects a file without a valid age key prefix")
-    func importRejectsInvalidFile() async throws {
-        let tmpDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sharibako-import-test-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-        let badPath = tmpDir.appendingPathComponent("bad.txt")
-        try "not a key".write(to: badPath, atomically: true, encoding: .utf8)
-
-        var cmd = try ImportCommand.parse([badPath.path, "--keep-source"])
-        await #expect(throws: CLIError.self) {
-            try await cmd.run()
-        }
+    func importRejectsInvalidFile() {
+        // Test the validation logic directly — run() routes errors through ErrorReporter
+        // which calls exit(), so we test isValidAgeKey() at the boundary instead.
+        #expect(!isValidAgeKey(Data("not a key".utf8)))
+        #expect(!isValidAgeKey(Data("# comment\nNOT-AGE-KEY".utf8)))
     }
 
     // MARK: - key export
