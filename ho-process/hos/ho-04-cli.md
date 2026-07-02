@@ -1,6 +1,6 @@
 ---
 created: 2026-07-02
-status: draft
+status: complete
 type: ho-document
 project: sharibako
 ho: "04"
@@ -191,7 +191,37 @@ AT-01 lands and dogfoods before AT-02 opens — a CLI that can `status`, `scan`,
 
 ## Phase 3 — Reflect
 
-_To be filled in after AT-01 and AT-02 complete._
+AT-01 and AT-02 committed at `ba5c1e6` and `713f252` respectively. Dogfood ran against the debug binary (`swift build` without `-c release`); see Release binary collision note below.
+
+### What verified correctly
+
+**AT-01 verbs** (`key`, `status`, `scan`, `list`, `heal`) verified via `--age-key` bypass during AT-01 dogfooding. `heal` drift detection and `scan` marker enumeration both correct. `list --shared` and `list` (scopes) both work; `list` does not take a positional argument (correct — flags only).
+
+**AT-02 verbs** — full terminal run:
+
+- `add`, `get`, `rotate`: correct round-trip. Duplicate `add` without `--force` surfaces the right error message and exit code 2. `--force` overwrites. Rotate replaces ciphertext; `get` after rotate returns the new value.
+- `add --from-stdin`: pipe path works; trailing newline stripped. `--value` + `--from-stdin` conflict exits 2 with clear message. Neither flag also exits 2.
+- `materialize`: wrote `.env` from a marker-resolved scope, reported key count. Second materialize on unchanged vault: "already up to date." Hand-edited `.env` → drift detection printed the differing key and exited 2 without modifying the file. `--force` overwrote and exited 0.
+- `update`: pushed one hand-edited key back to the vault. Subsequent call with no further edits: "No changes." `get` after update confirmed the vault value updated.
+- `clean --yes`: removed both owned keys, deleted the now-empty `.env`, exited 0. Second `clean` on the missing file: "Nothing to clean" with exit 0.
+- `sync --no-push --no-pull`: initial commit on empty git repo succeeded. Subsequent call with nothing staged: printed "nothing to commit", exited 0. Custom message via `-m` included in the commit.
+- Exit codes throughout: 0 on success, 2 on user errors (ValueInput, drift detection, missing target file), matching the taxonomy.
+
+### Issues surfaced
+
+**Release binary name collision.** `swift build -c release` writes both `Sharibako` (the SwiftUI app entry point) and `sharibako` (the CLI) into `.build/release/`. On macOS's case-insensitive APFS the names collide; the GUI binary wins and `.build/release/sharibako` hangs on any invocation (no AppKit run loop). The debug binary is unaffected — `swift build` only produces the CLI. Workaround for now: dogfood from `.build/debug/sharibako`. The real fix is in ho-05 (Xcode project), where the GUI app gets a separate Xcode-managed build output path and the CLI builds separately. Until then, `scripts/install.sh` (ho-04.3) should build the CLI with `swift build -c release --product sharibako` and verify the installed binary, not the path.
+
+**Marker walker surfaces file-system error on home-directory boundary.** Running `materialize` from a directory with no `.sharibako` ancestor (the repo root was the test case) produces "File system error at /Users/atmarcus/.sharibako: The file couldn't be opened." rather than the cleaner "No .sharibako marker found starting from…" error that appears when the run is explicitly scoped. The walker appears to attempt opening `~/.sharibako` as a candidate and surfaces the open-failure as a filesystem error rather than a no-marker condition. This is a minor UX issue but wants a fix before ho-04.2 ships, since `init` relies heavily on the marker-resolution path.
+
+**link / unlink not dogfooded end-to-end.** There is no `add-shared` verb — shared entries are created by `init` (ho-04.2). A manually crafted `.age` file without the `SecretContent` YAML wrapper caused a "Failed to decode YAML" error when `get` attempted to decrypt a linked key. Unit tests cover the link / unlink path correctly; end-to-end CLI dogfood will happen when ho-04.2 delivers `init`.
+
+### Touch ID friction log
+
+Not started. All AT-01 and AT-02 dogfooding bypassed Keychain via `--age-key`. The log called for in the ho-04.5 followup begins once ho-04.3 signs the binary and Keychain prompts are live.
+
+### Keychain integration status
+
+Written but not verified on a real signed binary. Deferred to ho-04.3 (see Followups). The `--age-key` bypass confirmed that every verb that touches encryption works correctly when given a key file; the biometry-gate is the only open question.
 
 ---
 
@@ -241,4 +271,5 @@ Not urgent. AT-02's dogfooding proceeds on `--age-key` bypass. ho-04.3 clears th
 ---
 
 _Authored: 2026-07-02._
-_Execute and Reflect: pending._
+_Execute: complete (AT-01 `ba5c1e6`, AT-02 `713f252`)._
+_Reflect: complete 2026-07-02._
