@@ -9,6 +9,10 @@
     /// The Keychain account label that stores the age private key.
     private let keychainAccount = "sharibako.age-key"
 
+    // Keychain access group — must match the keychain-access-groups entitlement.
+    // CLI tools have no implicit bundle ID, so the group is declared explicitly.
+    private let keychainAccessGroup = "3N8F759K8D.net.sageframe.sharibako"
+
     /// Retrieves and stores the age private key in the macOS Keychain.
     ///
     /// Access is gated by a `SecAccessControl` configured with `.userPresence`,
@@ -28,6 +32,7 @@
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
                 kSecReturnData as String: true,
                 kSecUseAuthenticationContext as String: context,
             ]
@@ -69,6 +74,7 @@
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
             ]
             _ = SecItemDelete(deleteQuery as CFDictionary)
 
@@ -76,6 +82,7 @@
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
                 kSecValueData as String: contents,
                 kSecAttrAccessControl as String: access,
             ]
@@ -96,6 +103,7 @@
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
                 kSecReturnData as String: true,
                 kSecUseAuthenticationContext as String: context,
             ]
@@ -113,6 +121,7 @@
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
                 kSecReturnAttributes as String: true,
                 kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
             ]

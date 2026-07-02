@@ -69,3 +69,5 @@ prompts/
 private-docs/
 
 # ─── Project-specific (add below) ───────────────────────────────────────
+# Provisioning profiles — developer-specific, expire yearly, regenerate from portal
+scripts/*.provisionprofile

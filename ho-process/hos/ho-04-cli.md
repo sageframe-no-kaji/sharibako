@@ -268,6 +268,8 @@ Not urgent. AT-02's dogfooding proceeds on `--age-key` bypass. ho-04.3 clears th
 - **`sharibako-agent`** daemon — subject to the replan checkpoint decision above.
 - **Non-macOS platforms beyond Linux** — Windows if ever needed; likely never for this project.
 
+**Post-ho-04.3 addendum.** Keychain biometry verified end-to-end on 2026-07-02 after ho-04.3 landed. `sharibako key generate` on the signed binary prompts Touch ID, writes to Keychain, and both `key export --private` (re-prompt) and `key export --public` (no prompt) work as specified. Ho-04.3 required more than the original spec anticipated: `keychain-access-groups` is a restricted entitlement on modern macOS that kills an unsigned binary at load time, and `codesign` for flat CLI binaries does not support `--provisioning-profile` directly. The working solution is a thin app bundle (`sharibako.app`) with `embedded.provisionprofile`, installed permanently at `$BUNDLE_INSTALL_DIR`, with a symlink in `$DEST` pointing back to the binary inside the bundle. macOS resolves the symlink's real path, finds the bundle structure, validates the provisioning profile, and honours the entitlement. The App ID `net.sageframe.sharibako` and provisioning profile (`Sharibako Developer ID`, Developer ID type) were registered manually in the Apple Developer portal — Xcode normally does this silently for GUI apps.
+
 ---
 
 _Authored: 2026-07-02._
