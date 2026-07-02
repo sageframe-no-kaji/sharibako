@@ -58,6 +58,14 @@ let package = Package(
             name: "SharibakoCoreTests",
             dependencies: ["SharibakoCore"]
         ),
+        .testTarget(
+            name: "SharibakoCLITests",
+            dependencies: [
+                "SharibakoCore",
+                "SharibakoCLI",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ]
+        ),
     ],
     swiftLanguageModes: [.v6]
 )
