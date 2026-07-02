@@ -2,9 +2,6 @@ import ArgumentParser
 import SharibakoCore
 
 /// Root entry point for the `sharibako` CLI.
-///
-/// Registers every subcommand. Commands that are not yet implemented
-/// (AT-02 write verbs) will be added here when they land.
 @available(macOS 10.15, *)
 @main
 struct SharibakoCommand: AsyncParsableCommand {
@@ -18,6 +15,15 @@ struct SharibakoCommand: AsyncParsableCommand {
             ScanCommand.self,
             ListCommand.self,
             HealCommand.self,
+            GetCommand.self,
+            AddCommand.self,
+            RotateCommand.self,
+            LinkCommand.self,
+            UnlinkCommand.self,
+            MaterializeCommand.self,
+            UpdateCommand.self,
+            SyncCommand.self,
+            CleanCommand.self,
         ]
     )
 }

@@ -59,7 +59,7 @@ struct FileAgeKeyProvider: AgeKeyProvider {
 }
 
 /// CLI-specific errors that fall outside the `VaultError` domain.
-enum CLIError: Error {
+enum CLIError: Error, Equatable {
     /// The age key file at the given path does not exist.
     case ageKeyFileNotFound(path: URL)
     /// The Keychain operation returned an unexpected OSStatus.
@@ -74,4 +74,18 @@ enum CLIError: Error {
     case exportRequiresPlaintextAcknowledgement
     /// The age key file has no `# public key:` header line.
     case publicKeyHeaderMissing
+    /// Both `--value` and `--from-stdin` were supplied; exactly one is required.
+    case valueInputConflict
+    /// Neither `--value` nor `--from-stdin` was supplied; exactly one is required.
+    case valueInputRequired
+    /// A secret with the given key already exists in the scope; use `--force` or `rotate`.
+    case secretAlreadyExists(scope: String, key: String)
+    /// `materialize` found drift and `--force` was not supplied; detail already printed to stderr.
+    case materializeDiffPending
+    /// `update` found no target file at the marker's path; path already printed to stderr.
+    case updateFileMissing
+    /// `sync push` was rejected by the remote; reason already printed to stderr.
+    case syncRejected
+    /// `sync pull` encountered a merge conflict (merge aborted); files already printed to stderr.
+    case syncConflict
 }

@@ -167,6 +167,7 @@ enum ErrorReporter {
         }
     }
 
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func report(cliError: CLIError) -> ErrorReport {
         switch cliError {
         case .ageKeyFileNotFound(let path):
@@ -210,6 +211,49 @@ enum ErrorReporter {
                 code: .age,
                 message: "The age key file has no `# public key:` header line.",
                 remediation: "Regenerate the key with `age-keygen`."
+            )
+        case .valueInputConflict:
+            return ErrorReport(
+                code: .userError,
+                message: "Supply exactly one of --value or --from-stdin, not both.",
+                remediation: nil
+            )
+        case .valueInputRequired:
+            return ErrorReport(
+                code: .userError,
+                message: "Supply a value via --value <v> or --from-stdin.",
+                remediation: nil
+            )
+        // swiftlint:disable:next pattern_matching_keywords
+        case .secretAlreadyExists(let scope, let key):
+            return ErrorReport(
+                code: .userError,
+                message: "'\(key)' already exists in '\(scope)'. Use `sharibako rotate` to change its value.",
+                remediation: "Use --force to overwrite."
+            )
+        case .materializeDiffPending:
+            return ErrorReport(
+                code: .userError,
+                message: "Drift detected (detail above). Use --force to overwrite.",
+                remediation: nil
+            )
+        case .updateFileMissing:
+            return ErrorReport(
+                code: .userError,
+                message: "No target file to read. Run `sharibako materialize` first.",
+                remediation: nil
+            )
+        case .syncRejected:
+            return ErrorReport(
+                code: .git,
+                message: "Push rejected by remote (detail above).",
+                remediation: nil
+            )
+        case .syncConflict:
+            return ErrorReport(
+                code: .git,
+                message: "Pull conflict (detail above). Resolve manually, then run `sharibako sync` again.",
+                remediation: nil
             )
         }
     }

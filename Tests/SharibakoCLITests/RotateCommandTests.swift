@@ -1,0 +1,81 @@
+import Foundation
+import Testing
+
+@testable import SharibakoCLI
+@testable import SharibakoCore
+
+@Suite("RotateCommand")
+struct RotateCommandTests {
+    @Test("rotates a scope-local secret to the new value")
+    func rotateLocalKey() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSecret("K", value: "old", inScope: "s1")
+
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "new",
+                "s1", "K",
+            ])
+            try cmd._run()
+
+            let newVault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            #expect((try? newVault.getValue("K", inScope: "s1")) == "new")
+        }
+    }
+
+    @Test("rotating a linked key rotates the shared entry")
+    func rotateViaLink() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSharedEntry("shared-db", value: "old-shared")
+            try vault.link("DB_URL", inScope: "s1", toShared: "shared-db")
+
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "new-shared",
+                "s1", "DB_URL",
+            ])
+            try cmd._run()
+
+            let newVault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            #expect((try? newVault.getValue("DB_URL", inScope: "s1")) == "new-shared")
+        }
+    }
+
+    @Test("_run throws secretNotFound for an unknown key")
+    func rotateUnknownKey() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "v",
+                "s1", "NO_SUCH_KEY",
+            ])
+            #expect(throws: VaultError.self) {
+                try cmd._run()
+            }
+        }
+    }
+
+    @Test("_run throws valueInputConflict when both input flags set")
+    func rotateConflictingInput() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "v",
+                "--from-stdin",
+                "s1", "K",
+            ])
+            #expect(throws: CLIError.valueInputConflict) {
+                try cmd._run()
+            }
+        }
+    }
+}
