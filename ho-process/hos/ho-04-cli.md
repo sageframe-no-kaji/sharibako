@@ -206,6 +206,19 @@ Deliberate hand-offs. Not code changes; things the later hos should read here an
 - **Scope-ID collision UX.** `ProposedScope.suggestedScopeID` might collide with an existing scope; the CLI shows the suggestion and the user can override. Same "library suggests, surface can override" pattern as `scopeType`.
 - **Deletion of source .env after ingest?** Kamae-2.2 says non-owned lines pass through byte-for-byte via materialize. But if the user imported every key, is the source `.env` a duplicate they want deleted? Post-v1 refinement; init v1 leaves the source alone.
 
+### For ho-04.3 (sign the dev binary; verify Keychain biometry end-to-end)
+
+Surfaced during AT-01 dogfooding: `sharibako key generate` on macOS hit `errSecMissingEntitlement (-34018)` when writing a Keychain item with `SecAccessControl` `.userPresence`. This is Apple's security model, not a code bug — unsigned binaries categorically cannot use biometry-gated Keychain access. The Keychain code in AT-01 is written but is not verified to work on a real device until this is resolved. AT-01 dogfooding used `--age-key <path>` bypass; AT-02 will do the same.
+
+A small dedicated ho (well under ho-04.2 / ho-04.5 in scope):
+
+- **`sharibako.entitlements`** at repo root or `Sources/SharibakoCLI/` — biometry-capable ("Keychain groups" + any specific entitlements Apple requires for biometry from a CLI). Reference the M4Bmaker entitlements shape for pattern.
+- **`scripts/install.sh` addition**: after `swift build -c release`, run `codesign --sign "Developer ID Application: <name>" --entitlements sharibako.entitlements --options runtime --force .build/release/sharibako`. Uses the Developer ID cert already in the practitioner's keychain from M4Bmaker.
+- **Verify**: signed binary running `sharibako key generate` prompts Touch ID, writes to Keychain, `sharibako key export --private --i-know-this-is-plaintext` re-prompts Touch ID and retrieves. `security find-generic-password -s sharibako` confirms the item.
+- **Update `ho-04-cli.md`'s Reflect section** to record that Keychain integration verified end-to-end at this point.
+
+Not urgent. AT-02's dogfooding proceeds on `--age-key` bypass. ho-04.3 clears the debt at whatever point real biometry is worth verifying before ho-04.2's `init` flow (which will interact heavily with Keychain during first-run).
+
 ### For ho-04.5 (`sharibako run` + SECURITY.md polish + daemon-decision replan)
 
 - **`sharibako run [--scope <id>] -- <command>` implementation.** Kamae-2.1's injection verb. Decrypt owned keys into memory, spawn child with env vars set, forward stdio + signals (SIGINT/SIGTERM/SIGHUP), wait, exit with child's code. `--dry-run` prints key names only. Best-effort in-memory scrub on exit.
