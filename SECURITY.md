@@ -129,7 +129,7 @@ Outside the vault:
 
 **Where the value lives:** in the plaintext `.env` file at the marker's target path — but *only the lines whose keys are sharibako-owned* carry sharibako's exposure. Non-owned lines are the user's; sharibako neither writes them nor reads them. Owned-line values persist on disk until overwritten by another materialize, cleaned by `sharibako clean`, or rotated in place by a user's editor.
 
-**Who can read it:** any process with read access to that file. This includes your own code (intended), your loader (dotenv, docker-compose, direnv), AI agents that read your workspace (Class 4), backups that include your project tree, cloud sync clients (iCloud Drive, Dropbox) if the project is in a synced folder, and any user with read permissions on the file.
+**Who can read it:** any process with read access to that file. This includes your own code (intended), your loader (dotenv, docker-compose, direnv), AI agents that read your workspace (Class 4), backups that include your project tree, cloud sync clients (iCloud Drive, Dropbox) if the project is in a synced folder, and any user with read permissions on the file. Sharibako writes the file with `0600` (owner-only) permissions on every materialize — including re-tightening a target that was loosened by hand — so "any user with read permissions" means the file's owner unless you widen it yourself.
 
 **When to use it:** when a consumer cannot be wrapped. docker-compose services, systemd units, cron jobs, anything that starts on boot or on a schedule.
 

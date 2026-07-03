@@ -77,16 +77,31 @@ jobs:
             echo "  test binary: $XCTEST_BINARY"
             exit 1
           fi
+          # Named per-file exclusions (ho-04.8) — the mechanical counterpart of
+          # the closed hos' comment-based coverage exclusions. Each file below
+          # is unreachable in CI by design, not under-tested:
+          #   KeychainAgeKeyProvider — every path needs the macOS Keychain +
+          #     Touch ID entitlement, which only the signed app-bundle install
+          #     has; a bare CI test binary cannot reach it (see CLAUDE.md,
+          #     "Keychain dogfood gate").
+          #   SignalForwarder — signal-handler bodies run only when a live
+          #     child process receives real signals mid-run; sending SIGINT to
+          #     the test runner kills the run itself.
+          #   TerminalDetector — isatty() answers for CI's pipes are constant,
+          #     so the interactive branch can never execute.
+          # The 90% floor applies to everything OUTSIDE this list. Additions
+          # require the same justification these entries carry.
+          EXCLUDED="KeychainAgeKeyProvider|SignalForwarder|TerminalDetector"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \
             --use-color=false \
-            --ignore-filename-regex=".build|Tests|checkouts"
+            --ignore-filename-regex=".build|Tests|checkouts|${EXCLUDED}"
           COVERAGE=$(xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \
             --use-color=false \
-            --ignore-filename-regex=".build|Tests|checkouts" \
+            --ignore-filename-regex=".build|Tests|checkouts|${EXCLUDED}" \
             | tail -1 \
             | awk '{print $(NF-3)}' \
             | sed 's/%//')
