@@ -168,6 +168,9 @@ sharibako get kanyo-dev OPENAI_API_KEY
 # so every scope linked to it picks up the new value
 sharibako rotate momiji OPENAI_API_KEY --value "sk-new-value"
 
+# Rotate a shared entry directly (works even when no scope links it yet)
+sharibako rotate --shared openai-personal --value "sk-new-value"
+
 # Link a scope's key to a shared entry / break the link (keeps the value)
 sharibako link kanyo-dev OPENAI_API_KEY openai-personal
 sharibako unlink kanyo-dev OPENAI_API_KEY

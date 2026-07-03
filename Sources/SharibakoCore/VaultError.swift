@@ -8,7 +8,7 @@ import Foundation
 ///
 /// Cases: ``vaultNotFound(path:)``, ``scopeNotFound(id:)``,
 /// ``secretNotFound(scope:key:)``, ``scopeAlreadyExists(id:)``,
-/// ``sharedEntryNotFound(id:)``, ``linkTargetMissing(id:)``,
+/// ``sharedEntryNotFound(id:)``, ``sharedEntryExists(id:)``, ``linkTargetMissing(id:)``,
 /// ``ageInvocationFailed(exitCode:stderr:)``, ``yamlEncodeError(path:underlying:)``,
 /// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
 /// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
@@ -27,6 +27,11 @@ public enum VaultError: Error {
     case scopeAlreadyExists(id: String)
     /// A shared entry was expected in `shared/` but is not present.
     case sharedEntryNotFound(id: String)
+    /// A shared-entry creation collided with an existing entry (ho-04.10).
+    ///
+    /// Add means create: silently overwriting would propagate the new value to
+    /// every scope linked to the entry. Deliberate replacement is `rotateShared`.
+    case sharedEntryExists(id: String)
     /// A `.link` file references a shared entry that no longer exists.
     case linkTargetMissing(id: String)
     /// The `age` binary was invoked and exited with a non-zero status.

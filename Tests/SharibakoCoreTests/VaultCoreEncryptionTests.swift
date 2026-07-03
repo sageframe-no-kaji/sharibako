@@ -96,15 +96,22 @@ struct VaultCoreEncryptionTests {
         }
     }
 
-    @Test("addSharedEntry overwrites an existing shared entry with the new value")
-    func addSharedEntryOverwrites() throws {
+    @Test("addSharedEntry throws sharedEntryExists on collision; the existing value survives (ho-04.10)")
+    func addSharedEntryRejectsCollision() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             try core.addSharedEntry("openai-personal", value: "first")
-            try core.addSharedEntry("openai-personal", value: "second")
+            let error = #expect(throws: VaultError.self) {
+                try core.addSharedEntry("openai-personal", value: "second")
+            }
+            guard case .sharedEntryExists(let id) = error else {
+                Issue.record("expected sharedEntryExists, got \(String(describing: error))")
+                return
+            }
+            #expect(id == "openai-personal")
             try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
-            #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "second")
+            #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "first")
         }
     }
 
@@ -204,7 +211,11 @@ struct VaultCoreEncryptionTests {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
-            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "nonexistent-shared")
+            // link() refuses to create dangling links (ho-04.10); the dangling
+            // state still arrives via git sync, so write the file directly.
+            try VaultTestSupport.writeLink(
+                "OPENAI_API_KEY", inScope: "kanyo-dev", sharedID: "nonexistent-shared", in: vault
+            )
             #expect(throws: VaultError.self) {
                 _ = try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev")
             }
@@ -302,8 +313,11 @@ struct VaultCoreEncryptionFailureTests {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
-            // Create a .link file pointing at a shared entry that doesn't exist.
-            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            // link() refuses to create dangling links (ho-04.10); the dangling
+            // state still arrives via git sync, so write the file directly.
+            try VaultTestSupport.writeLink(
+                "OPENAI_API_KEY", inScope: "kanyo-dev", sharedID: "openai-personal", in: vault
+            )
             #expect(throws: VaultError.self) {
                 try core.unlink("OPENAI_API_KEY", inScope: "kanyo-dev")
             }
