@@ -1,6 +1,6 @@
 ---
 created: 2026-06-30
-updated: 2026-07-01
+updated: 2026-07-03
 status: draft
 type: ho-overview
 project: sharibako
@@ -12,9 +12,11 @@ next: per-ho dandori specs authored via ho-kamae-5
 
 # Sharibako — Ho Overview
 
-Eleven hos across seven phases (v1.0 target). Phase 0 sets up the project. Phases 1–2 build the vault substrate and the bridge to the user's filesystem with no UI at all. Phase 3 puts a CLI on top of that and earns the first real dogfooding, then ho-04.5 adds runtime injection (`sharibako run`) as a peer output verb alongside materialize. Phases 4–5 add the Workshop and the linking UX that the parti is built around. Phase 6 ships v1.0 through signing, notarization, website, and release.
+Seven phases (v1.0 target). Phase 0 sets up the project. Phases 1–2 build the vault substrate and the bridge to the user's filesystem with no UI at all. Phase 3 puts a CLI on top of that and earns the first real dogfooding, then ho-04.5 adds runtime injection (`sharibako run`) as a peer output verb alongside materialize; the phase then grew a run of small CLI-polish inserts as dogfooding surfaced work, and is now complete. Phases 4–5 add the Workshop and the linking UX that the parti is built around. Phase 6 ships v1.0 through signing, notarization, website, and release.
 
 _Revision 2026-07-01: ho-04.5 inserted after the injection decision (kamae-2.1). Ho-03 entry updated to reflect the ownership decision (kamae-2.2) — per-key ownership, `.env` merge-not-overwrite, `update` verb, four-way ingest matrix. This is a build-phase document; ship/commercial concerns sit in ho-09 as they always did — not elevated to Kamae content._
+
+_Revision 2026-07-03: Phase 3 closed. The CLI phase grew four inserts beyond ho-04/ho-04.5 as dogfooding surfaced work — ho-04.2 (interactive `init`), ho-04.4 (ingest dashboard, later superseded), ho-04.6 (plain-prompt `init` replacing the dashboard), and ho-04.7 (`run` feedback) — all complete, alongside ho-04.3 (sign the binary; unblock Keychain biometry) and ho-04.5 (`sharibako run`). Two as-built notes worth carrying forward: signing shipped via a signed `.app` bundle with `keychain-access-groups` + an embedded provisioning profile (not the raw-binary/empty-entitlements approach ho-04.3 first drafted — that entitlement is restricted, honoured only inside a bundle), and ho-04.5 shipped without `memset_s` scrubbing of decrypted values (kamae-2.1 Decision 7; SECURITY.md reconciled to match). Replan Checkpoint 1 fired — outcome recorded below. The per-ho documents under `hos/` hold the detail; those inserts are not back-filled as full overview entries. No phase restructure; no ship/commercial elevation._
 
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
@@ -37,7 +39,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 0. Foundation | ho-00 | Swift package, GitHub repo, signing reused from M4Bookmaker, CI, baseline tests |
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
-| 3. The Tool | ho-04, **ho-04.5** | CLI usable for real personal work. First dogfooding moment. **Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft** |
+| 3. The Tool **(complete)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7 | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback |
 | 4. The Workshop | ho-05, ho-06 | SwiftUI app with three-state UI, first-run wizard, ingest decision matrix |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
@@ -216,6 +218,8 @@ A CLI built on top of the substrate. The Tool exposes the operations the Vault C
 
 *Release on phase complete: v0.3 (CLI usable for personal dogfooding)*
 
+**Phase 3 as-built (complete, 2026-07-03).** The phase closed as ho-04 (CLI MVP) plus six inserts. The two spelled out in full below are ho-04 and ho-04.5. The others landed as dogfooding surfaced the need and are recorded in their own per-ho documents under `hos/`: **ho-04.2** (interactive `init` — the per-secret decision flow split out of ho-04), **ho-04.3** (sign the release binary so Keychain biometry works — shipped as a signed `.app` bundle with `keychain-access-groups` + an embedded provisioning profile, since that entitlement is honoured only inside a bundle), **ho-04.4** (an ingest dashboard, later superseded), **ho-04.6** (plain-prompt `init` replacing the dashboard), and **ho-04.7** (`run` feedback — a startup status line and a signal-shutdown countdown; see below). Replan Checkpoint 1 fired at the end of the phase; its outcome is recorded under "Replan checkpoints."
+
 ### ho-04 — The Tool: CLI MVP wired to the core
 
 Swift ArgumentParser implementation of every CLI command listed in the system design. The init flow follows the system design's step-by-step interaction: detect existing marker, propose scope identity, request Touch ID, scan for existing secrets, present the per-secret decision (import / link / move to shared / skip), write through the Vault Core, write the marker, materialize, commit + push. `get` prints to stdout with Touch ID gating. `rotate` and `link` work end-to-end. The CLI is the first surface that talks to macOS Keychain for the production age key.
@@ -253,6 +257,8 @@ Swift ArgumentParser implementation of every CLI command listed in the system de
 **Phase boundary — replan checkpoint.** Andrew uses the CLI for real secrets work. The questions that surface here drive the next phase: what's awkward, what's missing, what's actually fine, and — critically — whether the SwiftUI investment in Phase 4 is the right next move or whether further CLI polish should come first. See "Replan checkpoints" below for the explicit checkpoint structure.
 
 ### ho-04.5 — Runtime injection (`sharibako run`), `clean`, and SECURITY.md draft
+
+**Status: complete (2026-07-03).** `sharibako run` shipped and was dogfooded end-to-end against the real vault through the Keychain and Touch ID. As-built divergence from the scope below: no `memset_s` scrub of decrypted values (kamae-2.1 Decision 7 — the only scrub is the temp age-key file wipe; SECURITY.md reconciled to match). `clean` was already built by its Materializer siblings; this ho was `run` alone.
 
 The injection verb specified in kamae-2.1. `sharibako run [--scope <id>] -- <command>` decrypts the current scope's secrets into memory, spawns the child with those values set in its environment, forwards stdio and signals, waits, exits with the child's status. No file is written; values live only in wrapper and child process memory. Pair verb `sharibako clean [<scope>]` retracts materialized files. `sharibako run --dry-run` prints secret names without values for pre-flight verification and safe agent-summarization. And this ho drafts `SECURITY.md` — the trust document that reflects the four-class threat model and the materialize/run exposure difference. The doc is written *as if the software is done*; it will be revised as v1 lands but its skeleton exists here.
 
@@ -296,6 +302,12 @@ The injection verb specified in kamae-2.1. `sharibako run [--scope <id>] -- <com
 - ho-04.5b: SECURITY.md drafting (the writing work)
 
 Split only if the ho spills a session. The pairing is deliberate — writing SECURITY.md while injection is fresh in mind produces a stronger document than either could produce alone.
+
+### ho-04.7 — `sharibako run` feedback
+
+**Status: complete (2026-07-03).** Inserted at Replan Checkpoint 1: driving `run` on real secrets surfaced feedback friction — a blank startup and a silent five-second Ctrl-C grace — and this ho closes it before the Workshop rather than carrying it in. `run` gains two stderr-only feedback surfaces, TTY-gated (suppressed under `--json`, forced on under `--verbose`): a startup status line naming the scope, the count of secrets injected, and the command; and, on SIGINT/SIGTERM/SIGHUP, a `forwarding…` line plus a plain-integer countdown across the existing grace, then a SIGKILL line if the child outlives it. No behavior change — spawn, env merge, exit-code mapping, signal forwarding, and grace→SIGKILL are byte-identical to ho-04.5. Scope was `run` only; the same terseness in `materialize`/`ingest`/`sync` is noted as a followup, not built. Detail in `hos/ho-04.7-run-feedback.md`.
+
+**Depends on:** ho-04.5 (the `run` verb and its `SignalForwarder`).
 
 ---
 
@@ -538,6 +550,8 @@ Three explicit pause points. At each one, the practitioner stops, evaluates prog
 
 **Why this is a checkpoint:** Phase 4 is a substantial investment (SwiftUI from scratch is half the project). Reality from Phase 3 should shape what Phase 4 actually needs to be — not the other way around. Injection specifically carries the threat-model coverage for Class 4 (workspace file-readers); if it's rough, Phase 4 shouldn't paper over it.
 
+**Outcome (fired 2026-07-03).** The CLI was used on real secrets. Touch ID frequency on `run` was tolerable ("a security app; no problem with it") — the `sharibako-agent` daemon stays post-MVP. `Foundation.Process` propagated exit codes and signal-death faithfully; signal forwarding held (Ctrl-C terminated the child cleanly, no orphan) — no `posix_spawn` fallback needed. SECURITY.md's `run`/`--dry-run` sections were reconciled against shipped behavior (the `memset_s` claim was drift; corrected). One friction surfaced: `run` was silent at startup and across the Ctrl-C grace. That became **ho-04.7** (`run` feedback), built and closed here rather than carried into Phase 4. **Decision: proceed to Phase 4 (ho-05, the Workshop).** The CLI is solid enough; no further CLI polish is gating.
+
 ### Checkpoint 2 — After ho-06 (GUI polish complete)
 
 **What's true:** the GUI is usable for primary workflows. First-run, ingest, and backup nudge exist as designed.
@@ -579,7 +593,7 @@ Candidates surfaced during the overview, by pattern:
 
 **Insertions likely after replan checkpoints:**
 
-- **ho-04.5** was originally speculative here; it is now a committed ho carrying `sharibako run`, `sharibako clean`, and the SECURITY.md draft (see Phase 3). A *separate* ho-04.6 could still be inserted after Checkpoint 1 if dogfooding surfaces distinct interactive-CLI polish work or moves the `sharibako-agent` daemon forward from post-MVP.
+- **ho-04.5** was originally speculative here; it shipped as a committed ho carrying `sharibako run` (see Phase 3). The post-Checkpoint-1 inserts that were speculative here have since landed: **ho-04.6** (plain-prompt `init`, superseding the ho-04.4 dashboard) and **ho-04.7** (`run` feedback). The `sharibako-agent` daemon was *not* moved forward — Touch ID friction proved tolerable in real use.
 - **ho-06.5** after Checkpoint 2: first-run UX polish if vibe-coder testing fails the 15-minute criterion.
 - **ho-07.5** after Checkpoint 3: any final polish needed before locking in the v1 promise.
 
@@ -614,11 +628,16 @@ Phase 1 — The vault substrate
 Phase 2 — The bridge
 └── ho-03 (Materializer) ────────────────────────────── v0.2
 
-Phase 3 — The Tool
-├── ho-04 (CLI MVP)
-└── ho-04.5 (sharibako run, clean, SECURITY.md draft)
+Phase 3 — The Tool  (complete)
+├── ho-04   (CLI MVP)
+├── ho-04.2 (interactive init)
+├── ho-04.3 (sign binary; Keychain biometry)
+├── ho-04.4 (ingest dashboard — superseded)
+├── ho-04.5 (sharibako run, clean, SECURITY.md draft)
+├── ho-04.6 (plain-prompt init — replaces the dashboard)
+└── ho-04.7 (run feedback)
         ▲
-        │  ◆ Replan Checkpoint 1 (CLI dogfooding, both verbs) ── v0.3
+        │  ◆ Replan Checkpoint 1 — FIRED: proceed to Phase 4 ── v0.3
 
 Phase 4 — The Workshop
 ├── ho-05 (SwiftUI shell)
@@ -642,7 +661,8 @@ Dependencies:
 - ho-03 depends on ho-01 and ho-02.
 - ho-04 depends on ho-01, ho-02, ho-03.
 - ho-04.5 depends on ho-01 (Vault Core), ho-03 (scope resolution), ho-04 (CLI base + Keychain integration).
-- ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows. ho-04.5's `run` verb has no GUI counterpart in v1, so ho-05 does not depend on ho-04.5.
+- ho-04.7 depends on ho-04.5 (the `run` verb and its `SignalForwarder`).
+- ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows. The ho-04.x CLI-polish inserts (04.2/04.3/04.5/04.6/04.7) have no GUI counterpart in v1, so ho-05 does not depend on them.
 - ho-06 depends on ho-05.
 - ho-07 depends on ho-04 (CLI base) and ho-06 (GUI polish base).
 - ho-08 depends on ho-05, ho-06 (the Mac app must build and run cleanly before signing matters).
@@ -658,6 +678,6 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
-The next dandori session is **ho-00 — Project scaffolding**. Open it via the Kamae 5 collaborator when ready.
+The next dandori session is **ho-05 — The Workshop: SwiftUI shell** (Phase 4). Phases 0–3 are complete. Open ho-05 via the Kamae 5 collaborator when ready; its first work is scaffolding `xcode/Sharibako.xcodeproj` against the Swift package (deferred to exactly this point).
 
-_Ho-01 and ho-02 dandori specs already exist under `agent-tasks/`; they were authored before the 2026-07-01 revision and do not need to be reopened. Ho-04.5's dandori spec will be authored after ho-04 lands, informed by whatever the ho-04 dogfooding session surfaces about the CLI's actual shape._
+_Phases 0–3 dandori specs live under `agent-tasks/` and their per-ho documents under `hos/`; the closed ones are the historical record and do not get reopened. Phase 4 begins fresh at ho-05._
