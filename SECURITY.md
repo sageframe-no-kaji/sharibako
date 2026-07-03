@@ -143,7 +143,7 @@ Outside the vault:
 
 **When to use it:** for anything you launch interactively. `sharibako run -- npm run dev`, `sharibako run -- python app.py`, `sharibako run -- docker-compose up`, `sharibako run -- cargo run`.
 
-**Mitigations:** best-effort in-memory scrub on process exit (Swift memory model does not guarantee, but explicit `memset_s` on the decrypted string bytes reduces the window).
+**Mitigations:** the temporary age-key file is scrubbed and deleted when the invocation ends. Decrypted values themselves are not wiped from the wrapper's memory in v1 — they go out of scope and exit with the process (see Known limits).
 
 ### `sharibako get <scope> <KEY>`
 
@@ -317,7 +317,7 @@ Per-key ownership means sharibako has a specific list of things it interacts wit
 
 These are honest constraints of the design, not TODOs.
 
-- **Memory scrubbing is best-effort.** Swift and macOS do not guarantee that decrypted string bytes are wiped from memory on process exit. Sharibako uses `memset_s` where the language allows. A privileged forensic examiner with physical memory access after a crash could recover recently-decrypted values.
+- **Decrypted values are not scrubbed from memory in v1.** Swift's `String` storage is immutable and copy-on-write, so there is no reliable in-place wipe without restructuring the decrypt pipeline onto raw byte buffers — and for `run` the values must live in the child's environment for its whole lifetime regardless. Sharibako scrubs and deletes the temporary age-key file on exit, but decrypted secret values are simply released. A privileged forensic examiner with physical memory access after a crash could recover recently-decrypted values.
 - **Touch ID is prompted per operation.** No session cache in v1. The `sharibako-agent` daemon (post-MVP) is the escape hatch if this becomes intolerable.
 - **The bundled `age` binary is trusted transitively.** You are trusting Apple's notarization + your OS updates + upstream `age` releases.
 - **Homebrew and `.tar.gz` distributions rely on the tap and download-site integrity.** Verify checksums or signatures where published.
