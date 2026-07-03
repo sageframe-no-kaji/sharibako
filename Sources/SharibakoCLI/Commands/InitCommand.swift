@@ -43,7 +43,7 @@ struct InitCommand: AsyncParsableCommand {
     // swiftlint:disable:next identifier_name
     func _run(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        decisionSource: any IngestDecisionSource = DashboardIngestPrompt(),
+        decisionSource: any IngestDecisionSource = PlainIngestPrompt(),
         lineReader: () -> String? = { readLine() }
     ) throws {
         let targetURL = resolveTargetURL(cwd: cwd)
