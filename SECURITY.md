@@ -28,7 +28,7 @@ Four classes. The first two are cleanly covered. The third is out of scope. The 
 
 _"Someone stole the laptop and is reading the SSD."_
 
-**Coverage: complete.** The vault is a directory of age-encrypted files. Each `.age` file is opaque ciphertext. The age private key is stored in the macOS Keychain (or on Linux, in a passphrase-protected file). The Keychain is not accessible without an OS login. FileVault on top is an additional layer, not a substitute.
+**Coverage: complete on macOS.** The vault is a directory of age-encrypted files. Each `.age` file is opaque ciphertext. The age private key is stored in the macOS Keychain; the Keychain is not accessible without an OS login. FileVault on top is an additional layer, not a substitute. On Linux the key is a `0600` plaintext file — passphrase protection is not yet implemented, so Class 1 coverage there rests on file permissions plus full-disk encryption (see "Where keys live").
 
 **Caveats.** If you have written down or exported the age private key and stored it insecurely (a sticky note, a plaintext file on the same disk, iCloud Drive with no encryption at rest), the attacker also gets the key. See [Recovery](#recovery) for the backup story.
 
@@ -48,7 +48,7 @@ _"Malware, a compromised dev dependency, or someone who has a shell as you."_
 
 - Trigger Touch ID prompts you'll approve out of habit
 - Attach a debugger to the sharibako or child process and read decrypted values from memory
-- Read `~/.config/sharibako/age-key` if you're on Linux and the passphrase is entered
+- Read `~/.config/sharibako/age-key` if you're on Linux (a plaintext `0600` file)
 - Install a keylogger and capture your Keychain password
 - Modify the `sharibako` binary and re-sign it locally
 
@@ -99,7 +99,7 @@ Sharibako uses `age` directly and does not use sops, because the file-per-secret
 ### Where keys live
 
 - **macOS.** The age private key is stored in the macOS Keychain with `SecAccessControl` requiring biometry-or-password on every access. This is the same access pattern SSH keys use in `ssh-agent`. Touch ID prompts appear per access; there is no session cache in v1.
-- **Linux.** The age private key is a passphrase-protected file at `~/.config/sharibako/age-key`. The passphrase is prompted per Sharibako invocation. A cache is not implemented in v1.
+- **Linux / `--age-key`.** The age private key is a plaintext file at `~/.config/sharibako/age-key` (or the path given via `--age-key` / `SHARIBAKO_AGE_KEY`), written with `0600` permissions. **Passphrase protection of this file is not yet implemented** — at-rest protection for the key on this path is file permissions plus full-disk encryption. age supports passphrase-protected identities; wiring them in is tracked as follow-on work.
 - **The vault's git remote.** The remote never sees the age private key. The remote only receives encrypted `.age` files and plaintext `.link` files.
 
 ### What's plaintext, what's not
@@ -119,7 +119,7 @@ Outside the vault:
 
 - `.sharibako` markers (in your project directories) — plaintext, names the scope and materialize target only, no values.
 - Materialized `.env` files — plaintext values on disk. This is the whole point of the materialize verb, and the whole exposure of Class 4 for materialize users.
-- Sharibako's app configuration (`~/Library/Application Support/Sharibako/config.yaml` on Mac, `~/.config/sharibako/config.yaml` on Linux) — plaintext, no secrets, only paths.
+- There is no app configuration file today. The vault location resolves from `--vault`, then `SHARIBAKO_VAULT`, then the default `~/.sharibako/vault/`; the age key from `--age-key`, then `SHARIBAKO_AGE_KEY`, then the Keychain (macOS) or `~/.config/sharibako/age-key`. None of these mechanisms store secret values — paths and environment variable names only.
 
 ---
 
@@ -143,7 +143,7 @@ Outside the vault:
 
 **When to use it:** for anything you launch interactively. `sharibako run -- npm run dev`, `sharibako run -- python app.py`, `sharibako run -- docker-compose up`, `sharibako run -- cargo run`.
 
-**Mitigations:** the temporary age-key file is scrubbed and deleted when the invocation ends. Decrypted values themselves are not wiped from the wrapper's memory in v1 — they go out of scope and exit with the process (see Known limits).
+**Mitigations:** the temporary age-key file is scrubbed and deleted as soon as decryption completes — before the child is spawned, so it does not persist for the child's lifetime. Decrypted values themselves are not wiped from the wrapper's memory in v1 — they go out of scope and exit with the process (see Known limits).
 
 ### `sharibako get <scope> <KEY>`
 
@@ -177,7 +177,7 @@ Outside the vault:
 
 **When to use it:** after a session ends, when the materialized owned values should not persist on disk. Also as a hygiene action before committing a project's changes if `.env` accidentally ended up staged.
 
-**Mitigations built in:** confirms before deleting unless `--force` is passed. Never touches non-owned user content.
+**Mitigations built in:** confirms before deleting unless `--yes` is passed. Never touches non-owned user content.
 
 ---
 
@@ -238,7 +238,7 @@ Nothing sharibako can do. Rotate every secret at its provider.
 
 ## Rotation
 
-`sharibako rotate <scope_or_shared_id> <KEY> <new_value>` re-encrypts a secret with a new value. If the secret is a shared entry, every scope with a `.link` file pointing at it will materialize (or `run` with) the new value on next invocation. There is no propagation delay — the link graph is resolved at read time.
+`sharibako rotate <scope> <KEY> --value <new_value>` (or `--from-stdin`) re-encrypts a secret with a new value. Rotating a linked key rotates the shared entry it points at, so every scope with a `.link` file pointing at that entry will materialize (or `run` with) the new value on next invocation. There is no propagation delay — the link graph is resolved at read time.
 
 **Rotation frequency is your policy, not ours.** Sharibako does not enforce rotation schedules or nag on stale secrets in v1. The `rotated_at` metadata field is written on every rotation and can drive future UX (post-v1).
 
@@ -317,6 +317,7 @@ Per-key ownership means sharibako has a specific list of things it interacts wit
 
 These are honest constraints of the design, not TODOs.
 
+- **A signal at the wrong moment can leave the temporary age-key file behind.** On macOS the Keychain-retrieved key is written to a `0600` file in the per-user temp directory for the duration of one operation. Cleanup runs on normal completion and on thrown errors, but not when the process is killed by a signal's default action (Ctrl-C during a Touch ID prompt, `kill -9`). The file is unreadable by other users and macOS sweeps the temp directory periodically, but until then the key is on disk. Signal-safe cleanup is tracked as follow-on work.
 - **Decrypted values are not scrubbed from memory in v1.** Swift's `String` storage is immutable and copy-on-write, so there is no reliable in-place wipe without restructuring the decrypt pipeline onto raw byte buffers — and for `run` the values must live in the child's environment for its whole lifetime regardless. Sharibako scrubs and deletes the temporary age-key file on exit, but decrypted secret values are simply released. A privileged forensic examiner with physical memory access after a crash could recover recently-decrypted values.
 - **Touch ID is prompted per operation.** No session cache in v1. The `sharibako-agent` daemon (post-MVP) is the escape hatch if this becomes intolerable.
 - **The bundled `age` binary is trusted transitively.** You are trusting Apple's notarization + your OS updates + upstream `age` releases.

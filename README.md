@@ -97,7 +97,7 @@ A second reading lands just as cleanly. **shari** (シャリ) is also the prepar
 
 ## How It Works
 
-Each secret is an [age](https://github.com/FiloSottile/age)-encrypted file in a git repository. Scopes (projects, machines, services) are directories of those files; the filesystem itself is the schema, no sidecar database. Linked secrets are plaintext pointer files (`<KEY>.link`) that name a shared entry; rotation propagates through link resolution at materialize time. The age private key lives in macOS Keychain, gated by Touch ID. Sharibako shells out to the bundled `age` binary for every encryption operation — the same pattern m4Bookmaker uses to wrap `ffmpeg`.
+Each secret is an [age](https://github.com/FiloSottile/age)-encrypted file in a git repository. Scopes (projects, machines, services) are directories of those files; the filesystem itself is the schema, no sidecar database. Linked secrets are plaintext pointer files (`<KEY>.link`) that name a shared entry; rotation propagates through link resolution at materialize time. The age private key lives in macOS Keychain, gated by Touch ID. Sharibako shells out to the `age` binary for every encryption operation — installed from Homebrew today, bundled with the distributed app at release, the same pattern m4Bookmaker uses to wrap `ffmpeg`.
 
 ## Architecture
 
@@ -114,18 +114,18 @@ Full architecture extract in [`docs/architecture.md`](docs/architecture.md).
 
 - **GUI:** Swift + SwiftUI (macOS Apple Silicon)
 - **CLI:** Swift + ArgumentParser (Mac + Linux)
-- **Encryption:** [age](https://github.com/FiloSottile/age) (BSD-2-Clause), bundled
+- **Encryption:** [age](https://github.com/FiloSottile/age) (BSD-2-Clause), shelled out; bundled with the release builds
 - **Storage:** filesystem + git
-- **Auth:** macOS Keychain (Mac) with Touch ID-per-vault-open; passphrase-protected age key (Linux)
+- **Auth:** macOS Keychain (Mac) with Touch ID per operation; file-based age key elsewhere (see [SECURITY.md](SECURITY.md))
 - **Distribution:** Signed and notarized DMG for the Mac app; Homebrew tap for the CLI on Mac + Linux
 
 ## Current State
 
 | | |
 |---|---|
-| **Now** | System design committed. Build scaffolding underway. |
-| **Next** | Vault Core (schema, age invocation, link resolution). The Conduit (git wrapping). The Tool (CLI). |
-| **Later** | The Workshop (GUI). Linking semantics across both surfaces. Bundling, signing, installer. Website. v1.0 release. |
+| **Now** | The Tool (CLI) is complete and in daily dogfooding — every verb below works against a real vault, including `run` (runtime injection) and interactive `init`. |
+| **Next** | The Workshop (GUI, ho-05). |
+| **Later** | Linking UX across both surfaces. Bundling, signing, installer. Website. v1.0 release. |
 
 ## What's Ahead
 
@@ -147,22 +147,30 @@ Items the architecture is prepared for but the v1 build does not include:
 
 ## Usage
 
-**The Workshop (GUI).** Open the app. Pick or create a vault. Touch ID. Browse scopes in the sidebar; edit secrets in the center pane. Hit *Materialize* on a scope to write its `.env`. Hit *Sync* to push and pull.
+**The Workshop (GUI).** Lands with ho-05 — the app target is currently a placeholder window. The intended shape: open the app, pick or create a vault, Touch ID, browse scopes in the sidebar, edit secrets in the center pane, *Materialize* to write a scope's `.env`, *Sync* to push and pull.
 
 **The Tool (CLI).**
 
 ```sh
+# Generate an age key (Keychain on macOS; file with --age-key)
+sharibako key generate
+
 # Bootstrap the current directory as a scope (interactive)
 sharibako init
 
 # Add a secret to a scope
-sharibako add kanyo-dev DATABASE_URL "postgres://..."
+sharibako add kanyo-dev DATABASE_URL --value "postgres://..."
 
 # Print a value (Touch ID required)
 sharibako get kanyo-dev OPENAI_API_KEY
 
-# Rotate a shared value (propagates to all linked scopes)
-sharibako rotate shared/openai-personal "sk-new-value"
+# Rotate a value; rotating a linked key rotates the shared entry,
+# so every scope linked to it picks up the new value
+sharibako rotate momiji OPENAI_API_KEY --value "sk-new-value"
+
+# Link a scope's key to a shared entry / break the link (keeps the value)
+sharibako link kanyo-dev OPENAI_API_KEY openai-personal
+sharibako unlink kanyo-dev OPENAI_API_KEY
 
 # Materialize a scope's .env (merges owned keys, preserves non-owned lines)
 sharibako materialize kanyo-dev
@@ -183,11 +191,15 @@ sharibako clean kanyo-dev
 # git pull + push the vault
 sharibako sync
 
-# Rescan configured roots for markers
-sharibako scan
+# Find .sharibako markers below a directory (defaults to the current one)
+sharibako scan ~/Projects
 
-# Status of a scope (live here / live elsewhere / orphaned)
+# List scopes and shared entries; status of the vault or one scope
+sharibako list
 sharibako status kanyo-dev
+
+# Report drift between a scope's vault values and its .env (names only)
+sharibako heal kanyo-dev
 ```
 
 For the difference between `materialize` and `run` and the security implications of each, see [SECURITY.md](SECURITY.md).
@@ -196,7 +208,7 @@ For the difference between `materialize` and `run` and the security implications
 
 - **For the Mac app:** macOS 14+ on Apple Silicon (M1/M2/M3/M4). FileVault recommended.
 - **For the CLI only:** macOS 14+ (Apple Silicon) or Linux x86_64/arm64. `age` binary (installed automatically by Homebrew; bundled in the `.tar.gz`).
-- **For development:** Swift 5.9+, Xcode 15+ for the Mac app build.
+- **For development:** a Swift 6 toolchain (Xcode 16+ on macOS).
 
 ## Development
 
@@ -206,7 +218,7 @@ cd sharibako
 swift build -c release
 ```
 
-The CLI binary lands at `.build/release/sharibako`. The Mac app is built via the Xcode project — see `ho-process/` for the build flow as it lands.
+The CLI binary lands at `.build/release/sharibako`. On macOS, `scripts/install.sh` builds, signs, and installs it wrapped in a thin app bundle — the signed bundle is what lets the Keychain entitlement (Touch ID) work. The Workshop's Xcode project lands with ho-05; until then the app target is a placeholder built by `swift build`.
 
 ## License
 
@@ -218,4 +230,4 @@ This pattern follows [m4Bookmaker](https://m4bookmaker.sageframe.net), which Sha
 
 ---
 
-*Sharibako is a [Sageframe](https://atmarcus.net) project by [Andrew Marcus](https://atmarcus.net), built with the [Ho System](https://github.com/sageframe-no-kaji/ho-system). Last meaningful update: 2026-07-01.*
+*Sharibako is a [Sageframe](https://atmarcus.net) project by [Andrew Marcus](https://atmarcus.net), built with the [Ho System](https://github.com/sageframe-no-kaji/ho-system). Last meaningful update: 2026-07-03.*

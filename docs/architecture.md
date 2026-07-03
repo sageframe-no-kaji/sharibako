@@ -67,9 +67,9 @@ Bridges the vault and the user's filesystem — and does so with per-key ownersh
 Responsibilities:
 
 - Reading and writing `.sharibako` marker files at project directories
-- Walking configured scan roots to find markers
+- Walking scan roots (passed per invocation — `sharibako scan <dir>`) to find markers
 - Computing per-scope state — **live here**, **live elsewhere**, **orphaned**
-- Ingesting existing `.env` files into proposed scope schemas for user review, with four decision types per detected key (*import as scope-local secret*, *link to shared*, *move to shared*, *leave alone*)
+- Ingesting existing `.env` files into proposed scope schemas for user review, with five decision types per detected key (*import as scope-local secret*, *link to shared*, *move to shared*, *leave alone*, *skip — decide later*)
 - **Merging owned values into `.env` on `materialize`** — replaces only the lines whose keys the scope owns; preserves comments, blank lines, non-owned key/value pairs, ordering, and user quote style exactly
 - **Reading `.env` back into the vault on `update`** — the bidirectional close; picks up hand-edits to owned keys, ignores non-owned lines
 - Retracting owned lines from `.env` (`sharibako clean`) — preserves the rest of the file
@@ -79,18 +79,18 @@ Nothing in the Materializer ever deletes a scope automatically. Deletion is alwa
 
 ### The Runner (part of The Tool)
 
-The second output verb. Not a separate component — implemented inside the CLI, using the Vault Core's `get_all_secrets` for its data.
+The second output verb. Not a separate component — implemented inside the CLI, using the Vault Core's bulk decrypt (`secrets(inScope:)`) for its data.
 
 Responsibilities:
 
 - Resolve the scope (from `--scope` flag or from `.sharibako` marker walking up from cwd)
 - Unlock the age key (same path as `get` and `materialize`)
-- Load all secrets for the scope from the Vault Core, decrypt into memory, resolve `.link` files
+- Load all secrets for the scope from the Vault Core (`VaultCore.secrets(inScope:)`), decrypt into memory, resolve `.link` files; release the age key before the child starts
 - Compose child environment: parent env + scope secrets, scope wins on conflict
-- `fork()` + `exec()` the child command with the composed environment
+- Spawn the child via `Foundation.Process` through `/usr/bin/env` (bare command names resolve on PATH) with the composed environment
 - Forward stdio (inherited FDs) and signals (SIGINT, SIGTERM, SIGHUP) to the child
 - Wait for the child, exit with its status
-- Best-effort in-memory scrub on all exit paths
+- Scrub and delete the temporary age-key file; decrypted values are released, not wiped (see SECURITY.md, Known limits)
 
 Values live only in wrapper and child process memory. No file is written. This is the injection path that closes Class 4 (workspace file-reader) exposure for wrappable consumers. See `SECURITY.md` for the threat-model articulation.
 
@@ -160,7 +160,7 @@ materialize_to: ./.env    # optional, defaults to ./.env
 
 The marker contains no secrets and no machine-specific paths. It is safe to commit to the project's git repository — clone the project on another machine running Sharibako, and the scope is recognized immediately.
 
-The vault location is per-machine app configuration, not per-marker. Each machine's Sharibako app knows where its vault lives.
+The vault location is per-machine, not per-marker: it resolves from the `--vault` flag, then the `SHARIBAKO_VAULT` environment variable, then the default `~/.sharibako/vault/`.
 
 ### Linking and the implicit link graph
 
@@ -180,23 +180,19 @@ Linking is opt-in. Adding a secret to a new scope creates a project-local `.age`
 
 The init flow exercises every component end to end.
 
-1. **The Surfaces** — the user runs `sharibako init` from a project directory (CLI) or picks a directory in the GUI. The surface hands the path to the Materializer.
+1. **The Surfaces** — the user runs `sharibako init` from a project directory (CLI; the GUI equivalent lands with the Workshop). The surface hands the path to the Materializer.
 
-2. **The Materializer** — checks for an existing `.sharibako` marker. If found, refuses ("already managed"). Otherwise proposes a scope identity from the directory's basename and parent pattern.
+2. **The Materializer** — scans the directory for existing `.env`, `.env.local`, falling back to `.env.example` for key schema. Parses found keys — no decryption and no Touch ID yet. If a `.sharibako` marker already exists, init *reconciles*: it presents only keys the scope doesn't yet own, and never rebinds the directory to a different scope.
 
-3. **The Vault Core** — requests Touch ID via Keychain (the vault is about to be touched). Checks for name collisions; suggests disambiguation.
+3. **The Surfaces** — propose a scope identity from the directory's basename, check for name collisions, and present a decision per detected secret: import as project-local, link to existing shared (exact name matches suggested), move to shared, leave alone, or skip.
 
-4. **The Materializer** — scans the directory for existing `.env`, `.env.local`, falling back to `.env.example` for key schema. Parses found secrets. Asks the Vault Core for shared entries with name matches.
+4. **The Surfaces** — unlock the age identity (Touch ID via Keychain on macOS) once the user has committed decisions and the vault is about to be touched.
 
-5. **The Surfaces** — present a decision per detected secret: import as project-local, link to existing shared, move to shared, or skip.
+5. **The Vault Core** — creates the scope directory under `vault/scopes/`, writes `scope.yaml`, writes each secret as `<KEY>.age` (encrypted) or `<KEY>.link` (plaintext pointer) per the user's decisions.
 
-6. **The Vault Core** — creates the scope directory under `vault/scopes/`, writes `scope.yaml`, writes each secret as `<KEY>.age` (encrypted) or `<KEY>.link` (plaintext pointer) per the user's decisions.
+6. **The Materializer** — writes the `.sharibako` marker file at the project root. The source `.env` is left byte-for-byte untouched — it already is the materialized artifact (per-key ownership, kamae-2.2).
 
-7. **The Materializer** — writes the `.sharibako` marker file at the project root.
-
-8. **The Materializer** — composes the full `.env` content by walking the scope's secrets and resolving links; writes the materialized file at the marker's target path; shows a diff if it would overwrite an existing different file.
-
-9. **The Conduit** — stages, commits, and pushes the vault changes.
+7. **Sync stays explicit** — `sharibako sync` commits and pushes the vault when the user asks; init itself does not touch the Conduit.
 
 The same architecture handles `rotate`, `link`, `materialize`, and `sync` by composing the same components.
 
@@ -243,7 +239,7 @@ The same threat model SSH keys live under. The age private key is stored in Keyc
 
 This is FileVault-independent — if FileVault is off, the vault is still age-encrypted and the age key is still Keychain-gated. The only plaintext-on-disk artifacts are materialized `.env` files (opt-in by verb; use `sharibako run` for wrappable consumers to avoid them entirely) and `.sharibako` markers (which contain no secret values). Both are conventionally `gitignore`d for markers of code-consuming projects, though markers may be committed deliberately when the scope name is public.
 
-On Linux, the age key is a passphrase-protected file at a conventional path.
+On Linux, the age key is a `0600` file at a conventional path (`~/.config/sharibako/age-key`); passphrase protection of that file is planned but not yet implemented (see SECURITY.md).
 
 ---
 
@@ -271,7 +267,7 @@ The data model and component contracts encode several decisions that cannot be a
 
 Future capabilities the architecture accommodates without implementing:
 
-- Multi-root scanning (config field already `[String]`; UI just doesn't expose adding more).
+- Multi-root scanning (`scan` takes one directory per invocation today; a persistent config layer for roots is a future addition).
 - Additional materialization formats (formatter is a swappable component).
 - Remote-host materialization via SSH/SCP push (extension to the Materializer's interface).
 - A `sharibako-agent` daemon mirroring `ssh-agent` for CLI Touch ID friction.

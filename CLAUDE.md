@@ -36,6 +36,8 @@ In addition to the Swift toolchain, the following must be on `PATH` to run the f
 - `swift-format` — `brew install swift-format`
 - `swiftlint` — `brew install swiftlint`
 
+Keychain-gated verbs (Touch ID) cannot be dogfooded from a bare debug binary — the Keychain entitlement requires the signed app-bundle install (`scripts/install.sh`). Use `--age-key <path>` to exercise those verbs against a file-based key instead.
+
 ## Ho process
 
 Ho documents for this project live in `ho-process/` (publicly tracked):
