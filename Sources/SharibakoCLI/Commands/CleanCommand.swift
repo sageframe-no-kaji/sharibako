@@ -54,7 +54,9 @@ struct CleanCommand: AsyncParsableCommand {
 
     private func confirmClean(marker: ScopeMarker, vault: VaultCore, lineReader: () -> String?) -> Bool {
         let count = (try? vault.inspect(marker.scope).count) ?? 0
-        print("About to remove \(count) owned key(s) from \(marker.targetURL.path). Continue? [y/N]")
+        // Prompt goes to stderr like every other prompt in the CLI — stdout
+        // may be piped, and a prompt there corrupts the stream.
+        fputs("About to remove \(count) owned key(s) from \(marker.targetURL.path). Continue? [y/N] ", stderr)
         let answer = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return answer == "y" || answer == "yes"
     }

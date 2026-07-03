@@ -168,7 +168,12 @@ struct InitCommand: AsyncParsableCommand {
     private func offerKeyGeneration(lineReader: () -> String?) throws -> Bool {
         guard !ageKeyExists() else { return true }
         guard !noGenerate else {
-            let fallbackPath = URL(fileURLWithPath: "~/.config/sharibako/age-key")
+            // fileURLWithPath does not expand `~` — build the default path from
+            // the real home directory so the error names an absolute location.
+            let fallbackPath = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".config")
+                .appendingPathComponent("sharibako")
+                .appendingPathComponent("age-key")
             throw CLIError.ageKeyFileNotFound(path: global.ageKeyURL ?? fallbackPath)
         }
         fputs("No age key found. Generate one now? [Y/n] ", stderr)

@@ -73,9 +73,25 @@ struct GenerateCommand: AsyncParsableCommand {
                     return
                 }
             }
-            try fileManager.removeItem(at: path)
         }
-        let publicKey = try AgeKeyBootstrap.generateToFile(at: path)
+        // Generate to a staging path, then swap into place: if age-keygen is
+        // missing or fails, the existing key — the only thing that decrypts
+        // the vault — must survive. (Deleting first also matters mechanically:
+        // age-keygen refuses to write over an existing file.)
+        let staging = path.deletingLastPathComponent()
+            .appendingPathComponent(".sharibako-keygen-\(UUID().uuidString)")
+        let publicKey: String
+        do {
+            publicKey = try AgeKeyBootstrap.generateToFile(at: staging)
+            if fileManager.fileExists(atPath: path.path) {
+                _ = try fileManager.replaceItemAt(path, withItemAt: staging)
+            } else {
+                try fileManager.moveItem(at: staging, to: path)
+            }
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
+        }
         fputs("Save this recipient key somewhere safe:\n", stderr)
         print(publicKey)
     }
@@ -211,6 +227,14 @@ struct ExportCommand: AsyncParsableCommand {
         name: .customLong("i-know-this-is-plaintext"),
         help: "Acknowledge that the private key will be printed in plaintext.")
     var iKnowThisIsPlaintext: Bool = false
+
+    func validate() throws {
+        // Without this guard `--public --private` silently exported the
+        // PRIVATE key — the private branch was checked first.
+        if `public` && `private` {
+            throw ValidationError("Specify at most one of --public or --private.")
+        }
+    }
 
     func run() async throws {
         do { try _run() } catch { ErrorReporter.report(error, json: global.json) }

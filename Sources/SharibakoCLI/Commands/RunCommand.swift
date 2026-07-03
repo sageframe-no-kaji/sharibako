@@ -100,12 +100,21 @@ struct RunCommand: AsyncParsableCommand {
             throw CLIError.runCommandEmpty
         }
 
-        // Unlock the age identity once and decrypt every secret for the scope.
+        // Unlock the age identity once, decrypt every secret for the scope,
+        // and release the key handle BEFORE the child spawns — the Keychain
+        // provider's plaintext temp key file must not sit in $TMPDIR for the
+        // child's whole lifetime (hours, for a dev server).
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let handle = try provider.loadIdentity(reason: "Decrypt secrets for run")
-        defer { handle.release() }
-        let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-        let secrets = try vault.secrets(inScope: scopeID)
+        let secrets: [String: String]
+        do {
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            secrets = try vault.secrets(inScope: scopeID)
+        } catch {
+            handle.release()
+            throw error
+        }
+        handle.release()
 
         // Startup line to stderr (a zero count subsumes the former empty-scope note).
         sink.emit(RunFeedback.startupLine(scope: scopeID, secretCount: secrets.count, command: command))

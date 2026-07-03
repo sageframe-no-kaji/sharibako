@@ -169,6 +169,36 @@ struct KeyCommandTests {
         let report = ErrorReporter.makeReport(for: CLIError.exportRequiresPlaintextAcknowledgement)
         #expect(report.code == .userError)
     }
+
+    @Test("export rejects --public and --private together at parse time")
+    func exportRejectsPublicPrivateConflict() {
+        // Before the validate() guard, --public --private silently exported
+        // the PRIVATE key.
+        #expect(throws: (any Error).self) {
+            _ = try ExportCommand.parse(["--public", "--private", "--i-know-this-is-plaintext"])
+        }
+    }
+
+    @Test("generate --force --yes leaves no staging files behind")
+    func generateForceLeavesNoStaging() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-keygen-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let keyPath = tmpDir.appendingPathComponent("age-key.txt")
+        try "existing".write(to: keyPath, atomically: true, encoding: .utf8)
+
+        let cmd = try GenerateCommand.parse(["--force", "--yes"])
+        try cmd.generateToFile(at: keyPath)
+
+        // The new key is in place and the staging file was consumed by the swap.
+        let contents = try String(contentsOf: keyPath, encoding: .utf8)
+        #expect(contents.contains("AGE-SECRET-KEY-"))
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: tmpDir.path)
+            .filter { $0.hasPrefix(".sharibako-keygen-") }
+        #expect(leftovers.isEmpty)
+    }
 }
 
 // MARK: - Helpers

@@ -38,43 +38,52 @@ struct StatusCommand: AsyncParsableCommand {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let vault = try VaultCore(vaultURL: vaultURL)
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
+        print(try composeOutput(vault: vault, renderer: renderer))
+    }
+
+    /// Builds the full command output (print-free seam for tests).
+    ///
+    /// The scope filter runs before any rendering branch: previously the JSON
+    /// path returned every scope with the argument silently ignored, and an
+    /// unknown scope on an empty vault exited 0.
+    func composeOutput(vault: VaultCore, renderer: OutputRenderer) throws -> String {
         let entries = try fetchEntries(vault: vault)
-
-        if global.json {
-            print(try renderer.encodeJSON(entries))
-            return
-        }
-
-        guard !entries.isEmpty else {
-            print("No scopes in vault.")
-            return
-        }
 
         if let scopeID = scope {
             let match = entries.filter { $0.identity == scopeID }
             if match.isEmpty {
                 throw VaultError.scopeNotFound(id: scopeID)
             }
+            if renderer.json {
+                // Same array shape as the no-argument form, filtered.
+                return try renderer.encodeJSON(match)
+            }
             let secrets = try vault.inspect(scopeID)
-            print(
-                renderer.table(
-                    headers: ["KEY", "KIND"],
-                    rows: secrets.map { info in
-                        let kind: String
-                        switch info.kind {
-                        case .value: kind = "local"
-                        case .link(let sharedID): kind = "→ \(sharedID)"
-                        }
-                        return [info.key, kind]
+            return renderer.table(
+                headers: ["KEY", "KIND"],
+                rows: secrets.map { info in
+                    let kind: String
+                    switch info.kind {
+                    case .value: kind = "local"
+                    case .link(let sharedID): kind = "→ \(sharedID)"
                     }
-                ))
-        } else {
-            print(
-                renderer.table(
-                    headers: ["SCOPE", "TYPE", "SECRETS"],
-                    rows: entries.map { [$0.identity, $0.type, String($0.secretCount)] }
-                ))
+                    return [info.key, kind]
+                }
+            )
         }
+
+        if renderer.json {
+            return try renderer.encodeJSON(entries)
+        }
+
+        guard !entries.isEmpty else {
+            return "No scopes in vault."
+        }
+
+        return renderer.table(
+            headers: ["SCOPE", "TYPE", "SECRETS"],
+            rows: entries.map { [$0.identity, $0.type, String($0.secretCount)] }
+        )
     }
 
     /// Builds the status entries for every scope in the vault.

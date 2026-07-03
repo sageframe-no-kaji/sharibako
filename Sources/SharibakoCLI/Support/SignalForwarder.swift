@@ -26,7 +26,10 @@ final class SignalForwarder: @unchecked Sendable {
     private let feedback: RunFeedback
     private let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP]
     private var sources: [DispatchSourceSignal] = []
-    private var previous: [Int32: sig_t] = [:]
+    /// Prior dispositions, keyed by signal.
+    ///
+    /// A `nil` value records SIG_DFL — it must still be restored on teardown.
+    private var previous: [Int32: sig_t?] = [:]
 
     /// Countdown state, touched only on `countdownQueue`.
     private var countdown: DispatchSourceTimer?
@@ -47,7 +50,9 @@ final class SignalForwarder: @unchecked Sendable {
         for sig in forwarded {
             // Ignore at the process level so the dispatch source receives the signal
             // instead of the default terminating action firing on the wrapper.
-            if let prior = signal(sig, SIG_IGN) { previous[sig] = prior }
+            // updateValue (not subscript) so a nil result — SIG_DFL — is stored
+            // rather than dropped; teardown must restore defaults too.
+            previous.updateValue(signal(sig, SIG_IGN), forKey: sig)
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .global())
             source.setEventHandler { [weak self] in
                 self?.handle(signal: sig)
@@ -64,7 +69,7 @@ final class SignalForwarder: @unchecked Sendable {
             countdown?.cancel()
             countdown = nil
         }
-        for (sig, prior) in previous { signal(sig, prior) }
+        for (sig, prior) in previous { signal(sig, prior ?? SIG_DFL) }
         previous.removeAll()
     }
 
