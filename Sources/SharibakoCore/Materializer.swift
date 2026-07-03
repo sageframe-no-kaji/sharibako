@@ -412,7 +412,14 @@ extension Materializer {
         return found
     }
 
-    /// Writes `text` atomically, creating the parent directory when necessary.
+    /// Writes `text` atomically with owner-only (0600) permissions, creating
+    /// the parent directory when necessary.
+    ///
+    /// Materialized targets hold decrypted secrets, so the permission bits are
+    /// part of the write's contract (ho-04.8): the temp sibling is created
+    /// 0600 BEFORE any plaintext lands in it — a chmod after `String.write`
+    /// would leave a window where the plaintext sits at default permissions —
+    /// and then renamed into place, which is atomic within one directory.
     private func writeAtomically(text: String, to url: URL) throws {
         let fileManager = FileManager.default
         let parent = url.deletingLastPathComponent()
@@ -423,10 +430,32 @@ extension Materializer {
                 throw VaultError.fileSystemError(path: parent, underlying: error)
             }
         }
-        do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
-        } catch {
-            throw VaultError.fileSystemError(path: url, underlying: error)
+        let temp = parent.appendingPathComponent(
+            ".\(url.lastPathComponent).sharibako-tmp-\(UUID().uuidString)",
+            isDirectory: false
+        )
+        defer { try? fileManager.removeItem(at: temp) }
+        guard
+            fileManager.createFile(
+                atPath: temp.path,
+                contents: Data(text.utf8),
+                attributes: [.posixPermissions: 0o600]
+            )
+        else {
+            throw VaultError.fileSystemError(path: temp, underlying: POSIXError(.EIO))
+        }
+        // POSIX rename(2): atomically creates-or-replaces the target. An
+        // existing target's permission bits do not survive — 0600 is enforced
+        // on every materialize, not just the first.
+        let renameStatus = rename(
+            fileManager.fileSystemRepresentation(withPath: temp.path),
+            fileManager.fileSystemRepresentation(withPath: url.path)
+        )
+        guard renameStatus == 0 else {
+            throw VaultError.fileSystemError(
+                path: url,
+                underlying: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            )
         }
     }
 }

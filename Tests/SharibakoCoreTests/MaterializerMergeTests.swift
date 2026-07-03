@@ -40,6 +40,40 @@ struct MaterializerMergeTests {
         }
     }
 
+    @Test("materialize writes the target 0600 and re-tightens a looser existing target")
+    func materializeEnforcesOwnerOnlyPermissions() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("API_KEY", value: "sk-live", inScope: "kanyo-dev")
+
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let markerURL = project.appendingPathComponent(".sharibako")
+                let targetURL = project.appendingPathComponent(".env")
+                // Pre-existing world-readable target: the rewrite must not
+                // inherit the loose bits.
+                try "DEBUG=true\n".write(to: targetURL, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o644], ofItemAtPath: targetURL.path
+                )
+
+                let marker = ScopeMarker(scope: "kanyo-dev", materializeTo: "./.env", markerURL: markerURL)
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+                guard case .wrote = try mat.materialize(marker: marker) else {
+                    Issue.record("expected .wrote")
+                    return
+                }
+
+                let attrs = try FileManager.default.attributesOfItem(atPath: targetURL.path)
+                let mode = (attrs[.posixPermissions] as? NSNumber)?.uint16Value
+                #expect(mode == 0o600)
+                // No temp sibling left behind.
+                let siblings = try FileManager.default.contentsOfDirectory(atPath: project.path)
+                #expect(!siblings.contains { $0.contains("sharibako-tmp") })
+            }
+        }
+    }
+
     @Test("materialize into a file with only non-owned lines appends owned keys and preserves the rest byte-for-byte")
     func materializePreservesNonOwnedLines() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
