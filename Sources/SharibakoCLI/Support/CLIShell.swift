@@ -11,6 +11,32 @@ struct CLIShellResult {
     let stderr: String
 }
 
+/// Reads a pipe to EOF on a background thread so a chatty child can never fill
+/// the kernel pipe buffer and block while the parent is waiting on it.
+///
+/// Mirrors `PipeDrain` in `SharibakoCore` (internal to that library).
+private final class PipeDrain: @unchecked Sendable {
+    // @unchecked Sendable: `data` is written exactly once on the background
+    // queue before `semaphore.signal()`, and read only after `wait()` returns —
+    // the semaphore provides the happens-before edge.
+    private var data = Data()
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    /// Starts draining `handle` immediately on a background queue.
+    init(_ handle: FileHandle) {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            data = handle.readDataToEndOfFile()
+            semaphore.signal()
+        }
+    }
+
+    /// Blocks until the pipe reaches EOF, then returns everything it produced.
+    func drainedData() -> Data {
+        semaphore.wait()
+        return data
+    }
+}
+
 /// Minimal subprocess utilities for the CLI target.
 ///
 /// Mirrors `Shell` from `SharibakoCore` (which is internal to that library).
@@ -40,7 +66,9 @@ enum CLIShell {
 
     /// Runs a binary and returns exit code, stdout, and stderr as UTF-8 strings.
     ///
-    /// Does not throw on non-zero exit; callers inspect `exitCode`.
+    /// Does not throw on non-zero exit; callers inspect `exitCode`. Both pipes
+    /// are drained concurrently while the child runs, so output larger than the
+    /// kernel pipe buffer cannot deadlock the invocation (mirrors `Shell.run`).
     static func run(_ executableURL: URL, _ arguments: [String]) throws -> CLIShellResult {
         let process = Process()
         process.executableURL = executableURL
@@ -50,9 +78,11 @@ enum CLIShell {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
         try process.run()
+        let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading)
+        let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading)
+        let outData = stdoutDrain.drainedData()
+        let errData = stderrDrain.drainedData()
         process.waitUntilExit()
-        let outData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         return CLIShellResult(
             exitCode: process.terminationStatus,
             stdout: String(bytes: outData, encoding: .utf8) ?? "",

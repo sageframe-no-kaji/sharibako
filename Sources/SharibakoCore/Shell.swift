@@ -10,6 +10,31 @@ struct ShellResult {
     let stderr: String
 }
 
+/// Reads a pipe to EOF on a background thread so a chatty child can never fill
+/// the kernel pipe buffer (~64 KiB) and block while the parent is waiting on it
+/// — the classic `waitUntilExit`-before-read deadlock.
+final class PipeDrain: @unchecked Sendable {
+    // @unchecked Sendable: `data` is written exactly once on the background
+    // queue before `semaphore.signal()`, and read only after `wait()` returns —
+    // the semaphore provides the happens-before edge.
+    private var data = Data()
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    /// Starts draining `handle` immediately on a background queue.
+    init(_ handle: FileHandle) {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            data = handle.readDataToEndOfFile()
+            semaphore.signal()
+        }
+    }
+
+    /// Blocks until the pipe reaches EOF, then returns everything it produced.
+    func drainedData() -> Data {
+        semaphore.wait()
+        return data
+    }
+}
+
 /// Internal subprocess helper. `SharibakoCore` shells out to `age` (this ho)
 /// and `git` (Conduit, ho-02) through this single surface rather than
 /// scattering `Process` boilerplate at each call site.
@@ -44,19 +69,25 @@ enum Shell {
     /// Runs an external binary and captures its output.
     ///
     /// Does not throw on non-zero exit codes; callers inspect `ShellResult`.
-    /// Only throws if `Process.run()` itself fails to launch.
+    /// Only throws if `Process.run()` itself fails to launch. Both pipes are
+    /// drained concurrently while the child runs, so output larger than the
+    /// kernel pipe buffer cannot deadlock the invocation.
     ///
     /// - Parameters:
     ///   - executableURL: Absolute URL of the binary to run.
     ///   - arguments: Command-line arguments (excluding argv[0]).
     ///   - workingDirectory: Optional directory to set as the process's working directory.
     ///     When `nil` (the default), the process inherits the caller's working directory.
+    ///   - environmentOverrides: Variables merged over the inherited environment
+    ///     (override wins). When `nil` (the default), the child inherits the
+    ///     caller's environment untouched.
     /// - Returns: The captured `ShellResult`.
     /// - Throws: Any error thrown by `Process.run()` (typically wrapped `POSIXError`).
     static func run(
         _ executableURL: URL,
         _ arguments: [String],
-        workingDirectory: URL? = nil
+        workingDirectory: URL? = nil,
+        environmentOverrides: [String: String]? = nil
     ) throws -> ShellResult {
         let process = Process()
         process.executableURL = executableURL
@@ -65,6 +96,10 @@ enum Shell {
         if let workingDirectory {
             process.currentDirectoryURL = workingDirectory
         }
+        if let environmentOverrides {
+            process.environment = ProcessInfo.processInfo.environment
+                .merging(environmentOverrides) { _, override in override }
+        }
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -72,10 +107,12 @@ enum Shell {
         process.standardError = stderrPipe
 
         try process.run()
-        process.waitUntilExit()
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading)
+        let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading)
+        let stdoutData = stdoutDrain.drainedData()
+        let stderrData = stderrDrain.drainedData()
+        process.waitUntilExit()
 
         return ShellResult(
             exitCode: process.terminationStatus,
