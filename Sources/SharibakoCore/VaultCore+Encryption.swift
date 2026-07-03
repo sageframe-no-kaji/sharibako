@@ -98,7 +98,10 @@ extension VaultCore {
 
     /// Encrypts and writes a new shared entry.
     ///
-    /// Overwrites any existing `shared/<id>.age` at the same path. Semantics mirror
+    /// Add means create: throws ``VaultError/sharedEntryExists(id:)`` when
+    /// `shared/<id>.age` is already present (ho-04.10) — a silent overwrite would
+    /// propagate the new value to every scope linked to the entry. Deliberate
+    /// replacement is ``rotateShared(_:newValue:)``. Otherwise semantics mirror
     /// ``addSecret(_:value:inScope:notes:)`` but the destination is the vault's
     /// `shared/` directory rather than a scope. Used by the Materializer's ingest
     /// path when the user promotes a scope-local secret to a shared entry.
@@ -107,7 +110,8 @@ extension VaultCore {
     ///   - id: Shared entry identifier (becomes the filename stem).
     ///   - value: Plaintext value to encrypt.
     ///   - notes: Optional freeform notes stored alongside the value.
-    /// - Throws: ``VaultError/ageInvocationFailed(exitCode:stderr:)`` if `age` exits non-zero;
+    /// - Throws: ``VaultError/sharedEntryExists(id:)`` if the entry already exists;
+    ///   ``VaultError/ageInvocationFailed(exitCode:stderr:)`` if `age` exits non-zero;
     ///   ``VaultError/shellNotFound(name:)`` if no age binary is on PATH;
     ///   ``VaultError/yamlEncodeError(path:underlying:)`` if the payload cannot be encoded.
     public func addSharedEntry(
@@ -116,6 +120,9 @@ extension VaultCore {
         notes: String? = nil
     ) throws {
         let target = try VaultLayout.sharedEntryURL(id, in: vaultURL)
+        guard !FileManager.default.fileExists(atPath: target.path) else {
+            throw VaultError.sharedEntryExists(id: id)
+        }
         let content = SecretContent(value: value, notes: notes, rotatedAt: Self.todayISODate())
         try encryptAndWrite(content, to: target)
     }

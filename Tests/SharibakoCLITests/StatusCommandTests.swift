@@ -213,6 +213,8 @@ struct StatusCommandOutputTests {
             try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
             let scopeDir = try VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
             try Data([0]).write(to: scopeDir.appendingPathComponent("LOCAL_KEY.age"))
+            // link() requires an existing target (ho-04.10) — placeholder suffices.
+            try Data([0]).write(to: VaultLayout.sharedEntryURL("OPENAI_API_KEY", in: vaultURL))
             let vault = try VaultCore(vaultURL: vaultURL)
             try vault.link("LINKED_KEY", inScope: "kanyo", toShared: "OPENAI_API_KEY")
 

@@ -236,12 +236,14 @@ extension Materializer {
         let ownedInfos = try vaultCore.inspect(scopeID)
         let ownedKeys = Set(ownedInfos.map(\.key))
         let vaultValues = try loadVaultValues(for: ownedInfos, inScope: scopeID)
-        let fileValues = extractFirstFileValues(from: parseResult.lines, ownedKeys: ownedKeys)
+        let fileValues = extractOwnedFileValues(from: parseResult.lines, ownedKeys: ownedKeys)
+        let corruptedKeys = corruptedOwnedKeys(in: parseResult.lines, ownedKeys: ownedKeys)
 
         let (differing, missing) = computeDrift(
             ownedKeys: ownedKeys,
             fileValues: fileValues,
-            vaultValues: vaultValues
+            vaultValues: vaultValues,
+            corruptedKeys: corruptedKeys
         )
         if !differing.isEmpty, !overwriteDrift {
             return .diffPending(
@@ -254,13 +256,17 @@ extension Materializer {
             )
         }
 
+        let withTrailing = fileExists ? parseResult.hadTrailingNewline : true
         let outputLines = buildMaterializedLines(
             from: parseResult.lines,
             ownedKeys: ownedKeys,
             vaultValues: vaultValues,
-            missingKeys: missing
+            missingKeys: missing,
+            appendStyle: AppendStyle(
+                crlf: dominantLineEndingIsCRLF(parseResult.lines),
+                endsWithTerminator: withTrailing
+            )
         )
-        let withTrailing = fileExists ? parseResult.hadTrailingNewline : true
         let renderedText = renderEnvLines(outputLines, withTrailingNewline: withTrailing)
 
         if fileExists, renderedText == originalText {
@@ -317,8 +323,10 @@ extension Materializer {
         return values
     }
 
-    /// Records the first parsed value for each owned key in the file.
-    private func extractFirstFileValues(
+    /// Records the parsed value for each owned key in the file — the last
+    /// occurrence wins (ho-04.10), matching shell/compose read semantics and
+    /// ingest's merge order.
+    internal func extractOwnedFileValues(
         from lines: [EnvLine],
         ownedKeys: Set<String>
     ) -> [String: String] {
@@ -327,22 +335,63 @@ extension Materializer {
             guard case .keyValue(let key, let value, _) = line, ownedKeys.contains(key) else {
                 continue
             }
-            if values[key] == nil { values[key] = value }
+            values[key] = value
         }
         return values
     }
 
+    /// Owned keys whose file line is malformed.
+    ///
+    /// The line *intends* an owned key (`envLineIntendedKey`) but failed to
+    /// parse. Corruption doesn't transfer ownership (ho-04.10): these count as
+    /// drift, are rewritten in place by `materialize`, removed by `clean`, and
+    /// reported by `heal`.
+    internal func corruptedOwnedKeys(
+        in lines: [EnvLine],
+        ownedKeys: Set<String>
+    ) -> Set<String> {
+        var corrupted = Set<String>()
+        for line in lines {
+            guard case .malformed(let text, _) = line else { continue }
+            if let key = envLineIntendedKey(text), ownedKeys.contains(key) {
+                corrupted.insert(key)
+            }
+        }
+        return corrupted
+    }
+
+    /// The owned key a line claims — a parsed key/value's key, or the intended
+    /// key of a malformed line (a corrupted owned line, ho-04.10).
+    private func ownedKeyClaimed(by line: EnvLine, ownedKeys: Set<String>) -> String? {
+        switch line {
+        case .keyValue(let key, _, _):
+            return ownedKeys.contains(key) ? key : nil
+        case .malformed(let text, _):
+            guard let key = envLineIntendedKey(text), ownedKeys.contains(key) else { return nil }
+            return key
+        case .blank, .comment:
+            return nil
+        }
+    }
+
     /// Sorted lists of owned keys that differ between file and vault, and owned keys
     /// entirely absent from the file.
+    ///
+    /// A corrupted owned line always counts as differing — its bytes are not the
+    /// canonical line — so the `diffPending`/`overwriteDrift` gate protects a
+    /// hand-edit in progress.
     private func computeDrift(
         ownedKeys: Set<String>,
         fileValues: [String: String],
-        vaultValues: [String: String]
+        vaultValues: [String: String],
+        corruptedKeys: Set<String>
     ) -> (differing: [String], missing: [String]) {
         var differing: [String] = []
         var missing: [String] = []
         for key in ownedKeys.sorted() {
-            if let fileValue = fileValues[key] {
+            if corruptedKeys.contains(key) {
+                differing.append(key)
+            } else if let fileValue = fileValues[key] {
                 if fileValue != vaultValues[key] {
                     differing.append(key)
                 }
@@ -353,57 +402,81 @@ extension Materializer {
         return (differing, missing)
     }
 
-    /// Builds the output line list by rewriting the first occurrence of each owned key
-    /// canonically, dropping subsequent duplicates, and appending any missing owned keys.
+    /// Terminator style for lines the materializer appends (ho-04.10).
+    ///
+    /// `crlf` mirrors the file's dominant line ending; `endsWithTerminator` is
+    /// whether the render appends a final newline — a final line left
+    /// unterminated must not end in a stray `\r`.
+    private struct AppendStyle {
+        let crlf: Bool
+        let endsWithTerminator: Bool
+    }
+
+    /// Builds the output line list for a materialize write.
+    ///
+    /// Rewrites the first line each owned key claims — parsed or corrupted
+    /// (ho-04.10) — canonically, drops subsequent claims, and appends any
+    /// missing owned keys. Rewrites keep the terminator of the line they
+    /// replace; appended lines follow `appendStyle`.
     private func buildMaterializedLines(
         from lines: [EnvLine],
         ownedKeys: Set<String>,
         vaultValues: [String: String],
-        missingKeys: [String]
+        missingKeys: [String],
+        appendStyle: AppendStyle
     ) -> [EnvLine] {
         var output: [EnvLine] = []
         var replaced = Set<String>()
         for line in lines {
-            if case .keyValue(let key, _, _) = line, ownedKeys.contains(key) {
-                if replaced.contains(key) { continue }
-                let vaultValue = vaultValues[key] ?? ""
-                let rewrite = canonicalizeEnvLine(key: key, value: vaultValue)
-                output.append(.keyValue(key: key, value: vaultValue, rawText: rewrite))
-                replaced.insert(key)
-            } else {
+            guard let key = ownedKeyClaimed(by: line, ownedKeys: ownedKeys) else {
                 output.append(line)
+                continue
             }
+            if replaced.contains(key) { continue }
+            let vaultValue = vaultValues[key] ?? ""
+            var rewrite = canonicalizeEnvLine(key: key, value: vaultValue)
+            if line.endsWithCR {
+                rewrite += "\r"
+            }
+            output.append(.keyValue(key: key, value: vaultValue, rawText: rewrite))
+            replaced.insert(key)
         }
-        appendMissingKeys(missingKeys, into: &output, vaultValues: vaultValues)
+        appendMissingKeys(missingKeys, into: &output, vaultValues: vaultValues, style: appendStyle)
         return output
     }
 
     /// Appends new owned-key lines to the output.
     ///
     /// Inserts before a trailing blank line when present so the file's
-    /// trailing-newline shape is preserved.
+    /// trailing-newline shape is preserved. Appended lines carry a `\r` when
+    /// the file is predominantly CRLF — except a final line the render leaves
+    /// unterminated, which must not end in a stray `\r`.
     private func appendMissingKeys(
         _ missing: [String],
         into output: inout [EnvLine],
-        vaultValues: [String: String]
+        vaultValues: [String: String],
+        style: AppendStyle
     ) {
         guard !missing.isEmpty else { return }
+        let eol = style.crlf ? "\r" : ""
         let trailingBlank: EnvLine?
         if let last = output.last, case .blank = last {
             trailingBlank = output.removeLast()
         } else {
             trailingBlank = nil
             if !output.isEmpty {
-                output.append(.blank(text: ""))
+                output.append(.blank(text: eol))
             }
         }
         for key in missing {
             let value = vaultValues[key] ?? ""
-            let text = canonicalizeEnvLine(key: key, value: value)
+            let text = canonicalizeEnvLine(key: key, value: value) + eol
             output.append(.keyValue(key: key, value: value, rawText: text))
         }
         if let trailing = trailingBlank {
             output.append(trailing)
+        } else if style.crlf, !style.endsWithTerminator, let last = output.last, last.endsWithCR {
+            output[output.count - 1] = last.removingCarriageReturn()
         }
     }
 
@@ -475,7 +548,9 @@ extension Materializer {
     /// Removes the scope's owned lines from the target file.
     ///
     /// Non-owned lines (blanks, comments, malformed, non-owned key/value pairs) are
-    /// preserved. Deletes the file when nothing but blanks and comments remain.
+    /// preserved. A malformed line that *intends* an owned key is an owned line —
+    /// corruption doesn't transfer ownership (ho-04.10) — and is removed with the
+    /// rest. Deletes the file when nothing but blanks and comments remain.
     public func clean(marker: ScopeMarker) throws -> CleanResult {
         let scopeID = marker.scope
         let targetURL = try marker.validatedTargetURL()
@@ -495,7 +570,7 @@ extension Materializer {
         var removed = Set<String>()
         var filtered: [EnvLine] = []
         for line in parseResult.lines {
-            if case .keyValue(let key, _, _) = line, ownedKeys.contains(key) {
+            if let key = ownedKeyClaimed(by: line, ownedKeys: ownedKeys) {
                 removed.insert(key)
                 continue
             }
@@ -525,7 +600,9 @@ extension Materializer {
     /// Reports drift between the vault and the target file for each owned key.
     ///
     /// Non-owned lines are invisible to `heal`. When the file doesn't exist, every
-    /// owned key is reported as ``KeyDrift/fileMissing(key:)``.
+    /// owned key is reported as ``KeyDrift/fileMissing(key:)``. An owned key whose
+    /// file line is malformed reports ``KeyDrift/fileLineCorrupted(key:)`` — the
+    /// value is unreadable, so there is nothing to hash (ho-04.10).
     public func heal(marker: ScopeMarker) throws -> DriftReport {
         let scopeID = marker.scope
         let targetURL = try marker.validatedTargetURL()
@@ -544,7 +621,8 @@ extension Materializer {
         }
         let parseResult = parseEnvString(text, sourceFile: targetURL)
         let ownedKeySet = Set(ownedKeys)
-        let fileValues = extractFirstFileValues(from: parseResult.lines, ownedKeys: ownedKeySet)
+        let fileValues = extractOwnedFileValues(from: parseResult.lines, ownedKeys: ownedKeySet)
+        let corruptedKeys = corruptedOwnedKeys(in: parseResult.lines, ownedKeys: ownedKeySet)
 
         var vaultValues: [String: String] = [:]
         for key in ownedKeys {
@@ -554,7 +632,9 @@ extension Materializer {
         var drift: [KeyDrift] = []
         for key in ownedKeys {
             let vaultValue = vaultValues[key] ?? ""
-            if let fileValue = fileValues[key] {
+            if corruptedKeys.contains(key) {
+                drift.append(.fileLineCorrupted(key: key))
+            } else if let fileValue = fileValues[key] {
                 if fileValue == vaultValue {
                     drift.append(.match(key: key))
                 } else {

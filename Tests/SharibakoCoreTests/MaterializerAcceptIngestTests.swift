@@ -101,6 +101,44 @@ struct MaterializerAcceptIngestTests {
         }
     }
 
+    @Test(".moveToShared onto an EXISTING shared entry throws sharedEntryExists; the entry survives (ho-04.10)")
+    func acceptMoveToSharedCollision() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeSharedEntry(
+                "openai-personal",
+                value: "sk-existing",
+                vault: vault,
+                fixture: fixture
+            )
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+                let proposal = Self.makeProposal(
+                    directory: project,
+                    detected: [
+                        DetectedSpec(key: "OPENAI_API_KEY", value: "sk-clobber", matchedShared: "openai-personal")
+                    ]
+                )
+                let error = #expect(throws: VaultError.self) {
+                    try mat.acceptIngest(
+                        proposal,
+                        decisions: [.moveToShared(key: "OPENAI_API_KEY", newSharedID: "openai-personal")]
+                    )
+                }
+                guard case .sharedEntryExists(let id) = error else {
+                    Issue.record("expected sharedEntryExists, got \(String(describing: error))")
+                    return
+                }
+                #expect(id == "openai-personal")
+                // The existing entry's value is untouched — every linked scope
+                // vault-wide still resolves it.
+                try VaultTestSupport.writeScope("probe", type: .projectDev, in: vault)
+                try core.link("K", inScope: "probe", toShared: "openai-personal")
+                #expect(try core.getValue("K", inScope: "probe") == "sk-existing")
+            }
+        }
+    }
+
     @Test("acceptIngest with .leaveAlone writes nothing for that key")
     func acceptLeaveAlone() throws {
         try VaultTestSupport.withEphemeralVault { vault in

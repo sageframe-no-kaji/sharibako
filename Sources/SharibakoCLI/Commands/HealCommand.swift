@@ -6,7 +6,7 @@ import SharibakoCore
 struct HealKeyEntry: Codable, Sendable {
     /// Secret key name.
     let key: String
-    /// Drift status: `"match"`, `"fileMissing"`, or `"fileValueDiffers"`.
+    /// Drift status: `"match"`, `"fileMissing"`, `"fileValueDiffers"`, or `"fileLineCorrupted"`.
     let status: String
     /// SHA-256 hex digest of the vault value when status is `"fileValueDiffers"`.
     let vaultSha256: String?
@@ -92,6 +92,9 @@ struct HealCommand: AsyncParsableCommand {
             case .fileValueDiffers(let key, let vaultSha256, let fileSha256):
                 return HealKeyEntry(
                     key: key, status: "fileValueDiffers", vaultSha256: vaultSha256, fileSha256: fileSha256)
+            case .fileLineCorrupted(let key):
+                return HealKeyEntry(
+                    key: key, status: "fileLineCorrupted", vaultSha256: nil, fileSha256: nil)
             }
         }
         return HealResult(scopeID: report.scopeID, path: report.path.path, owned: entries)
@@ -110,6 +113,11 @@ struct HealCommand: AsyncParsableCommand {
             case .fileValueDiffers(let key, let vaultSha256, let fileSha256):
                 let diff = "vault:\(vaultSha256.prefix(8))… file:\(fileSha256.prefix(8))…"
                 return [colorSymbol("~", ansi: "\u{1B}[33m", enabled: useColor), key, diff]
+            case .fileLineCorrupted(let key):
+                return [
+                    colorSymbol("~", ansi: "\u{1B}[33m", enabled: useColor), key,
+                    "file line malformed (unreadable value)",
+                ]
             }
         }
         print(renderer.table(headers: ["", "KEY", "STATUS"], rows: rows))

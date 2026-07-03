@@ -200,6 +200,10 @@ public enum KeyDrift: Sendable, Equatable {
     case fileMissing(key: String)
     /// Both sides have the key but their values differ; SHA-256 hex digests of each side.
     case fileValueDiffers(key: String, vaultSha256: String, fileSha256: String)
+    /// The file's line for this owned key is malformed — the value is unreadable,
+    /// so there is nothing to hash (ho-04.10). `materialize` rewrites the line
+    /// in place once the drift gate is passed.
+    case fileLineCorrupted(key: String)
 }
 
 /// Outcome of a `clean` call.

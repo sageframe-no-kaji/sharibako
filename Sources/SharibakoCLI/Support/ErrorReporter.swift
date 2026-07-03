@@ -75,9 +75,14 @@ enum ErrorReporter {
         }
         return rendered
     }
+}
 
-    // MARK: - Private mapping
+// MARK: - Private mapping
 
+// The two exhaustive mapping switches live in an extension so the enum body
+// stays under the type-body-length ceiling; they grow case-for-case with the
+// error enums they mirror.
+extension ErrorReporter {
     // Exhaustive error-mapping switch: one case per VaultError; length and branching mirror the enum.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private static func report(vaultError: VaultError) -> ErrorReport {
@@ -111,6 +116,13 @@ enum ErrorReporter {
                 code: .userError,
                 message: "Shared entry \"\(id)\" does not exist.",
                 remediation: nil
+            )
+        case .sharedEntryExists(let id):
+            return ErrorReport(
+                code: .userError,
+                message: "Shared entry \"\(id)\" already exists.",
+                remediation: "Link to it instead, or replace its value deliberately with "
+                    + "`sharibako rotate --shared \(id)`."
             )
         case .linkTargetMissing(let id):
             return ErrorReport(

@@ -250,9 +250,12 @@ public struct VaultCore: Sendable {
     ///
     /// Writes `<key>.link` containing the shared entry ID and removes any
     /// pre-existing `<key>.age` for the same key (a scope key is either a
-    /// direct value or a link, never both).
+    /// direct value or a link, never both). The shared entry must exist
+    /// (ho-04.10, superseding ho-01's dangling-link permissiveness): a dangling
+    /// link only ever bricks reads of the key until the target appears.
     ///
-    /// - Throws: `VaultError.scopeNotFound(id:)` if the scope directory is absent.
+    /// - Throws: `VaultError.scopeNotFound(id:)` if the scope directory is absent;
+    ///   `VaultError.sharedEntryNotFound(id:)` if the shared entry does not exist.
     public func link(_ key: String, inScope scopeID: String, toShared sharedID: String) throws {
         // The sharedID becomes a .link payload — the write side of the
         // contract readLinkTarget enforces on the read side (ho-04.9).
@@ -261,6 +264,10 @@ public struct VaultCore: Sendable {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: scopeDir.path) else {
             throw VaultError.scopeNotFound(id: scopeID)
+        }
+        let sharedURL = try VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
+        guard fileManager.fileExists(atPath: sharedURL.path) else {
+            throw VaultError.sharedEntryNotFound(id: sharedID)
         }
 
         let linkURL = try VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)

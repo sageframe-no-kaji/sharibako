@@ -98,4 +98,56 @@ struct RotateCommandTests {
             }
         }
     }
+
+    // MARK: - rotate --shared (ho-04.10)
+
+    @Test("rotate --shared rotates a shared entry no scope links")
+    func rotateSharedDirect() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSharedEntry("zero-links", value: "old")
+
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "new",
+                "--shared", "zero-links",
+            ])
+            try cmd._run()
+
+            // Verify through a fresh link — the only read path for a shared entry.
+            try CLITestSupport.writeScope("probe", in: vaultURL)
+            let newVault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try newVault.link("K", inScope: "probe", toShared: "zero-links")
+            #expect((try? newVault.getValue("K", inScope: "probe")) == "new")
+        }
+    }
+
+    @Test("rotate --shared throws sharedEntryNotFound for an unknown entry")
+    func rotateSharedUnknown() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            var cmd = try RotateCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "v",
+                "--shared", "ghost",
+            ])
+            #expect(throws: VaultError.self) {
+                try cmd._run()
+            }
+        }
+    }
+
+    @Test("--shared is mutually exclusive with scope/key; one form is required")
+    func rotateSharedExclusivity() {
+        #expect(throws: (any Error).self) {
+            _ = try RotateCommand.parse(["--value", "v", "--shared", "x", "s1", "K"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try RotateCommand.parse(["--value", "v"])
+        }
+        #expect(throws: (any Error).self) {
+            _ = try RotateCommand.parse(["--value", "v", "s1"])
+        }
+    }
 }
