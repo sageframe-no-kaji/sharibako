@@ -55,10 +55,10 @@ struct VaultCoreFilesystemTests {
     @Test("listScopes throws yamlDecodeError for a malformed scope.yaml")
     func listScopesRejectsMalformedYAML() throws {
         try VaultTestSupport.withEphemeralVault { vault in
-            let scopeDir = VaultLayout.scopeDirectoryURL("busted", in: vault)
+            let scopeDir = try VaultLayout.scopeDirectoryURL("busted", in: vault)
             try FileManager.default.createDirectory(at: scopeDir, withIntermediateDirectories: true)
             try "type: :::not valid yaml".write(
-                to: VaultLayout.scopeYAMLURL("busted", in: vault),
+                to: try VaultLayout.scopeYAMLURL("busted", in: vault),
                 atomically: true,
                 encoding: .utf8
             )
@@ -189,7 +189,7 @@ struct VaultCoreFilesystemTests {
             let core = try VaultCore(vaultURL: vault)
             try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
 
-            let linkURL = VaultLayout.linkURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
+            let linkURL = try VaultLayout.linkURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
             let contents = try String(contentsOf: linkURL, encoding: .utf8)
             #expect(contents == "openai-personal")
         }
@@ -200,7 +200,7 @@ struct VaultCoreFilesystemTests {
         try VaultTestSupport.withEphemeralVault { vault in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             try VaultTestSupport.writePlaceholderAge("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
-            let ageURL = VaultLayout.secretURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
+            let ageURL = try VaultLayout.secretURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
             #expect(FileManager.default.fileExists(atPath: ageURL.path))
 
             let core = try VaultCore(vaultURL: vault)
@@ -348,7 +348,7 @@ struct VaultCoreFilesystemTests {
     func linkFailsOnReadOnlyScopeDir() throws {
         try VaultTestSupport.withEphemeralVault { vault in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
-            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo-dev", in: vault)
+            let scopeDir = try VaultLayout.scopeDirectoryURL("kanyo-dev", in: vault)
             let fileManager = FileManager.default
             // Read + execute only; owner can't create new files inside.
             try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: scopeDir.path)

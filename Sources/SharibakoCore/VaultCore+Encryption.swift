@@ -27,11 +27,11 @@ extension VaultCore {
         inScope scopeID: String,
         notes: String? = nil
     ) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
         guard FileManager.default.fileExists(atPath: scopeDir.path) else {
             throw VaultError.scopeNotFound(id: scopeID)
         }
-        let target = VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        let target = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
         let content = SecretContent(value: value, notes: notes, rotatedAt: Self.todayISODate())
         try encryptAndWrite(content, to: target)
     }
@@ -87,7 +87,7 @@ extension VaultCore {
     /// - Throws: `VaultError.secretNotFound(scope:key:)` if the `.age` is absent;
     ///   `VaultError.ageInvocationFailed` for encrypt/decrypt failures.
     public func rotate(_ key: String, inScope scopeID: String, newValue: String) throws {
-        let target = VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        let target = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
         guard FileManager.default.fileExists(atPath: target.path) else {
             throw VaultError.secretNotFound(scope: scopeID, key: key)
         }
@@ -115,7 +115,7 @@ extension VaultCore {
         value: String,
         notes: String? = nil
     ) throws {
-        let target = VaultLayout.sharedEntryURL(id, in: vaultURL)
+        let target = try VaultLayout.sharedEntryURL(id, in: vaultURL)
         let content = SecretContent(value: value, notes: notes, rotatedAt: Self.todayISODate())
         try encryptAndWrite(content, to: target)
     }
@@ -128,7 +128,7 @@ extension VaultCore {
     ///
     /// - Throws: `VaultError.sharedEntryNotFound(id:)` if the shared entry is absent.
     public func rotateShared(_ sharedID: String, newValue: String) throws {
-        let target = VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
+        let target = try VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
         guard FileManager.default.fileExists(atPath: target.path) else {
             throw VaultError.sharedEntryNotFound(id: sharedID)
         }
@@ -148,13 +148,13 @@ extension VaultCore {
     ///   `VaultError.linkTargetMissing(id:)` if the shared entry is absent;
     ///   `VaultError.ageInvocationFailed` for encrypt/decrypt failures.
     public func unlink(_ key: String, inScope scopeID: String) throws {
-        let linkURL = VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
+        let linkURL = try VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: linkURL.path) else {
             throw VaultError.secretNotFound(scope: scopeID, key: key)
         }
         let sharedID = try readLinkTarget(at: linkURL)
-        let sharedURL = VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
+        let sharedURL = try VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
         guard fileManager.fileExists(atPath: sharedURL.path) else {
             throw VaultError.linkTargetMissing(id: sharedID)
         }
@@ -164,7 +164,7 @@ extension VaultCore {
             notes: sharedContent.notes,
             rotatedAt: Self.todayISODate()
         )
-        let ageURL = VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        let ageURL = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
         try encryptAndWrite(localContent, to: ageURL)
         do {
             try fileManager.removeItem(at: linkURL)
@@ -181,16 +181,16 @@ extension VaultCore {
     /// a `.link` nor a `.age` matches, or if a `.link` points to a missing target.
     private func resolveSecretTarget(_ key: String, inScope scopeID: String) throws -> URL {
         let fileManager = FileManager.default
-        let linkURL = VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
+        let linkURL = try VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
         if fileManager.fileExists(atPath: linkURL.path) {
             let sharedID = try readLinkTarget(at: linkURL)
-            let sharedURL = VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
+            let sharedURL = try VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
             guard fileManager.fileExists(atPath: sharedURL.path) else {
                 throw VaultError.linkTargetMissing(id: sharedID)
             }
             return sharedURL
         }
-        let ageURL = VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        let ageURL = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
         guard fileManager.fileExists(atPath: ageURL.path) else {
             throw VaultError.secretNotFound(scope: scopeID, key: key)
         }

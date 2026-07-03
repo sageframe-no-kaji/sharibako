@@ -34,7 +34,7 @@ struct VaultCoreEncryptionTests {
                 inScope: "kanyo-dev",
                 notes: "Provisioned by Terraform. Do not rotate before staging."
             )
-            let linkURL = VaultLayout.secretURL("DATABASE_URL", inScope: "kanyo-dev", in: vault)
+            let linkURL = try VaultLayout.secretURL("DATABASE_URL", inScope: "kanyo-dev", in: vault)
             // Decrypt directly via getValue and verify notes survive by rotating and re-reading.
             try core.rotate("DATABASE_URL", inScope: "kanyo-dev", newValue: "postgres://a@b/c")
             #expect(FileManager.default.fileExists(atPath: linkURL.path))
@@ -149,8 +149,8 @@ struct VaultCoreEncryptionTests {
 
             try core.unlink("OPENAI_API_KEY", inScope: "kanyo-dev")
 
-            let linkURL = VaultLayout.linkURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
-            let ageURL = VaultLayout.secretURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
+            let linkURL = try VaultLayout.linkURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
+            let ageURL = try VaultLayout.secretURL("OPENAI_API_KEY", inScope: "kanyo-dev", in: vault)
             #expect(!FileManager.default.fileExists(atPath: linkURL.path))
             #expect(FileManager.default.fileExists(atPath: ageURL.path))
             #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "sk-was-shared")
@@ -321,7 +321,7 @@ struct VaultCoreEncryptionFailureTests {
             try "@@@ this is not: :::valid yaml".write(to: tempFile, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tempFile) }
 
-            let target = VaultLayout.secretURL("CORRUPT", inScope: "kanyo-dev", in: vault)
+            let target = try VaultLayout.secretURL("CORRUPT", inScope: "kanyo-dev", in: vault)
             let ageBinary = try Shell.findExecutable("age")
             let result = try Shell.run(
                 ageBinary,
@@ -366,7 +366,7 @@ struct VaultCoreEncryptionFailureTests {
             // Write raw non-age-format bytes directly as the .age ciphertext. When age
             // tries to decrypt this, it fails with a header-parse error and exits non-zero,
             // hitting the ageInvocationFailed guard in decryptSecretContent (line 168).
-            let target = VaultLayout.secretURL("CORRUPT_AGE", inScope: "kanyo-dev", in: vault)
+            let target = try VaultLayout.secretURL("CORRUPT_AGE", inScope: "kanyo-dev", in: vault)
             try "this is NOT age-format ciphertext".write(to: target, atomically: true, encoding: .utf8)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
             #expect(throws: VaultError.self) {

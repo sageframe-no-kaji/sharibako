@@ -14,7 +14,8 @@ import Foundation
 /// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
 /// ``markerNotFound(startingFrom:)``, ``markerMalformed(path:reason:)``,
 /// ``envParseFailed(path:reason:)``, ``ingestKeyMismatch(unknownKey:)``,
-/// ``ageIdentityNotConfigured``.
+/// ``ageIdentityNotConfigured``, ``invalidIdentifier(kind:value:source:)``,
+/// ``remoteURLRejected(url:reason:)``.
 public enum VaultError: Error {
     /// The vault directory does not exist at the given path.
     case vaultNotFound(path: URL)
@@ -54,6 +55,23 @@ public enum VaultError: Error {
     /// An encrypt/decrypt operation was attempted on a ``VaultCore`` bound
     /// without an age identity (no key URL / public key configured).
     case ageIdentityNotConfigured
+    /// An identifier (scope ID, key, or shared-entry ID) violates the vault's
+    /// identifier grammar (ho-04.9). `source` names the file the identifier
+    /// was read from when it arrived via vault data (e.g. a tampered `.link`
+    /// payload); `nil` when it came from a direct argument.
+    case invalidIdentifier(kind: IdentifierKind, value: String, source: URL?)
+    /// A git remote URL was rejected by the transport allowlist (ho-04.9).
+    case remoteURLRejected(url: String, reason: String)
+}
+
+/// Which kind of vault identifier failed validation.
+///
+/// The raw value reads naturally in error messages ("scope ID", "key",
+/// "shared-entry ID").
+public enum IdentifierKind: String, Sendable {
+    case scope = "scope ID"
+    case key = "key"
+    case sharedEntry = "shared-entry ID"
 }
 
 /// Stand-in for a decoder error whose description may embed decrypted secret

@@ -38,7 +38,7 @@ struct VaultCoreFilesystemErrorTests {
     func listScopesThrowsWhenScopeYAMLUnreadable() throws {
         try VaultTestSupport.withEphemeralVault { vault in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
-            let yamlURL = VaultLayout.scopeYAMLURL("kanyo-dev", in: vault)
+            let yamlURL = try VaultLayout.scopeYAMLURL("kanyo-dev", in: vault)
             let fileManager = FileManager.default
             // Remove all permissions so String(contentsOf:) throws, hitting the
             // fileSystemError catch block in decodeScopeYAML (line 294 of VaultCore.swift).
@@ -81,7 +81,7 @@ struct VaultCoreFilesystemErrorTests {
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             // Write a .link file and make it unreadable — readLinkTarget's String(contentsOf:)
             // then throws, surfacing as fileSystemError (line 312 of VaultCore.swift).
-            let linkURL = VaultLayout.linkURL("GHOST_KEY", inScope: "kanyo-dev", in: vault)
+            let linkURL = try VaultLayout.linkURL("GHOST_KEY", inScope: "kanyo-dev", in: vault)
             try "some-shared-id".write(to: linkURL, atomically: true, encoding: .utf8)
             let fileManager = FileManager.default
             try fileManager.setAttributes([.posixPermissions: 0o000], ofItemAtPath: linkURL.path)

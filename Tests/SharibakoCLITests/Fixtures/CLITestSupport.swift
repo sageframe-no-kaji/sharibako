@@ -169,11 +169,11 @@ enum CLITestSupport {
         type: ScopeType = .projectDev,
         in vault: URL
     ) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(id, in: vault)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(id, in: vault)
         try FileManager.default.createDirectory(at: scopeDir, withIntermediateDirectories: true)
         let yaml = "identity: \(id)\ntype: \(type.rawValue)\n"
         try yaml.write(
-            to: VaultLayout.scopeYAMLURL(id, in: vault),
+            to: try VaultLayout.scopeYAMLURL(id, in: vault),
             atomically: true,
             encoding: .utf8
         )
