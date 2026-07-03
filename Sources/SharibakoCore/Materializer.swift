@@ -31,7 +31,6 @@ public struct Materializer: Sendable {
 
 // MARK: - Marker load/write/resolve
 
-// swiftlint:disable:next extension_access_modifier
 extension Materializer {
     /// Loads a marker from a specific `.sharibako` file.
     ///
@@ -316,7 +315,6 @@ extension Materializer {
     ) -> [String: String] {
         var values: [String: String] = [:]
         for line in lines {
-            // swiftlint:disable:next pattern_matching_keywords
             guard case .keyValue(let key, let value, _) = line, ownedKeys.contains(key) else {
                 continue
             }
@@ -435,7 +433,6 @@ extension Materializer {
 
 // MARK: - Clean and heal
 
-// swiftlint:disable:next extension_access_modifier
 extension Materializer {
     /// Removes the scope's owned lines from the target file.
     ///

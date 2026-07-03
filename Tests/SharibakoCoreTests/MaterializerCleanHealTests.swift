@@ -43,7 +43,6 @@ struct MaterializerCleanHealTests {
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
                 let marker = ScopeMarker(scope: "kanyo-dev", materializeTo: "./.env", markerURL: markerURL)
                 let result = try mat.clean(marker: marker)
-                // swiftlint:disable:next pattern_matching_keywords
                 guard case .cleaned(_, let removed, let stillExists) = result else {
                     Issue.record("expected .cleaned")
                     return
@@ -138,7 +137,6 @@ struct MaterializerCleanHealTests {
                 let marker = ScopeMarker(scope: "kanyo-dev", materializeTo: "./.env", markerURL: markerURL)
                 let report = try mat.heal(marker: marker)
                 #expect(report.owned.count == 1)
-                // swiftlint:disable:next pattern_matching_keywords
                 guard case .fileValueDiffers(let key, let vaultSha, let fileSha) = report.owned[0] else {
                     Issue.record("expected .fileValueDiffers")
                     return

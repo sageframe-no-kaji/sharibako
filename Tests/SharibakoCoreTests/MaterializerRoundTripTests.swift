@@ -12,6 +12,7 @@ import Testing
 /// through every stage.
 @Suite("Materializer Round Trip")
 struct MaterializerRoundTripTests {
+    // End-to-end scenario test: the full kamae-2.2 round trip deliberately runs in one body.
     @Test("kamae-2.2 round trip: ingest → accept → materialize → hand-edit → update → rotate → materialize")
     func kamae22RoundTrip() throws {  // swiftlint:disable:this function_body_length
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in

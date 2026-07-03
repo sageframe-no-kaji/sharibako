@@ -78,6 +78,7 @@ enum ErrorReporter {
 
     // MARK: - Private mapping
 
+    // Exhaustive error-mapping switch: one case per VaultError; length and branching mirror the enum.
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     private static func report(vaultError: VaultError) -> ErrorReport {
         switch vaultError {
@@ -93,7 +94,6 @@ enum ErrorReporter {
                 message: "Scope \"\(id)\" does not exist.",
                 remediation: nil
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .secretNotFound(let scope, let key):
             return ErrorReport(
                 code: .userError,
@@ -118,28 +118,24 @@ enum ErrorReporter {
                 message: "Link target \"\(id)\" is missing from the shared directory.",
                 remediation: "Run `sharibako list --shared` to see available shared entries."
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .ageInvocationFailed(let exitCode, let stderrText):
             return ErrorReport(
                 code: .age,
                 message: "age binary failed (exit \(exitCode)): \(stderrText.isEmpty ? "(no output)" : stderrText)",
                 remediation: "Verify `age` is installed and on PATH."
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .yamlEncodeError(let path, let underlying):
             return ErrorReport(
                 code: .filesystem,
                 message: "Failed to encode YAML at \(path.path): \(underlying.localizedDescription)",
                 remediation: nil
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .yamlDecodeError(let path, let underlying):
             return ErrorReport(
                 code: .filesystem,
                 message: "Failed to decode YAML at \(path.path): \(underlying.localizedDescription)",
                 remediation: nil
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .fileSystemError(let path, let underlying):
             return ErrorReport(
                 code: .filesystem,
@@ -153,7 +149,6 @@ enum ErrorReporter {
                 message: "The `\(name)` binary was not found on PATH.",
                 remediation: "Install `\(name)` (e.g. `brew install \(name == "git" ? "git" : "age")`)."
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .gitInvocationFailed(let exitCode, let stderrText):
             return ErrorReport(
                 code: .git,
@@ -166,14 +161,12 @@ enum ErrorReporter {
                 message: "No `.sharibako` marker found starting from \(startingFrom.path).",
                 remediation: "Run `sharibako init` in your project directory to create one."
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .markerMalformed(let path, let reason):
             return ErrorReport(
                 code: .userError,
                 message: "Malformed marker at \(path.path): \(reason).",
                 remediation: nil
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .envParseFailed(let path, let reason):
             return ErrorReport(
                 code: .filesystem,
@@ -196,6 +189,7 @@ enum ErrorReporter {
         }
     }
 
+    // Exhaustive error-mapping switch: one case per CLIError; length and branching mirror the enum.
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func report(cliError: CLIError) -> ErrorReport {
         switch cliError {
@@ -274,7 +268,6 @@ enum ErrorReporter {
                 message: "Supply a value via --value <v> or --from-stdin.",
                 remediation: nil
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .secretAlreadyExists(let scope, let key):
             return ErrorReport(
                 code: .userError,
@@ -329,7 +322,6 @@ enum ErrorReporter {
                 message: "No command to run. Usage: `sharibako run [--scope <id>] -- <command> [args...]`.",
                 remediation: "Supply a command after `--`, or use `--dry-run` to list what would be injected."
             )
-        // swiftlint:disable:next pattern_matching_keywords
         case .runSpawnFailed(let command, let underlying):
             return ErrorReport(
                 code: .generic,

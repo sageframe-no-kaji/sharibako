@@ -30,6 +30,7 @@ struct CleanCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -63,7 +64,6 @@ struct CleanCommand: AsyncParsableCommand {
 
     private func renderResult(_ result: CleanResult) {
         switch result {
-        // swiftlint:disable:next pattern_matching_keywords
         case .cleaned(let path, let keys, let stillExists):
             if stillExists {
                 print("Removed \(keys.count) key(s) from \(path.path)")

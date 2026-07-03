@@ -56,6 +56,7 @@ struct RunCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     /// Resolves the scope, decrypts its secrets, and spawns the child — returning the
     /// outcome instead of exiting, so tests can drive it in-process.
     ///

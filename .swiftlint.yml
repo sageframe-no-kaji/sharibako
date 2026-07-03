@@ -1,8 +1,7 @@
 # .swiftlint.yml
 #
-# Ho System SwiftLint baseline. Strict ruleset with warning threshold
-# initially relaxed so the first month doesn't drown in warnings — tighten
-# (lower the threshold, opt rules into `only_rules`) as the codebase matures.
+# Ho System SwiftLint baseline. Strict ruleset; the codebase lints clean,
+# and the warning threshold is fully tightened — any new warning fails the build.
 #
 # Install: brew install swiftlint
 # Run:     swiftlint lint --strict
@@ -17,9 +16,10 @@ excluded:
   - DerivedData
   - Packages
 
-# Severity baseline — initial onboarding: warnings become errors above this count.
-# Tighten to 0 once the codebase is clean and stays clean.
-warning_threshold: 50
+# Severity baseline — the codebase lints clean; keep it that way.
+# 1 is the tightest value SwiftLint accepts: the check is `count >= threshold`,
+# so 0 fails even on a clean run. At 1, any single warning fails the build.
+warning_threshold: 1
 
 # Default rules: opt-in everything reasonable.
 opt_in_rules:
@@ -42,7 +42,6 @@ opt_in_rules:
   - empty_xctest_method
   - enum_case_associated_values_count
   - explicit_init
-  - extension_access_modifier
   - fallthrough
   - fatal_error_message
   - file_header
@@ -68,7 +67,6 @@ opt_in_rules:
   - operator_usage_whitespace
   - overridden_super_call
   - override_in_extension
-  - pattern_matching_keywords
   - prefer_self_in_static_references
   - prefer_self_type_over_type_of_self
   - prefer_zero_over_explicit_init
@@ -101,6 +99,10 @@ disabled_rules:
   - line_length             # swift-format owns this
   - sorted_imports          # swift-format's OrderedImports owns this; the two conflict
                             # (sorted_imports = alphabetical; OrderedImports = regular before @testable)
+  - extension_access_modifier  # conflicts with swift-format's NoAccessLevelOnExtensionDeclaration: true
+                               # (SwiftLint wants the ACL on the extension; swift-format wants it on members)
+  - pattern_matching_keywords  # all 25 uses in this codebase mix `let` bindings with `_` wildcards,
+                               # where the rule's suggested keyword hoist is syntactically impossible
 
 # Analyzer rules (run via `swiftlint analyze`, not regular `lint`).
 # Add deliberately; these need a compiled build to evaluate.

@@ -37,6 +37,7 @@ struct GetCommand: AsyncParsableCommand {
         return try vault.getValue(key, inScope: scope)
     }
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run() throws {
         print(try fetchValue())

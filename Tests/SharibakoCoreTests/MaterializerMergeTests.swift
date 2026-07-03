@@ -28,7 +28,6 @@ struct MaterializerMergeTests {
                 )
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
                 let result = try mat.materialize(marker: marker)
-                // swiftlint:disable:next pattern_matching_keywords
                 guard case .wrote(let path, let keys) = result else {
                     Issue.record("expected .wrote, got \(result)")
                     return

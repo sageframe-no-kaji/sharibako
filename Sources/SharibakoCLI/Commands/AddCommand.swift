@@ -38,6 +38,7 @@ struct AddCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run() throws {
         let plaintext = try ValueInput(value: value, fromStdin: fromStdin).read()

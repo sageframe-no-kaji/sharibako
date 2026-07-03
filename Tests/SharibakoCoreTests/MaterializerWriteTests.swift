@@ -255,7 +255,6 @@ struct MaterializerWriteTests {
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
                 let state = try mat.status(scopeID: "kanyo-dev", scanRoots: [project])
-                // swiftlint:disable:next pattern_matching_keywords
                 guard case .liveHere(let mURL, let tURL) = state else {
                     Issue.record("expected .liveHere, got \(state)")
                     return

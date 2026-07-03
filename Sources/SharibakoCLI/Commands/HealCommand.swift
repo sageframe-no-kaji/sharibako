@@ -88,7 +88,6 @@ struct HealCommand: AsyncParsableCommand {
                 return HealKeyEntry(key: key, status: "match", vaultSha256: nil, fileSha256: nil)
             case .fileMissing(let key):
                 return HealKeyEntry(key: key, status: "fileMissing", vaultSha256: nil, fileSha256: nil)
-            // swiftlint:disable:next pattern_matching_keywords
             case .fileValueDiffers(let key, let vaultSha256, let fileSha256):
                 return HealKeyEntry(
                     key: key, status: "fileValueDiffers", vaultSha256: vaultSha256, fileSha256: fileSha256)
@@ -107,7 +106,6 @@ struct HealCommand: AsyncParsableCommand {
                 return [colorSymbol("✓", ansi: "\u{1B}[32m", enabled: useColor), key, "match"]
             case .fileMissing(let key):
                 return [colorSymbol("✗", ansi: "\u{1B}[31m", enabled: useColor), key, "file missing"]
-            // swiftlint:disable:next pattern_matching_keywords
             case .fileValueDiffers(let key, let vaultSha256, let fileSha256):
                 let diff = "vault:\(vaultSha256.prefix(8))… file:\(fileSha256.prefix(8))…"
                 return [colorSymbol("~", ansi: "\u{1B}[33m", enabled: useColor), key, diff]

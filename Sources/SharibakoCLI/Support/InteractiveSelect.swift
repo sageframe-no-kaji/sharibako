@@ -19,6 +19,7 @@ nonisolated(unsafe) private var _savedTermiosForRestore: termios?
 ///
 /// Not covered in headless CI — real TTY + SIGINT delivery required.
 private func _sigintRestoreAndReraise(_ signo: CInt) {
+    // Single-character `t` is the conventional termios variable name in raw-mode terminal code.
     // swiftlint:disable:next identifier_name
     if var t = _savedTermiosForRestore {
         tcsetattr(STDIN_FILENO, TCSANOW, &t)
@@ -33,6 +34,7 @@ private func _sigintRestoreAndReraise(_ signo: CInt) {
 /// Not covered in headless CI — real TTY required.
 private func _enterRawMode() {
     guard isatty(STDIN_FILENO) != 0 else { return }
+    // Single-character `t` is the conventional termios variable name in raw-mode terminal code.
     // swiftlint:disable:next identifier_name
     var t = termios()
     tcgetattr(STDIN_FILENO, &t)
@@ -51,6 +53,7 @@ private func _enterRawMode() {
 ///
 /// No-ops when `_savedTermiosForRestore` is nil (non-TTY path).
 private func _exitRawMode() {
+    // Single-character `t` is the conventional termios variable name in raw-mode terminal code.
     // swiftlint:disable:next identifier_name
     if var t = _savedTermiosForRestore {
         tcsetattr(STDIN_FILENO, TCSANOW, &t)

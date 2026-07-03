@@ -177,7 +177,6 @@ extension Materializer {
             return
         }
         for line in parsed.lines {
-            // swiftlint:disable:next pattern_matching_keywords
             guard case .keyValue(let key, let value, _) = line else { continue }
             if let existingIndex = index[key] {
                 merged[existingIndex].value = value
@@ -274,14 +273,12 @@ extension Materializer {
         switch decision {
         case .importAsLocal(let key):
             try vaultCore.addSecret(key, value: detected.value, inScope: scopeID)
-        // swiftlint:disable:next pattern_matching_keywords
         case .linkToShared(let key, let sharedID):
             let sharedIDs = Set(try vaultCore.listShared())
             guard sharedIDs.contains(sharedID) else {
                 throw VaultError.sharedEntryNotFound(id: sharedID)
             }
             try vaultCore.link(key, inScope: scopeID, toShared: sharedID)
-        // swiftlint:disable:next pattern_matching_keywords
         case .moveToShared(let key, let newSharedID):
             try vaultCore.addSharedEntry(newSharedID, value: detected.value)
             try vaultCore.link(key, inScope: scopeID, toShared: newSharedID)
@@ -297,7 +294,6 @@ extension Materializer {
         var seen = Set<String>()
         var result: [(String, String)] = []
         for line in lines {
-            // swiftlint:disable:next pattern_matching_keywords
             guard case .keyValue(let key, let value, _) = line, ownedKeys.contains(key) else {
                 continue
             }

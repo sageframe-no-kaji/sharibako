@@ -25,6 +25,7 @@ struct UpdateCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run(cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) throws {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
@@ -44,7 +45,6 @@ struct UpdateCommand: AsyncParsableCommand {
 
     private func renderResult(_ result: UpdateResult) throws {
         switch result {
-        // swiftlint:disable:next pattern_matching_keywords
         case .updated(let keys, let warnings):
             print("Updated \(keys.count) key(s): \(keys.joined(separator: ", "))")
             emitWarnings(warnings)

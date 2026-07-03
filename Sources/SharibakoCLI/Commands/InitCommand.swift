@@ -40,6 +40,7 @@ struct InitCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
@@ -269,6 +270,7 @@ struct InitCommand: AsyncParsableCommand {
             }
         }
         print("Initialized scope '\(scopeID)' at \(markerURL.path)")
+        // One-line ingest summary: splitting the interpolation would break the single-line output format.
         // swiftlint:disable:next line_length
         print("imported \(imported)  linked \(linked)  moved \(moved)  left alone \(leftAlone)  skipped \(skipped)")
     }

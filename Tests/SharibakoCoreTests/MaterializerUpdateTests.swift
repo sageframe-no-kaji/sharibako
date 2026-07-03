@@ -186,7 +186,6 @@ struct MaterializerUpdateTests {
                 let marker = ScopeMarker(scope: "bento", materializeTo: "./.env", markerURL: markerURL)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
                 let result = try mat.update(scopeID: "bento", marker: marker)
-                // swiftlint:disable:next pattern_matching_keywords
                 guard case .updated(let keys, let warnings) = result else {
                     Issue.record("expected .updated")
                     return
