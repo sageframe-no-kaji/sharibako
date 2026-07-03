@@ -64,14 +64,22 @@ struct RunCommand: AsyncParsableCommand {
     ///   - forwardSignals: When `false`, skips installing the process-wide signal
     ///     handlers so parallel tests don't race on global signal state. Production
     ///     (`run()`) leaves this `true`.
+    ///   - feedback: Stderr feedback sink. `nil` builds one from `--json`/`--verbose`
+    ///     and whether stderr is a TTY; tests pass a capturing sink with a forced gate.
     /// - Returns: ``RunOutcome/dryRun(names:)`` for `--dry-run`, else ``RunOutcome/ran(exitCode:)``
     ///   carrying the child's shell-convention exit code.
     /// - Throws: `VaultError` for vault/scope/decrypt failures; `CLIError.runCommandEmpty`
     ///   when no command was given; `CLIError.runSpawnFailed` when the child can't be spawned.
     func _run(  // swiftlint:disable:this identifier_name
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-        forwardSignals: Bool = true
+        forwardSignals: Bool = true,
+        feedback: RunFeedback? = nil
     ) throws -> RunOutcome {
+        let sink =
+            feedback
+            ?? RunFeedback.make(
+                json: global.json, verbose: global.verbose, isTTY: isatty(STDERR_FILENO) != 0
+            )
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
 
         // Scope resolution mirrors materialize: explicit --scope, else walk up for a marker.
@@ -99,14 +107,20 @@ struct RunCommand: AsyncParsableCommand {
         let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
         let secrets = try vault.secrets(inScope: scopeID)
 
+        // Startup line to stderr (a zero count subsumes the former empty-scope note).
+        sink.emit(RunFeedback.startupLine(scope: scopeID, secretCount: secrets.count, command: command))
+
         // Compose the child environment: parent env overlaid with scope secrets (scope wins).
         var environment = ProcessInfo.processInfo.environment
-        if secrets.isEmpty {
-            FileHandle.standardError.write(Data("sharibako: no secrets to inject for scope \"\(scopeID)\"\n".utf8))
-        }
         environment.merge(secrets) { _, scopeValue in scopeValue }
 
-        return try spawnAndWait(command: command, environment: environment, cwd: cwd, forwardSignals: forwardSignals)
+        return try spawnAndWait(
+            command: command,
+            environment: environment,
+            cwd: cwd,
+            forwardSignals: forwardSignals,
+            feedback: sink
+        )
     }
 
     /// Spawns the child through `/usr/bin/env` (so bare command names resolve on PATH),
@@ -115,7 +129,8 @@ struct RunCommand: AsyncParsableCommand {
         command: [String],
         environment: [String: String],
         cwd: URL,
-        forwardSignals: Bool
+        forwardSignals: Bool,
+        feedback: RunFeedback
     ) throws -> RunOutcome {
         let process = Process()
         // /usr/bin/env resolves bare command names (npm, python) via PATH and execs with
@@ -135,7 +150,8 @@ struct RunCommand: AsyncParsableCommand {
 
         // Live signal plumbing (coverage-excluded): tests pass forwardSignals: false so the
         // process-wide handler install doesn't race the parallel runner. Dogfood-validated.
-        let forwarder = forwardSignals ? SignalForwarder(childPID: process.processIdentifier) : nil
+        let forwarder =
+            forwardSignals ? SignalForwarder(childPID: process.processIdentifier, feedback: feedback) : nil
         forwarder?.install()
         defer { forwarder?.teardown() }
 

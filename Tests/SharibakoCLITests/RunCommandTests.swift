@@ -147,7 +147,34 @@ struct RunCommandTests {
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "empty",
                     "--", "sh", "-c", "exit 0",
                 ])
-                #expect(try cmd._run(cwd: proj, forwardSignals: false) == .ran(exitCode: 0))
+                let feedback = CLITestSupport.FeedbackCollector()
+                #expect(
+                    try cmd._run(cwd: proj, forwardSignals: false, feedback: feedback.sink()) == .ran(exitCode: 0)
+                )
+                // The zero-count startup line replaces the former empty-scope note.
+                #expect(feedback.lines.contains("sharibako: scope 'empty' — no secrets to inject → sh -c exit 0"))
+            }
+        }
+    }
+
+    @Test("Emits the startup line to the feedback sink, never to stdout")
+    func emitsStartupLine() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
+            try CLITestSupport.writeScope("proj", in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
+            try core.addSecret("FOO", value: "bar", inScope: "proj")
+
+            try withProjectDir { proj in
+                let cmd = try parseRun([
+                    "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
+                    "--", "sh", "-c", "exit 0",
+                ])
+                let feedback = CLITestSupport.FeedbackCollector()
+                _ = try cmd._run(cwd: proj, forwardSignals: false, feedback: feedback.sink())
+                // Feedback flows only through the injected sink — the sole emission path,
+                // so stdout is untouched by construction. The child's value never appears.
+                #expect(feedback.lines == ["sharibako: scope 'proj' — 1 secret → sh -c exit 0"])
+                #expect(!feedback.lines.contains { $0.contains("bar") })
             }
         }
     }

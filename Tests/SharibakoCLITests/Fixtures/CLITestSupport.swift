@@ -137,6 +137,32 @@ enum CLITestSupport {
         try body(vaultURL, remoteGit, keyURL)
     }
 
+    /// Collects `RunFeedback` lines for assertions.
+    ///
+    /// `@unchecked Sendable` with a lock: the startup line emits synchronously on the
+    /// calling thread, but the sink type is `Sendable` and could be handed to background
+    /// plumbing, so guard the buffer.
+    final class FeedbackCollector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String] = []
+
+        /// The captured lines, with their trailing newlines stripped.
+        var lines: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage.map { $0.hasSuffix("\n") ? String($0.dropLast()) : $0 }
+        }
+
+        /// A sink that appends every emitted line to this collector.
+        func sink() -> RunFeedback {
+            RunFeedback { [self] line in
+                lock.lock()
+                storage.append(line)
+                lock.unlock()
+            }
+        }
+    }
+
     /// Writes a minimal scope directory and `scope.yaml` into `vault`.
     static func writeScope(
         _ id: String,

@@ -1,35 +1,46 @@
 import Dispatch
 import Foundation
 
-/// Forwards terminating signals from the `run` wrapper to its child process.
+/// Forwards terminating signals from the `run` wrapper to its child process, with
+/// stderr feedback across the grace window.
 ///
 /// On `install()`, sets SIGINT/SIGTERM/SIGHUP to `SIG_IGN` at the process level (so the
 /// default action doesn't fire) and observes each through a `DispatchSourceSignal`. When
-/// one arrives, it forwards the same signal to the child's PID, waits a grace period, then
-/// sends `SIGKILL` if the child is still alive. `teardown()` cancels the sources and
-/// restores the prior dispositions.
+/// one arrives, it emits a `forwarding…` line, forwards the same signal to the child's
+/// PID, and starts a one-second countdown that emits the seconds remaining until SIGKILL.
+/// If the child outlives the grace period it emits the SIGKILL line and sends `SIGKILL`.
+/// `teardown()` cancels the sources and the countdown and restores the prior dispositions —
+/// so a child that exits promptly prints no stray ticks.
 ///
 /// This is live process plumbing — there is no headless way to raise a real terminating
 /// signal at the test process without polluting the parallel test runner, so `run`'s tests
-/// disable it (`forwardSignals: false`) and it is coverage-excluded. The termination
-/// *mapping* it feeds (exit code vs. `128 + signum`) is tested through a child that
-/// signals itself. Validated by dogfooding against a real dev server.
+/// disable it (`forwardSignals: false`) and it is coverage-excluded. The feedback *strings*
+/// it emits are the pure `RunFeedback` formatters, tested there. Validated by dogfooding
+/// against a real child.
 ///
 /// Liveness is probed with `kill(pid, 0)` rather than by holding the `Process` value, so
 /// the type stays `Sendable`-clean and the handlers capture only value types.
 final class SignalForwarder: @unchecked Sendable {
     private let childPID: pid_t
     private let grace: TimeInterval
+    private let feedback: RunFeedback
     private let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP]
     private var sources: [DispatchSourceSignal] = []
     private var previous: [Int32: sig_t] = [:]
 
+    /// Countdown state, touched only on `countdownQueue`.
+    private var countdown: DispatchSourceTimer?
+    private var countdownRemaining = 0
+    private let countdownQueue = DispatchQueue(label: "net.sageframe.sharibako.run.countdown")
+
     /// - Parameters:
     ///   - childPID: The spawned child's process identifier.
     ///   - grace: Seconds to wait after forwarding before escalating to `SIGKILL`.
-    init(childPID: pid_t, grace: TimeInterval = 5) {
+    ///   - feedback: Stderr sink for the forwarding/countdown/SIGKILL lines.
+    init(childPID: pid_t, grace: TimeInterval = 5, feedback: RunFeedback = .disabled) {
         self.childPID = childPID
         self.grace = grace
+        self.feedback = feedback
     }
 
     func install() {
@@ -38,14 +49,8 @@ final class SignalForwarder: @unchecked Sendable {
             // instead of the default terminating action firing on the wrapper.
             if let prior = signal(sig, SIG_IGN) { previous[sig] = prior }
             let source = DispatchSource.makeSignalSource(signal: sig, queue: .global())
-            let childPID = childPID
-            let grace = grace
-            source.setEventHandler {
-                kill(childPID, sig)
-                DispatchQueue.global().asyncAfter(deadline: .now() + grace) {
-                    // kill(pid, 0) probes liveness without delivering a signal.
-                    if kill(childPID, 0) == 0 { kill(childPID, SIGKILL) }
-                }
+            source.setEventHandler { [weak self] in
+                self?.handle(signal: sig)
             }
             source.resume()
             sources.append(source)
@@ -55,7 +60,46 @@ final class SignalForwarder: @unchecked Sendable {
     func teardown() {
         for source in sources { source.cancel() }
         sources.removeAll()
+        countdownQueue.sync {
+            countdown?.cancel()
+            countdown = nil
+        }
         for (sig, prior) in previous { signal(sig, prior) }
         previous.removeAll()
+    }
+
+    /// Runs on the signal source's queue: announce, forward, start the countdown.
+    private func handle(signal sig: Int32) {
+        feedback.emit(RunFeedback.forwardingLine(signal: sig))
+        kill(childPID, sig)
+        startCountdown()
+    }
+
+    private func startCountdown() {
+        let timer = DispatchSource.makeTimerSource(queue: countdownQueue)
+        timer.schedule(deadline: .now() + 1, repeating: 1)
+        timer.setEventHandler { [weak self] in self?.tick() }
+        countdownQueue.sync {
+            countdown?.cancel()
+            countdownRemaining = Int(grace.rounded())
+            countdown = timer
+        }
+        timer.resume()
+    }
+
+    /// Runs on `countdownQueue`: one tick down, escalate to SIGKILL at zero.
+    private func tick() {
+        countdownRemaining -= 1
+        if countdownRemaining >= 1 {
+            feedback.emit(RunFeedback.countdownLine(secondsRemaining: countdownRemaining))
+        } else {
+            countdown?.cancel()
+            countdown = nil
+            // kill(pid, 0) probes liveness without delivering a signal.
+            if kill(childPID, 0) == 0 {
+                feedback.emit(RunFeedback.sigkillLine())
+                kill(childPID, SIGKILL)
+            }
+        }
     }
 }
