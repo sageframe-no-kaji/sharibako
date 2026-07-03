@@ -133,7 +133,10 @@ public struct Conduit: Sendable {
 
     /// Stages all vault-directory changes and creates a commit.
     ///
-    /// Runs `git add -A` at the vault root, then `git commit -m <message>`.
+    /// Runs `git add -A` at the vault root — excluding encrypt-path staging
+    /// leftovers (``VaultLayout/stagingPrefix``), ciphertext-only crash strays
+    /// that stay visible in `git status` but must never sync — then
+    /// `git commit -m <message>`.
     /// If there is nothing to commit (exit code 1 with git's standard message),
     /// returns ``CommitResult/nothingToCommit`` without throwing. On success,
     /// resolves the new HEAD SHA via `git rev-parse HEAD`.
@@ -143,7 +146,11 @@ public struct Conduit: Sendable {
     ///   ``CommitResult/nothingToCommit``.
     /// - Throws: ``VaultError/gitInvocationFailed(exitCode:stderr:)`` for any other failure.
     public func commit(message: String) throws -> CommitResult {
-        let addResult = try git(["add", "-A"])
+        // Default (non-glob) pathspec matching runs fnmatch WITHOUT
+        // FNM_PATHNAME, so the leading `*` crosses directory separators —
+        // one exclude covers staging strays at the root, in shared/, and in
+        // every scope directory.
+        let addResult = try git(["add", "-A", "--", ".", ":(exclude)*\(VaultLayout.stagingPrefix)*"])
         guard addResult.exitCode == 0 else {
             throw VaultError.gitInvocationFailed(exitCode: addResult.exitCode, stderr: addResult.stderr)
         }
