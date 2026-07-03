@@ -117,7 +117,7 @@ extension Materializer {
     /// concern, not `update`'s). Idempotent: a repeat call after a successful
     /// `update` returns ``UpdateResult/noChanges(warnings:)``.
     public func update(scopeID: String, marker: ScopeMarker) throws -> UpdateResult {
-        let targetURL = marker.targetURL
+        let targetURL = try marker.validatedTargetURL()
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: targetURL.path) else {
             return .fileMissing(path: targetURL)

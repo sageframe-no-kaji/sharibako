@@ -231,8 +231,23 @@ struct InitCommand: AsyncParsableCommand {
         lineReader: () -> String?
     ) throws -> ScopeSelection {
         fputs("Scope ID [\(proposal.suggestedScopeID)]: ", stderr)
-        let rawID = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let scopeID = rawID.isEmpty ? proposal.suggestedScopeID : rawID
+        var scopeID = proposal.suggestedScopeID
+        // Re-prompt on an out-of-grammar override (ho-04.9): the suggested ID
+        // is sanitizer output and always valid, so EOF (nil reader) or an
+        // empty answer accepts the default and the loop terminates.
+        while true {
+            let rawID = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidate = rawID.isEmpty ? proposal.suggestedScopeID : rawID
+            if VaultCore.isValidIdentifier(candidate) {
+                scopeID = candidate
+                break
+            }
+            fputs(
+                "Invalid scope ID \"\(candidate)\" — use letters, digits, and ._- "
+                    + "(no path separators).\nScope ID [\(proposal.suggestedScopeID)]: ",
+                stderr
+            )
+        }
 
         // Collision check: idempotent reuse with explicit confirmation (Decision 3).
         let existingScopes = Set(try vault.listScopes().map(\.identity))
