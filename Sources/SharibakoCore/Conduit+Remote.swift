@@ -35,7 +35,7 @@ extension Conduit {
             )
         }
 
-        // Set upstream tracking if not already configured (first push after init + setRemote).
+        // Count commits ahead of upstream (first push after init + setRemote has none yet).
         let upstreamCheck = try git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         let commitsPushed: Int
         if upstreamCheck.exitCode == 0 {
@@ -57,7 +57,9 @@ extension Conduit {
                 : 0
         }
 
-        let pushResult = try git(["push", "origin", "HEAD"])
+        // -u establishes upstream tracking on the first push, so subsequent
+        // pushes count against @{upstream} and `status()` sees the remote.
+        let pushResult = try git(["push", "-u", "origin", "HEAD"])
 
         if pushResult.exitCode == 0 {
             let combined = pushResult.stdout + pushResult.stderr
@@ -109,9 +111,18 @@ extension Conduit {
         // Ensure upstream tracking branch is set so @{upstream} resolves.
         let upstreamCheck = try git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
         if upstreamCheck.exitCode != 0 {
-            // Set tracking to origin/main (first-time clone scenario).
+            // Set tracking to origin/<branch> (first-time clone scenario). A
+            // failure here (e.g. the remote has no such branch yet) would only
+            // resurface as an opaque rev-list error below — throw it with git's
+            // own explanation instead.
             let branchName = try currentBranchName()
-            _ = try git(["branch", "--set-upstream-to=origin/\(branchName)", branchName])
+            let setUpstream = try git(["branch", "--set-upstream-to=origin/\(branchName)", branchName])
+            guard setUpstream.exitCode == 0 else {
+                throw VaultError.gitInvocationFailed(
+                    exitCode: setUpstream.exitCode,
+                    stderr: setUpstream.stderr
+                )
+            }
         }
 
         // Check how many commits the remote is ahead.
@@ -137,14 +148,19 @@ extension Conduit {
             return .success(commitsPulled: commitsPulled)
         }
 
-        // Check for merge conflict in stdout (git 2.x writes CONFLICT lines to stdout).
-        let combined = pullResult.stdout + pullResult.stderr
-        guard combined.contains("CONFLICT") else {
+        // A failed pull that left a merge in progress (MERGE_HEAD exists) is a
+        // conflict; anything else is a genuine git failure. Probing repository
+        // state is locale-independent, unlike matching "CONFLICT" in git's
+        // output, and must happen BEFORE the abort decision so a non-conflict
+        // failure can never leave the vault mid-merge.
+        let mergeHeadProbe = try git(["rev-parse", "-q", "--verify", "MERGE_HEAD"])
+        guard mergeHeadProbe.exitCode == 0 else {
             throw VaultError.gitInvocationFailed(exitCode: pullResult.exitCode, stderr: pullResult.stderr)
         }
 
-        // Parse conflicting file paths from "CONFLICT (content): Merge conflict in <path>"
-        let conflicts = try parseConflicts(from: pullResult.stdout)
+        // Unmerged paths cover every conflict flavor (content, add/add,
+        // delete/modify), not just the "CONFLICT (content)" output lines.
+        let conflicts = try unmergedFiles()
 
         // Always abort — vault must be clean when pull() returns.
         _ = try git(["merge", "--abort"])
@@ -163,24 +179,29 @@ extension Conduit {
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Parses `CONFLICT (content): Merge conflict in <relPath>` lines from pull output
-    /// and builds `[ConflictedFile]` with absolute paths and stage-2/3 SHAs.
-    private func parseConflicts(from output: String) throws -> [ConflictedFile] {
+    /// Lists every unmerged path in the in-progress merge and builds
+    /// `[ConflictedFile]` with absolute paths and stage-2/3 SHAs.
+    ///
+    /// Uses `git diff --name-only --diff-filter=U`, which reports all conflict
+    /// flavors structurally — no output-message parsing.
+    private func unmergedFiles() throws -> [ConflictedFile] {
+        let namesResult = try git(["diff", "--name-only", "--diff-filter=U"])
+        guard namesResult.exitCode == 0 else {
+            throw VaultError.gitInvocationFailed(
+                exitCode: namesResult.exitCode,
+                stderr: namesResult.stderr
+            )
+        }
+
         var files: [ConflictedFile] = []
-        let conflictPrefix = "CONFLICT (content): Merge conflict in "
-
-        for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let lineStr = String(line)
-            guard lineStr.hasPrefix(conflictPrefix) else { continue }
-            let relativePath = String(lineStr.dropFirst(conflictPrefix.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !relativePath.isEmpty else { continue }
-
+        for line in namesResult.stdout.split(separator: "\n", omittingEmptySubsequences: true) {
+            let relativePath = String(line)
             let absoluteURL = vaultURL.appendingPathComponent(relativePath)
 
             // git ls-files --stage <path> produces lines like:
             // <mode> <sha> <stage>\t<path>
-            // Stage 2 = ours (local), stage 3 = theirs (remote).
+            // Stage 2 = ours (local), stage 3 = theirs (remote). A missing
+            // stage (e.g. delete/modify) yields an empty SHA.
             let stageResult = try git(["ls-files", "--stage", relativePath])
             let localSHA = extractStageSHA(from: stageResult.stdout, stage: 2)
             let remoteSHA = extractStageSHA(from: stageResult.stdout, stage: 3)

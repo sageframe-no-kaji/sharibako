@@ -356,3 +356,92 @@ struct ConduitRemoteTests {
         }
     }
 }
+
+/// Second remote suite covering conflict flavors and upstream tracking.
+///
+/// Split from `ConduitRemoteTests` to keep each suite inside the
+/// type-body-length ceiling.
+@Suite("Conduit Remote — conflict flavors and tracking")
+struct ConduitRemoteTrackingTests {
+    @Test("pull surfaces add/add conflicts with the conflicting file listed")
+    func pullSurfacesAddAddConflict() throws {
+        try VaultTestSupport.withEphemeralBareRemote { vaultA, vaultB, _ in
+            // Both machines create the SAME new file with different content,
+            // without syncing in between — an add/add conflict, the likely
+            // vault shape (same secret added on two machines).
+            let relPath = "scopes/dev-addadd.txt"
+
+            let fileA = vaultA.appendingPathComponent(relPath)
+            try FileManager.default.createDirectory(
+                at: fileA.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "added on A".write(to: fileA, atomically: true, encoding: .utf8)
+            let conduitA = try Conduit(vaultURL: vaultA)
+            _ = try conduitA.commit(message: "add file from A")
+            _ = try conduitA.push()
+
+            let fileB = vaultB.appendingPathComponent(relPath)
+            try FileManager.default.createDirectory(
+                at: fileB.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "added on B".write(to: fileB, atomically: true, encoding: .utf8)
+            let conduitB = try Conduit(vaultURL: vaultB)
+            _ = try conduitB.commit(message: "add file from B")
+
+            let result = try conduitB.pull()
+            guard case .abortedConflict(let conflicts) = result else {
+                Issue.record("Expected abortedConflict, got \(result)")
+                return
+            }
+
+            // The add/add file must be listed — not an empty conflict list.
+            let expected = vaultB.appendingPathComponent(relPath)
+            #expect(
+                conflicts.contains { $0.path == expected },
+                "Expected \(relPath) in conflicts, got \(conflicts)")
+
+            // Vault must be clean after auto-abort.
+            let status = try conduitB.status()
+            #expect(!status.dirty)
+        }
+    }
+
+    @Test("First push establishes upstream tracking; second push counts only new commits")
+    func pushEstablishesUpstreamTracking() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+
+            // Stand up a bare remote for this vault only.
+            let bareURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-bare-\(UUID().uuidString).git")
+            defer { try? FileManager.default.removeItem(at: bareURL) }
+            let git = try Shell.findExecutable("git")
+            let initBare = try Shell.run(git, ["init", "--bare", bareURL.path])
+            #expect(initBare.exitCode == 0)
+            try conduit.setRemote(bareURL.path)
+
+            // First commit + push.
+            let file = vault.appendingPathComponent("scopes/first.txt")
+            try FileManager.default.createDirectory(
+                at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "one".write(to: file, atomically: true, encoding: .utf8)
+            _ = try conduit.commit(message: "first")
+            guard case .success = try conduit.push() else {
+                Issue.record("Expected first push to succeed")
+                return
+            }
+
+            // -u on the first push must leave tracking configured, so status()
+            // sees the remote and ahead/behind counts work from here on.
+            let status = try conduit.status()
+            #expect(status.hasRemote, "Expected upstream tracking after first push")
+
+            // Second push reports exactly the one new commit, not all of HEAD.
+            try "two".write(to: file, atomically: true, encoding: .utf8)
+            _ = try conduit.commit(message: "second")
+            guard case .success(let pushed) = try conduit.push() else {
+                Issue.record("Expected second push to succeed")
+                return
+            }
+            #expect(pushed == 1, "Expected exactly 1 commit pushed, got \(pushed)")
+        }
+    }
+}

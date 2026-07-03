@@ -73,8 +73,9 @@ public struct Conduit: Sendable {
     /// Sets or updates the `origin` remote URL.
     ///
     /// Probes for an existing `origin` with `git remote get-url origin`. If one
-    /// exists, runs `git remote set-url origin <url>`; otherwise runs
-    /// `git remote add origin <url>`.
+    /// exists, runs `git remote set-url -- origin <url>`; otherwise runs
+    /// `git remote add -- origin <url>`. The `--` separator keeps a URL that
+    /// begins with `-` from being parsed as a git option.
     ///
     /// - Parameter url: The remote URL to set (SSH or HTTPS).
     /// - Throws: ``VaultError/gitInvocationFailed(exitCode:stderr:)`` if git exits non-zero
@@ -82,12 +83,12 @@ public struct Conduit: Sendable {
     public func setRemote(_ url: String) throws {
         let probe = try git(["remote", "get-url", "origin"])
         if probe.exitCode == 0 {
-            let result = try git(["remote", "set-url", "origin", url])
+            let result = try git(["remote", "set-url", "--", "origin", url])
             guard result.exitCode == 0 else {
                 throw VaultError.gitInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
             }
         } else {
-            let result = try git(["remote", "add", "origin", url])
+            let result = try git(["remote", "add", "--", "origin", url])
             guard result.exitCode == 0 else {
                 throw VaultError.gitInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
             }
@@ -180,11 +181,20 @@ public struct Conduit: Sendable {
     /// directory is always set to ``vaultURL``. Non-zero exits are NOT thrown
     /// here — the caller interprets them (some are informational, not errors).
     ///
+    /// Runs with `LC_ALL=C` so the human-readable messages some callers match
+    /// against ("nothing to commit", "Everything up-to-date", "rejected") are
+    /// never localized out from under them.
+    ///
     /// `internal` (not `private`) so that extension files in the same module
     /// (`Conduit+Remote.swift`) can share this single invocation surface.
     func git(_ arguments: [String]) throws -> ShellResult {
         let binary = try Shell.findExecutable("git")
-        return try Shell.run(binary, arguments, workingDirectory: vaultURL)
+        return try Shell.run(
+            binary,
+            arguments,
+            workingDirectory: vaultURL,
+            environmentOverrides: ["LC_ALL": "C"]
+        )
     }
 
     /// Parses the output of `git status --porcelain=v2 --branch`.
