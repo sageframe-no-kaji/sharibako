@@ -186,6 +186,21 @@ enum ErrorReporter {
                 remediation:
                     "Pass --age-key <path>, set SHARIBAKO_AGE_KEY, or run `sharibako key generate`."
             )
+        case .invalidIdentifier(let kind, let value, let source):
+            let origin = source.map { " (read from \($0.path))" } ?? ""
+            return ErrorReport(
+                code: .userError,
+                message: "Invalid \(kind.rawValue) \"\(value)\"\(origin).",
+                remediation:
+                    "Identifiers must start with a letter, digit, or underscore and contain "
+                    + "only letters, digits, and ._- (no path separators)."
+            )
+        case .remoteURLRejected(let url, let reason):
+            return ErrorReport(
+                code: .userError,
+                message: "Remote URL \"\(url)\" rejected: \(reason).",
+                remediation: "Use an https://, ssh://, scp-style user@host:path, or local-path remote."
+            )
         }
     }
 

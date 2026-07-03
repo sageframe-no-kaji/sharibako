@@ -105,7 +105,10 @@ public struct VaultCore: Sendable {
         for entry in entries {
             let values = try? entry.resourceValues(forKeys: [.isDirectoryKey])
             guard values?.isDirectory == true else { continue }
-            let yamlURL = VaultLayout.scopeYAMLURL(entry.lastPathComponent, in: vaultURL)
+            // Skip, don't throw: one stray out-of-grammar directory must not
+            // brick every listing verb (ho-04.9).
+            guard VaultLayout.isValidIdentifier(entry.lastPathComponent) else { continue }
+            let yamlURL = try VaultLayout.scopeYAMLURL(entry.lastPathComponent, in: vaultURL)
             guard fileManager.fileExists(atPath: yamlURL.path) else { continue }
             scopes.append(try decodeScopeYAML(at: yamlURL))
         }
@@ -138,6 +141,9 @@ public struct VaultCore: Sendable {
             entries
             .filter { $0.pathExtension == "age" }
             .map { $0.deletingPathExtension().lastPathComponent }
+            // Skip out-of-grammar stems so a stray file can't surface an ID
+            // that every downstream path helper would then reject (ho-04.9).
+            .filter { VaultLayout.isValidIdentifier($0) }
         return stems.sorted()
     }
 
@@ -148,7 +154,7 @@ public struct VaultCore: Sendable {
     /// - Throws: `VaultError.scopeNotFound(id:)` if the scope directory or its
     ///   `scope.yaml` is missing; `VaultError.yamlDecodeError` if decoding fails.
     public func getScope(_ id: String) throws -> ScopeMetadata {
-        let yamlURL = VaultLayout.scopeYAMLURL(id, in: vaultURL)
+        let yamlURL = try VaultLayout.scopeYAMLURL(id, in: vaultURL)
         guard FileManager.default.fileExists(atPath: yamlURL.path) else {
             throw VaultError.scopeNotFound(id: id)
         }
@@ -174,8 +180,8 @@ public struct VaultCore: Sendable {
         type: ScopeType,
         displayName: String? = nil
     ) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(id, in: vaultURL)
-        let yamlURL = VaultLayout.scopeYAMLURL(id, in: vaultURL)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(id, in: vaultURL)
+        let yamlURL = try VaultLayout.scopeYAMLURL(id, in: vaultURL)
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: scopeDir.path) || fileManager.fileExists(atPath: yamlURL.path) {
             throw VaultError.scopeAlreadyExists(id: id)
@@ -204,7 +210,7 @@ public struct VaultCore: Sendable {
     /// Returns one `SecretInfo` per `.age` or `.link` file in the scope directory
     /// (`scope.yaml` excluded). Results are sorted by key.
     public func inspect(_ scopeID: String) throws -> [SecretInfo] {
-        let scopeDir = VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: scopeDir.path) else {
             throw VaultError.scopeNotFound(id: scopeID)
@@ -224,6 +230,9 @@ public struct VaultCore: Sendable {
         var infos: [SecretInfo] = []
         for entry in entries {
             let key = entry.deletingPathExtension().lastPathComponent
+            // Skip out-of-grammar stems: surfacing them as keys would only
+            // set up a downstream invalidIdentifier throw (ho-04.9).
+            guard VaultLayout.isValidIdentifier(key) else { continue }
             switch entry.pathExtension {
             case "age":
                 infos.append(SecretInfo(key: key, kind: .value))
@@ -245,20 +254,23 @@ public struct VaultCore: Sendable {
     ///
     /// - Throws: `VaultError.scopeNotFound(id:)` if the scope directory is absent.
     public func link(_ key: String, inScope scopeID: String, toShared sharedID: String) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
+        // The sharedID becomes a .link payload — the write side of the
+        // contract readLinkTarget enforces on the read side (ho-04.9).
+        try VaultLayout.validateIdentifier(sharedID, as: .sharedEntry)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(scopeID, in: vaultURL)
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: scopeDir.path) else {
             throw VaultError.scopeNotFound(id: scopeID)
         }
 
-        let linkURL = VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
+        let linkURL = try VaultLayout.linkURL(key, inScope: scopeID, in: vaultURL)
         do {
             try sharedID.write(to: linkURL, atomically: true, encoding: .utf8)
         } catch {
             throw VaultError.fileSystemError(path: linkURL, underlying: error)
         }
 
-        let ageURL = VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        let ageURL = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
         if fileManager.fileExists(atPath: ageURL.path) {
             do {
                 try fileManager.removeItem(at: ageURL)
@@ -296,6 +308,8 @@ public struct VaultCore: Sendable {
             let values = try? scopeDir.resourceValues(forKeys: [.isDirectoryKey])
             guard values?.isDirectory == true else { continue }
             let scopeID = scopeDir.lastPathComponent
+            // Same skip-don't-throw posture as listScopes (ho-04.9).
+            guard VaultLayout.isValidIdentifier(scopeID) else { continue }
 
             let entries: [URL]
             do {
@@ -310,6 +324,7 @@ public struct VaultCore: Sendable {
 
             for entry in entries where entry.pathExtension == "link" {
                 let key = entry.deletingPathExtension().lastPathComponent
+                guard VaultLayout.isValidIdentifier(key) else { continue }
                 let sharedID = try readLinkTarget(at: entry)
                 graph[sharedID, default: []].append((scopeID: scopeID, key: key))
             }
@@ -325,6 +340,18 @@ public struct VaultCore: Sendable {
         let shared = try listShared()
         let referenced = Set(try linkGraph().keys)
         return shared.filter { !referenced.contains($0) }.sorted()
+    }
+
+    // MARK: - Identifier grammar (public gateway)
+
+    /// Whether `value` satisfies the vault identifier grammar
+    /// `^[A-Za-z0-9_][A-Za-z0-9._-]*$` (ho-04.9).
+    ///
+    /// Surfaces (CLI/GUI) use this for early, prompt-friendly validation;
+    /// the library enforces the same grammar internally at the path-building
+    /// chokepoint regardless.
+    public static func isValidIdentifier(_ value: String) -> Bool {
+        VaultLayout.isValidIdentifier(value)
     }
 
     // MARK: - Private helpers
@@ -348,6 +375,15 @@ public struct VaultCore: Sendable {
     ///
     /// Shared with the encryption extension so `unlink` and `getValue` can resolve
     /// the same link format without duplicating the parser.
+    ///
+    /// `.link` files sync via git from other machines — the payload is
+    /// untrusted input that becomes a path component. It must satisfy the
+    /// identifier grammar; a tampered payload (`../../…`) would otherwise
+    /// direct `age` to decrypt — or `rotateShared` to overwrite — an
+    /// arbitrary vault-external path (ho-04.9).
+    ///
+    /// - Throws: ``VaultError/invalidIdentifier(kind:value:source:)`` with the
+    ///   link file as `source` for an out-of-grammar payload.
     internal func readLinkTarget(at url: URL) throws -> String {
         let raw: String
         do {
@@ -355,6 +391,8 @@ public struct VaultCore: Sendable {
         } catch {
             throw VaultError.fileSystemError(path: url, underlying: error)
         }
-        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        try VaultLayout.validateIdentifier(payload, as: .sharedEntry, source: url)
+        return payload
     }
 }

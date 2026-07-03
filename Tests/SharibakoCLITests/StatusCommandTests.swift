@@ -48,7 +48,7 @@ struct StatusCommandTests {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
             try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
             // Plant two placeholder .age files.
-            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
+            let scopeDir = try VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
             try Data([0]).write(to: scopeDir.appendingPathComponent("KEY_A.age"))
             try Data([0]).write(to: scopeDir.appendingPathComponent("KEY_B.age"))
 
@@ -178,7 +178,7 @@ struct StatusCommandOutputTests {
     func plainTable() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
             try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
-            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
+            let scopeDir = try VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
             try Data([0]).write(to: scopeDir.appendingPathComponent("API_KEY.age"))
 
             let vault = try VaultCore(vaultURL: vaultURL)
@@ -211,7 +211,7 @@ struct StatusCommandOutputTests {
     func scopeTableShowsKinds() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
             try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
-            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
+            let scopeDir = try VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
             try Data([0]).write(to: scopeDir.appendingPathComponent("LOCAL_KEY.age"))
             let vault = try VaultCore(vaultURL: vaultURL)
             try vault.link("LINKED_KEY", inScope: "kanyo", toShared: "OPENAI_API_KEY")

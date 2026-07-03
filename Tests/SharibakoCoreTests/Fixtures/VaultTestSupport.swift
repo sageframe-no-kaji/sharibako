@@ -65,11 +65,11 @@ enum VaultTestSupport {
         displayName: String? = nil,
         in vault: URL
     ) throws {
-        let scopeDir = VaultLayout.scopeDirectoryURL(id, in: vault)
+        let scopeDir = try VaultLayout.scopeDirectoryURL(id, in: vault)
         try FileManager.default.createDirectory(at: scopeDir, withIntermediateDirectories: true)
         let yaml = makeScopeYAML(identity: id, type: type, displayName: displayName)
         try yaml.write(
-            to: VaultLayout.scopeYAMLURL(id, in: vault),
+            to: try VaultLayout.scopeYAMLURL(id, in: vault),
             atomically: true,
             encoding: .utf8
         )
@@ -82,7 +82,7 @@ enum VaultTestSupport {
         sharedID: String,
         in vault: URL
     ) throws {
-        let url = VaultLayout.linkURL(key, inScope: scopeID, in: vault)
+        let url = try VaultLayout.linkURL(key, inScope: scopeID, in: vault)
         try sharedID.write(to: url, atomically: true, encoding: .utf8)
     }
 
@@ -94,13 +94,13 @@ enum VaultTestSupport {
         inScope scopeID: String,
         in vault: URL
     ) throws {
-        let url = VaultLayout.secretURL(key, inScope: scopeID, in: vault)
+        let url = try VaultLayout.secretURL(key, inScope: scopeID, in: vault)
         try Data([0x00, 0x01, 0x02]).write(to: url)
     }
 
     /// Writes a nonsense byte sequence as a stand-in `shared/<id>.age`.
     static func writeSharedPlaceholderAge(_ id: String, in vault: URL) throws {
-        let url = VaultLayout.sharedEntryURL(id, in: vault)
+        let url = try VaultLayout.sharedEntryURL(id, in: vault)
         try Data([0x00]).write(to: url)
     }
 
@@ -221,9 +221,9 @@ enum VaultTestSupport {
         try writeScope("__stager__", type: .other, in: vault)
         let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
         try core.addSecret("__staged__", value: value, inScope: "__stager__", notes: notes)
-        let staged = VaultLayout.secretURL("__staged__", inScope: "__stager__", in: vault)
-        let sharedURL = VaultLayout.sharedEntryURL(sharedID, in: vault)
+        let staged = try VaultLayout.secretURL("__staged__", inScope: "__stager__", in: vault)
+        let sharedURL = try VaultLayout.sharedEntryURL(sharedID, in: vault)
         try FileManager.default.moveItem(at: staged, to: sharedURL)
-        try FileManager.default.removeItem(at: VaultLayout.scopeDirectoryURL("__stager__", in: vault))
+        try FileManager.default.removeItem(at: try VaultLayout.scopeDirectoryURL("__stager__", in: vault))
     }
 }
