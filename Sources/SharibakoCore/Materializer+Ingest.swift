@@ -13,7 +13,10 @@ extension Materializer {
     /// Merges `.env` (base) with `.env.local` (overrides), collects `.env.example`
     /// keys that neither concrete file provides, suggests a scope ID with
     /// vault-side collision avoidance, and marks any detected key whose name
-    /// exactly matches a shared entry.
+    /// exactly matches a shared entry. Detected keys carry non-empty merged
+    /// values; a key whose merged value is empty joins
+    /// ``ProposedScope/suggestedKeysNeedingValues`` instead — an empty string is
+    /// never a secret worth importing (ho-04.10).
     ///
     /// Writes nothing — neither vault nor marker. Callers pair with
     /// ``acceptIngest(_:decisions:scopeID:scopeType:)`` to commit the decisions.
@@ -32,8 +35,9 @@ extension Materializer {
         try readAndMerge(fileURL: envURL, into: &envMerged, index: &envKeyIndex, warnings: &warnings)
         try readAndMerge(fileURL: envLocalURL, into: &envMerged, index: &envKeyIndex, warnings: &warnings)
 
-        let detectedKeys = envMerged.map { entry in
-            DetectedKey(
+        let detectedKeys = envMerged.compactMap { entry -> DetectedKey? in
+            guard !entry.value.isEmpty else { return nil }
+            return DetectedKey(
                 key: entry.key,
                 value: entry.value,
                 sourceFile: entry.sourceFile,
@@ -41,7 +45,8 @@ extension Materializer {
             )
         }
 
-        var suggestedKeysNeedingValues: [String] = []
+        // Empty-valued keys (`KEY=`) need a value, same as .env.example-only keys.
+        var suggestedKeysNeedingValues = envMerged.filter(\.value.isEmpty).map(\.key)
         if let example = try readParseIfExists(fileURL: envExampleURL, warnings: &warnings) {
             for line in example.lines {
                 if case .keyValue(let key, _, _) = line, envKeyIndex[key] == nil {
@@ -112,10 +117,14 @@ extension Materializer {
     /// Reads the target file, compares each owned key's file value to the vault
     /// value, and rewrites the vault for keys that drifted.
     ///
-    /// Non-owned lines are invisible — their values are never read. Owned keys
+    /// Non-owned lines are invisible — their values are never read. When a key
+    /// appears twice the last occurrence wins (ho-04.10), so a correction
+    /// appended at the bottom of the file is what lands in the vault. Owned keys
     /// absent from the file are not reported as updates (removal is a `heal`
-    /// concern, not `update`'s). Idempotent: a repeat call after a successful
-    /// `update` returns ``UpdateResult/noChanges(warnings:)``.
+    /// concern, not `update`'s), and an owned key whose line is malformed has no
+    /// readable value to push — the parse warning carries the diagnosis.
+    /// Idempotent: a repeat call after a successful `update` returns
+    /// ``UpdateResult/noChanges(warnings:)``.
     public func update(scopeID: String, marker: ScopeMarker) throws -> UpdateResult {
         let targetURL = try marker.validatedTargetURL()
         let fileManager = FileManager.default
@@ -140,7 +149,9 @@ extension Materializer {
             if case .link = first.kind { return first }
             return second
         }
-        let fileValues = firstFileValues(from: parseResult.lines, ownedKeys: Set(ownedByKey.keys))
+        let fileValues = extractOwnedFileValues(
+            from: parseResult.lines, ownedKeys: Set(ownedByKey.keys)
+        )
 
         var keysUpdated: [String] = []
         for (key, fileValue) in fileValues {
@@ -285,23 +296,6 @@ extension Materializer {
         case .leaveAlone, .skip:
             break
         }
-    }
-
-    private func firstFileValues(
-        from lines: [EnvLine],
-        ownedKeys: Set<String>
-    ) -> [(String, String)] {
-        var seen = Set<String>()
-        var result: [(String, String)] = []
-        for line in lines {
-            guard case .keyValue(let key, let value, _) = line, ownedKeys.contains(key) else {
-                continue
-            }
-            if seen.contains(key) { continue }
-            seen.insert(key)
-            result.append((key, value))
-        }
-        return result
     }
 
     private func rotateOwned(info: SecretInfo, scopeID: String, newValue: String) throws {
