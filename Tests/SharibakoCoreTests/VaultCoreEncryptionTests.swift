@@ -375,6 +375,62 @@ struct VaultCoreEncryptionFailureTests {
         }
     }
 
+    @Test("A failed rotate leaves the existing ciphertext intact (atomic destination)")
+    func failedRotatePreservesExistingCiphertext() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let good = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try good.addSecret("TOKEN", value: "survivor", inScope: "kanyo-dev")
+
+            // A key file with the REAL private key but a bogus public-key
+            // header: decrypt succeeds, so rotate reaches the encrypt step,
+            // where age rejects the recipient and exits non-zero. Before the
+            // staging+rename rework, `age -o` had already truncated the
+            // destination by this point — the only good ciphertext was gone.
+            let realKeyText = try String(contentsOf: fixture.privateKeyURL, encoding: .utf8)
+            let brokenKeyText = realKeyText.replacingOccurrences(
+                of: "# public key: \(fixture.publicKey)",
+                with: "# public key: NOTAVALIDRECIPIENT"
+            )
+            let brokenKeyURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("broken-pub-\(UUID().uuidString).txt")
+            try brokenKeyText.write(to: brokenKeyURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: brokenKeyURL) }
+
+            let broken = try VaultCore(vaultURL: vault, ageKeyURL: brokenKeyURL)
+            #expect(throws: VaultError.self) {
+                try broken.rotate("TOKEN", inScope: "kanyo-dev", newValue: "destroyer")
+            }
+
+            // The original value survives the failed rotate…
+            #expect(try good.getValue("TOKEN", inScope: "kanyo-dev") == "survivor")
+            // …and the failure cleaned up its staging sibling.
+            #expect(try stagingLeftovers(in: vault).isEmpty)
+        }
+    }
+
+    @Test("Successful writes leave no staging siblings behind")
+    func successfulWritesLeaveNoStaging() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("TOKEN", value: "v1", inScope: "kanyo-dev")
+            try core.rotate("TOKEN", inScope: "kanyo-dev", newValue: "v2")
+            try core.addSharedEntry("openai-personal", value: "sk-1")
+            try core.rotateShared("openai-personal", newValue: "sk-2")
+            #expect(try stagingLeftovers(in: vault).isEmpty)
+        }
+    }
+
+    /// Recursively lists vault files carrying the encrypt-path staging prefix.
+    private func stagingLeftovers(in vault: URL) throws -> [String] {
+        guard let enumerator = FileManager.default.enumerator(atPath: vault.path) else {
+            return []
+        }
+        return enumerator.compactMap { $0 as? String }
+            .filter { $0.contains(VaultLayout.stagingPrefix) }
+    }
+
     @Test("addSecret throws ageInvocationFailed when the public key is invalid")
     func addSecretThrowsOnInvalidPublicKey() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, _ in
