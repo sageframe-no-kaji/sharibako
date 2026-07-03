@@ -22,6 +22,7 @@ struct SharibakoCommand: AsyncParsableCommand {
             LinkCommand.self,
             UnlinkCommand.self,
             MaterializeCommand.self,
+            RunCommand.self,
             UpdateCommand.self,
             SyncCommand.self,
             CleanCommand.self,

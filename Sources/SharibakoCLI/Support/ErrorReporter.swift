@@ -273,6 +273,19 @@ enum ErrorReporter {
                 message: "No secrets found in \(directory.path). Nothing to initialize.",
                 remediation: "Add a `.env` with at least one KEY=value, or `sharibako add` to an existing scope."
             )
+        case .runCommandEmpty:
+            return ErrorReport(
+                code: .userError,
+                message: "No command to run. Usage: `sharibako run [--scope <id>] -- <command> [args...]`.",
+                remediation: "Supply a command after `--`, or use `--dry-run` to list what would be injected."
+            )
+        // swiftlint:disable:next pattern_matching_keywords
+        case .runSpawnFailed(let command, let underlying):
+            return ErrorReport(
+                code: .generic,
+                message: "Failed to run \"\(command)\": \(underlying)",
+                remediation: "Verify the command exists and is on your PATH."
+            )
         }
     }
 }

@@ -94,4 +94,8 @@ enum CLIError: Error, Equatable {
     case aborted
     /// `init` found no secrets to import in the target directory; nothing was written.
     case nothingToInitialize(directory: URL)
+    /// `run` was invoked without a command to spawn (and without `--dry-run`).
+    case runCommandEmpty
+    /// `run` failed to spawn the child process.
+    case runSpawnFailed(command: String, underlying: String)
 }

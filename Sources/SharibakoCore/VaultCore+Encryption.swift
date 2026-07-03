@@ -55,6 +55,30 @@ extension VaultCore {
         return content.value
     }
 
+    /// Decrypts every owned secret in a scope, resolving links, into a key→value dict.
+    ///
+    /// Loops ``inspect(_:)`` for the scope's owned keys and calls ``getValue(_:inScope:)``
+    /// on each — `.link` files resolve to their shared targets exactly as `getValue` does.
+    /// Returns an empty dictionary for a scope with no owned keys. One decrypt per key;
+    /// the caller unlocks the age identity once for the whole call.
+    ///
+    /// This is the bulk-decrypt path `sharibako run` needs (kamae-2.1's `get_all_secrets`).
+    /// It reuses the existing single-secret decrypt — no new crypto path.
+    ///
+    /// - Parameter scopeID: Owning scope identifier.
+    /// - Returns: A dictionary mapping each owned key to its decrypted value.
+    /// - Throws: `VaultError.scopeNotFound(id:)` if the scope directory is absent;
+    ///   `VaultError.linkTargetMissing(id:)` if a `.link` points at a missing shared entry;
+    ///   `VaultError.ageInvocationFailed` for decryption failures.
+    public func secrets(inScope scopeID: String) throws -> [String: String] {
+        let infos = try inspect(scopeID)
+        var result: [String: String] = [:]
+        for info in infos {
+            result[info.key] = try getValue(info.key, inScope: scopeID)
+        }
+        return result
+    }
+
     /// Rotates a scope-local secret to a new value, preserving notes.
     ///
     /// Reads the existing `<KEY>.age`, updates `value` and `rotated_at`, and
