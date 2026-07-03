@@ -187,7 +187,7 @@ public struct Conduit: Sendable {
     ///
     /// `internal` (not `private`) so that extension files in the same module
     /// (`Conduit+Remote.swift`) can share this single invocation surface.
-    func git(_ arguments: [String]) throws -> ShellResult {
+    internal func git(_ arguments: [String]) throws -> ShellResult {
         let binary = try Shell.findExecutable("git")
         return try Shell.run(
             binary,

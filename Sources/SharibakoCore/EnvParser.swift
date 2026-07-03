@@ -15,7 +15,7 @@ internal enum EnvLine: Sendable, Equatable {
     case malformed(text: String, reason: String)
 
     /// The raw text used for round-trip rendering.
-    var text: String {
+    internal var text: String {
         switch self {
         case .blank(let text), .comment(let text), .malformed(let text, _):
             return text
@@ -32,9 +32,9 @@ internal enum EnvLine: Sendable, Equatable {
 /// - `hadTrailingNewline`: `true` when the input's last byte was `\n` — the renderer uses
 ///   this to preserve trailing-newline state exactly.
 internal struct ParseResult: Sendable, Equatable {
-    let lines: [EnvLine]
-    let warnings: [ParseWarning]
-    let hadTrailingNewline: Bool
+    internal let lines: [EnvLine]
+    internal let warnings: [ParseWarning]
+    internal let hadTrailingNewline: Bool
 }
 
 /// Reads a `.env`-style file from disk and parses it.

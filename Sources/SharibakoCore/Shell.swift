@@ -4,16 +4,16 @@ import Foundation
 ///
 /// Captures the exit code and full stdout / stderr as UTF-8 strings.
 /// Non-zero exit codes are not thrown; callers inspect `exitCode`.
-struct ShellResult {
-    let exitCode: Int32
-    let stdout: String
-    let stderr: String
+internal struct ShellResult {
+    internal let exitCode: Int32
+    internal let stdout: String
+    internal let stderr: String
 }
 
 /// Reads a pipe to EOF on a background thread so a chatty child can never fill
 /// the kernel pipe buffer (~64 KiB) and block while the parent is waiting on it
 /// — the classic `waitUntilExit`-before-read deadlock.
-final class PipeDrain: @unchecked Sendable {
+internal final class PipeDrain: @unchecked Sendable {
     // @unchecked Sendable: `data` is written exactly once on the background
     // queue before `semaphore.signal()`, and read only after `wait()` returns —
     // the semaphore provides the happens-before edge.
@@ -21,7 +21,7 @@ final class PipeDrain: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
 
     /// Starts draining `handle` immediately on a background queue.
-    init(_ handle: FileHandle) {
+    internal init(_ handle: FileHandle) {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             data = handle.readDataToEndOfFile()
             semaphore.signal()
@@ -29,7 +29,7 @@ final class PipeDrain: @unchecked Sendable {
     }
 
     /// Blocks until the pipe reaches EOF, then returns everything it produced.
-    func drainedData() -> Data {
+    internal func drainedData() -> Data {
         semaphore.wait()
         return data
     }
@@ -38,7 +38,7 @@ final class PipeDrain: @unchecked Sendable {
 /// Internal subprocess helper. `SharibakoCore` shells out to `age` (this ho)
 /// and `git` (Conduit, ho-02) through this single surface rather than
 /// scattering `Process` boilerplate at each call site.
-enum Shell {
+internal enum Shell {
     /// Paths probed in order when locating an external binary.
     ///
     /// Homebrew on Apple Silicon and Intel, Linuxbrew, and the system fallback.
@@ -55,7 +55,7 @@ enum Shell {
     /// - Parameter name: The binary name (e.g. `"age"`, `"git"`).
     /// - Returns: URL of the first matching executable.
     /// - Throws: `VaultError.shellNotFound(name:)` if no candidate exists.
-    static func findExecutable(_ name: String) throws -> URL {
+    internal static func findExecutable(_ name: String) throws -> URL {
         let fileManager = FileManager.default
         for directory in searchPaths {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
@@ -83,7 +83,7 @@ enum Shell {
     ///     caller's environment untouched.
     /// - Returns: The captured `ShellResult`.
     /// - Throws: Any error thrown by `Process.run()` (typically wrapped `POSIXError`).
-    static func run(
+    internal static func run(
         _ executableURL: URL,
         _ arguments: [String],
         workingDirectory: URL? = nil,

@@ -64,13 +64,13 @@ public enum VaultError: Error {
 /// `underlying.localizedDescription` when rendering ``VaultError/yamlDecodeError(path:underlying:)``,
 /// so this type guarantees the rendered string never contains payload bytes —
 /// only the original error's type name survives for diagnosis.
-struct RedactedDecodeError: Error, CustomStringConvertible, LocalizedError {
+internal struct RedactedDecodeError: Error, CustomStringConvertible, LocalizedError {
     /// Type name of the error being redacted (e.g. `YamlError`).
-    let originalErrorType: String
+    internal let originalErrorType: String
 
-    var description: String {
+    internal var description: String {
         "decode failed (\(originalErrorType)); details redacted — the payload is secret material"
     }
 
-    var errorDescription: String? { description }
+    internal var errorDescription: String? { description }
 }

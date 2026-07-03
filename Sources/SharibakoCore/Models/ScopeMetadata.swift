@@ -19,7 +19,7 @@ public struct ScopeMetadata: Codable, Equatable, Sendable {
     public let displayName: String?
 
     /// Coding keys map camelCase Swift properties to YAML snake_case.
-    enum CodingKeys: String, CodingKey {
+    internal enum CodingKeys: String, CodingKey {
         case identity
         case type
         case displayName = "display_name"

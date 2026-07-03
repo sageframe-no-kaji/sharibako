@@ -14,10 +14,10 @@ public struct VaultCore: Sendable {
     ///
     /// `nil` when the caller used ``init(vaultURL:)``; encryption operations refuse to
     /// run in that state.
-    let ageKeyURL: URL?
+    internal let ageKeyURL: URL?
 
     /// Cached recipient public key extracted from the age key file at init time.
-    let publicKey: String?
+    internal let publicKey: String?
 
     /// Binds to an existing vault directory (no encryption operations available).
     ///
@@ -348,7 +348,7 @@ public struct VaultCore: Sendable {
     ///
     /// Shared with the encryption extension so `unlink` and `getValue` can resolve
     /// the same link format without duplicating the parser.
-    func readLinkTarget(at url: URL) throws -> String {
+    internal func readLinkTarget(at url: URL) throws -> String {
         let raw: String
         do {
             raw = try String(contentsOf: url, encoding: .utf8)

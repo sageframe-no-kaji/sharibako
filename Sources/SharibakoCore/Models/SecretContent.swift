@@ -19,7 +19,7 @@ public struct SecretContent: Codable, Equatable, Sendable {
     public let rotatedAt: String?
 
     /// Coding keys map camelCase Swift properties to YAML snake_case.
-    enum CodingKeys: String, CodingKey {
+    internal enum CodingKeys: String, CodingKey {
         case value
         case notes
         case rotatedAt = "rotated_at"
