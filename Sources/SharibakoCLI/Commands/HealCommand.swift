@@ -43,10 +43,15 @@ struct HealCommand: AsyncParsableCommand {
     var scope: String?
 
     func run() async throws {
-        do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
+        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        do { try _run(cwd: cwd) } catch { ErrorReporter.report(error, json: global.json) }
     }
 
-    private func _run() throws {
+    // MARK: - Internal for testing
+
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
+    // swiftlint:disable:next identifier_name
+    func _run(cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) throws {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let handle = try provider.loadIdentity(reason: "Read vault secrets for heal")
@@ -55,7 +60,7 @@ struct HealCommand: AsyncParsableCommand {
         let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
         let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
 
-        let marker = try resolveMarker(materializer: materializer, vaultURL: vaultURL)
+        let marker = try resolveMarker(materializer: materializer, cwd: cwd)
         let report = try materializer.heal(marker: marker)
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
 
@@ -68,15 +73,11 @@ struct HealCommand: AsyncParsableCommand {
         renderHumanReport(report: report, renderer: renderer)
     }
 
-    // MARK: - Internal for testing
-
     /// Resolves the marker from an explicit scope argument or by cwd walk-up.
-    func resolveMarker(materializer: Materializer, vaultURL: URL) throws -> ScopeMarker {
+    func resolveMarker(materializer: Materializer, cwd: URL) throws -> ScopeMarker {
         if let scopeID = scope {
-            let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             return try materializer.resolveMarker(forScope: scopeID, scanRoots: [cwd])
         }
-        let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         return try materializer.resolveMarker(startingFrom: cwd)
     }
 

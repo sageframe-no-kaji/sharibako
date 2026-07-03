@@ -95,3 +95,39 @@ struct ScriptedIngestDecisionSourceTests {
         #expect(result.isEmpty)
     }
 }
+
+// MARK: - KeyDecisionField tests
+
+@Suite("KeyDecisionField")
+struct KeyDecisionFieldTests {
+    @Test("importAsLocal labels as scope-local import")
+    func importAsLocalLabel() {
+        #expect(KeyDecisionField.importAsLocal.label == "import as scope-local")
+    }
+
+    @Test("linkToShared without a match omits the shared ID")
+    func linkToSharedNoMatchLabel() {
+        #expect(KeyDecisionField.linkToShared(matchedID: nil).label == "link to shared")
+    }
+
+    @Test("linkToShared with a match shows the matched shared ID")
+    func linkToSharedMatchedLabel() {
+        let field = KeyDecisionField.linkToShared(matchedID: "OPENAI_API_KEY")
+        #expect(field.label == "link to shared (OPENAI_API_KEY)")
+    }
+
+    @Test("moveToShared labels as move to shared")
+    func moveToSharedLabel() {
+        #expect(KeyDecisionField.moveToShared.label == "move to shared")
+    }
+
+    @Test("leaveAlone labels as leave alone")
+    func leaveAloneLabel() {
+        #expect(KeyDecisionField.leaveAlone.label == "leave alone")
+    }
+
+    @Test("skip labels as skip")
+    func skipLabel() {
+        #expect(KeyDecisionField.skip.label == "skip")
+    }
+}

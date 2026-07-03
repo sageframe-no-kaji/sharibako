@@ -199,3 +199,19 @@ struct PlainIngestPromptRenderingTests {
         #expect(captured.contains { $0.contains("unquoted value") })
     }
 }
+
+// MARK: - Default seams
+
+@Suite("PlainIngestPrompt — default seams")
+struct PlainIngestPromptDefaultSeamTests {
+    @Test("default print and TTY-guard closures execute harmlessly")
+    func defaultClosuresExecute() {
+        let prompt = PlainIngestPrompt()
+        // The default output sink is Swift.print — one probe line is harmless.
+        prompt.print("sharibako-test: default print probe")
+        // The default TTY guard consults TerminalDetector; either answer is valid here.
+        _ = prompt.isInteractive()
+        // The default lineReader (readLine) is deliberately NOT invoked: it would
+        // consume the test runner's stdin.
+    }
+}

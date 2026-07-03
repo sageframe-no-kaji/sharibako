@@ -217,6 +217,35 @@ struct InteractiveSelectTests {
         #expect(captured[1].hasPrefix("\u{1B}[3A"))
     }
 
+    @Test("unrecognized plain byte is ignored")
+    func unknownPlainByteIgnored() throws {
+        // 'x' (0x78) hits the state machine's default arm; Enter then confirms.
+        var captured: [String] = []
+        var select = InteractiveSelect(title: "T:", choices: ["x", "y"])
+        var queue: [UInt8] = [0x78, 0x0A]
+        select.readByte = { queue.isEmpty ? nil : queue.removeFirst() }
+        select.write = { captured.append($0) }
+        select.isInteractive = { true }
+
+        let result = try select.run()
+        #expect(result == 0)  // cursor never moved
+        #expect(captured.count == 1)  // no redraw
+    }
+
+    @Test("nil read is skipped and the next byte still lands")
+    func nilReadSkipped() throws {
+        // First read yields nil (EINTR-ish); the loop must continue, not bail.
+        var captured: [String] = []
+        var select = InteractiveSelect(title: "T:", choices: ["x", "y"])
+        var queue: [UInt8?] = [nil, 0x0A]
+        select.readByte = { queue.isEmpty ? nil : queue.removeFirst() }
+        select.write = { captured.append($0) }
+        select.isInteractive = { true }
+
+        let result = try select.run()
+        #expect(result == 0)
+    }
+
     @Test("unknown escape byte is ignored")
     func unknownEscapeIgnored() throws {
         // ESC [ C (right arrow — not handled) then Enter

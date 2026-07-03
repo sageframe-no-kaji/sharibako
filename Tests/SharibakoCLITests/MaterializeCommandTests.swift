@@ -63,6 +63,103 @@ struct MaterializeCommandTests {
         }
     }
 
+    @Test("second materialize reports already up to date without rewriting")
+    func materializeUnchanged() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try core.addSecret("API_KEY", value: "v1", inScope: "s1")
+
+            let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            var cmd = try MaterializeCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "s1",
+            ])
+            try cmd._run(cwd: projectDir)
+            let envPath = projectDir.appendingPathComponent(".env")
+            let firstPass = try String(contentsOf: envPath, encoding: .utf8)
+
+            // Second pass: `.unchanged` branch; file bytes identical.
+            try cmd._run(cwd: projectDir)
+            let secondPass = try String(contentsOf: envPath, encoding: .utf8)
+            #expect(secondPass == firstPass)
+        }
+    }
+
+    @Test("drift without --force renders the diff and throws materializeDiffPending")
+    func materializeDriftPending() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try core.addSecret("K1", value: "v1", inScope: "s1")
+            try core.addSecret("K2", value: "v2", inScope: "s1")
+
+            let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            var cmd = try MaterializeCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "s1",
+            ])
+            try cmd._run(cwd: projectDir)
+
+            // Introduce both drift shapes: K1 differs, K2 vanishes from the file.
+            let envPath = projectDir.appendingPathComponent(".env")
+            let drifted = try String(contentsOf: envPath, encoding: .utf8)
+                .replacingOccurrences(of: "K1=v1", with: "K1=tampered")
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.hasPrefix("K2=") }
+                .joined(separator: "\n")
+            try drifted.write(to: envPath, atomically: true, encoding: .utf8)
+
+            #expect(throws: CLIError.materializeDiffPending) {
+                try cmd._run(cwd: projectDir)
+            }
+            // Without --force the drifted file is left alone.
+            let afterDiff = try String(contentsOf: envPath, encoding: .utf8)
+            #expect(afterDiff.contains("K1=tampered"))
+        }
+    }
+
+    @Test("--force overwrites drifted owned lines with vault values")
+    func materializeForceOverwritesDrift() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try core.addSecret("K1", value: "v1", inScope: "s1")
+
+            let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            var cmd = try MaterializeCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "s1",
+            ])
+            try cmd._run(cwd: projectDir)
+
+            let envPath = projectDir.appendingPathComponent(".env")
+            let drifted = try String(contentsOf: envPath, encoding: .utf8)
+                .replacingOccurrences(of: "K1=v1", with: "K1=tampered")
+            try drifted.write(to: envPath, atomically: true, encoding: .utf8)
+
+            var forceCmd = try MaterializeCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--force",
+                "s1",
+            ])
+            try forceCmd._run(cwd: projectDir)
+
+            let restored = try String(contentsOf: envPath, encoding: .utf8)
+            #expect(restored.contains("K1=v1"))
+        }
+    }
+
     @Test("_run throws markerNotFound when cwd has no .sharibako and no scope given")
     func materializeNoMarkerNorScope() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

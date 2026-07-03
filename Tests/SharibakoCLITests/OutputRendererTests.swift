@@ -138,4 +138,37 @@ struct OutputRendererTests {
         )
         #expect(!output.contains("\u{1B}["))
     }
+
+    // MARK: - text
+
+    @Test("text returns the string unchanged in both modes")
+    func textPassthrough() {
+        #expect(plain.text("as-is") == "as-is")
+        #expect(colored.text("as-is") == "as-is")
+    }
+
+    // MARK: - error (color mode)
+
+    @Test("error applies red ANSI in color mode")
+    func errorColored() {
+        let result = colored.error("oops")
+        #expect(result.contains("oops"))
+        #expect(result.contains("\u{1B}[31m"))
+    }
+
+    // MARK: - table (color mode)
+
+    @Test("color=true renders bold headers and a box-drawing separator")
+    func tableColored() {
+        let output = colored.table(
+            headers: ["SCOPE", "TYPE"],
+            rows: [["kanyo", "project-dev"]]
+        )
+        #expect(output.contains("\u{1B}[1m"))
+        #expect(output.contains("─"))
+        #expect(output.contains("kanyo"))
+        // Data rows stay unstyled — only the header row is bold.
+        let dataLine = output.split(separator: "\n").last.map(String.init) ?? ""
+        #expect(!dataLine.contains("\u{1B}[1m"))
+    }
 }

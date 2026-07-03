@@ -106,4 +106,80 @@ struct ScanCommandTests {
         let decoded = try JSONDecoder().decode([ScanEntry].self, from: Data(json.utf8))
         #expect(decoded.isEmpty)
     }
+
+    // MARK: - composeOutput
+
+    @Test("composeOutput reports a placeholder when no markers exist")
+    func composeOutputEmpty() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let emptyDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-scan-none-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: emptyDir) }
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+            let cmd = try ScanCommand.parse([emptyDir.path])
+            let output = try cmd.composeOutput(
+                materializer: materializer, renderer: OutputRenderer(json: false, color: false))
+            #expect(output == "No .sharibako markers found.")
+        }
+    }
+
+    @Test("composeOutput renders the SCOPE/MARKER/TARGET table for found markers")
+    func composeOutputTable() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let rootDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-scan-table-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: rootDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: rootDir) }
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+            let marker = ScopeMarker(scope: "table-proj", materializeTo: nil, markerURL: .init(fileURLWithPath: "/"))
+            try materializer.writeMarker(marker, at: rootDir.appendingPathComponent(".sharibako"))
+
+            let cmd = try ScanCommand.parse([rootDir.path])
+            let output = try cmd.composeOutput(
+                materializer: materializer, renderer: OutputRenderer(json: false, color: false))
+            #expect(output.contains("SCOPE"))
+            #expect(output.contains("table-proj"))
+            #expect(output.contains(".sharibako"))
+            #expect(output.contains(".env"))
+        }
+    }
+
+    @Test("composeOutput --json emits decodable entries for found markers")
+    func composeOutputJSON() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let rootDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-scan-json-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: rootDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: rootDir) }
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+            let marker = ScopeMarker(scope: "json-proj", materializeTo: nil, markerURL: .init(fileURLWithPath: "/"))
+            try materializer.writeMarker(marker, at: rootDir.appendingPathComponent(".sharibako"))
+
+            let cmd = try ScanCommand.parse([rootDir.path, "--json"])
+            let output = try cmd.composeOutput(
+                materializer: materializer, renderer: OutputRenderer(json: true, color: false))
+            let decoded = try JSONDecoder().decode([ScanEntry].self, from: Data(output.utf8))
+            #expect(decoded.map(\.scope) == ["json-proj"])
+        }
+    }
+
+    // MARK: - End to end
+
+    @Test("scan runs end-to-end against an ephemeral vault")
+    func scanEndToEnd() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vaultURL, _ in
+            let emptyDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-scan-e2e-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: emptyDir) }
+            try await CLITestSupport.runCommand(["scan", emptyDir.path, "--vault", vaultURL.path])
+        }
+    }
 }

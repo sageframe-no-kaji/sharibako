@@ -233,3 +233,139 @@ struct ErrorReporterTests {
         #expect(parsed is [String: Any])
     }
 }
+
+/// Mapping cases split out of `ErrorReporterTests` to respect the
+/// `type_body_length` limit (same precedent as `ConduitRemoteTests`).
+@Suite("ErrorReporter — remaining mappings")
+struct ErrorReporterMappingTests {
+    // MARK: - VaultError mappings
+
+    @Test("yamlEncodeError maps to filesystem exit code with the path in the message")
+    func yamlEncodeError() {
+        struct FakeYAML: Error {}
+        let url = URL(fileURLWithPath: "/vault/scopes/dev/scope.yaml")
+        let report = ErrorReporter.makeReport(
+            for: VaultError.yamlEncodeError(path: url, underlying: FakeYAML()))
+        #expect(report.code == .filesystem)
+        #expect(report.message.contains("/vault/scopes/dev/scope.yaml"))
+    }
+
+    @Test("yamlDecodeError maps to filesystem exit code")
+    func yamlDecodeError() {
+        struct FakeYAML: Error {}
+        let url = URL(fileURLWithPath: "/vault/scopes/dev/scope.yaml")
+        let report = ErrorReporter.makeReport(
+            for: VaultError.yamlDecodeError(path: url, underlying: FakeYAML()))
+        #expect(report.code == .filesystem)
+        #expect(report.message.contains("decode"))
+    }
+
+    @Test("envParseFailed maps to filesystem exit code with the reason in the message")
+    func envParseFailed() {
+        let url = URL(fileURLWithPath: "/proj/.env")
+        let report = ErrorReporter.makeReport(
+            for: VaultError.envParseFailed(path: url, reason: "unterminated quote"))
+        #expect(report.code == .filesystem)
+        #expect(report.message.contains("unterminated quote"))
+    }
+
+    @Test("ingestKeyMismatch maps to userError with the unknown key named")
+    func ingestKeyMismatch() {
+        let report = ErrorReporter.makeReport(
+            for: VaultError.ingestKeyMismatch(unknownKey: "GHOST_KEY"))
+        #expect(report.code == .userError)
+        #expect(report.message.contains("GHOST_KEY"))
+    }
+
+    // MARK: - CLIError mappings
+
+    @Test("valueInputConflict maps to userError exit code")
+    func valueInputConflict() {
+        let report = ErrorReporter.makeReport(for: CLIError.valueInputConflict)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("--from-stdin"))
+    }
+
+    @Test("valueInputRequired maps to userError exit code")
+    func valueInputRequired() {
+        let report = ErrorReporter.makeReport(for: CLIError.valueInputRequired)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("--value"))
+    }
+
+    @Test("secretAlreadyExists maps to userError with a --force remediation")
+    func secretAlreadyExists() {
+        let report = ErrorReporter.makeReport(
+            for: CLIError.secretAlreadyExists(scope: "kanyo-dev", key: "API_KEY"))
+        #expect(report.code == .userError)
+        #expect(report.message.contains("API_KEY"))
+        #expect(report.message.contains("kanyo-dev"))
+        #expect(report.remediation?.contains("--force") == true)
+    }
+
+    @Test("materializeDiffPending maps to userError exit code")
+    func materializeDiffPending() {
+        let report = ErrorReporter.makeReport(for: CLIError.materializeDiffPending)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("--force"))
+    }
+
+    @Test("updateFileMissing maps to userError pointing at materialize")
+    func updateFileMissing() {
+        let report = ErrorReporter.makeReport(for: CLIError.updateFileMissing)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("materialize"))
+    }
+
+    @Test("syncRejected maps to git exit code")
+    func syncRejected() {
+        let report = ErrorReporter.makeReport(for: CLIError.syncRejected)
+        #expect(report.code == .git)
+        #expect(report.message.contains("rejected"))
+    }
+
+    @Test("syncConflict maps to git exit code")
+    func syncConflict() {
+        let report = ErrorReporter.makeReport(for: CLIError.syncConflict)
+        #expect(report.code == .git)
+        #expect(report.message.contains("conflict"))
+    }
+
+    @Test("notInteractiveTerminal maps to userError exit code")
+    func notInteractiveTerminal() {
+        let report = ErrorReporter.makeReport(for: CLIError.notInteractiveTerminal)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("interactive"))
+    }
+
+    @Test("aborted maps to the success exit code — a cancelled prompt is not a failure")
+    func aborted() {
+        let report = ErrorReporter.makeReport(for: CLIError.aborted)
+        #expect(report.code == .success)
+        #expect(report.message == "Aborted.")
+    }
+
+    @Test("nothingToInitialize maps to userError with the directory in the message")
+    func nothingToInitialize() {
+        let url = URL(fileURLWithPath: "/projects/empty")
+        let report = ErrorReporter.makeReport(for: CLIError.nothingToInitialize(directory: url))
+        #expect(report.code == .userError)
+        #expect(report.message.contains("/projects/empty"))
+    }
+
+    @Test("runCommandEmpty maps to userError with usage in the message")
+    func runCommandEmpty() {
+        let report = ErrorReporter.makeReport(for: CLIError.runCommandEmpty)
+        #expect(report.code == .userError)
+        #expect(report.message.contains("sharibako run"))
+    }
+
+    @Test("runSpawnFailed maps to generic with the command named")
+    func runSpawnFailed() {
+        let report = ErrorReporter.makeReport(
+            for: CLIError.runSpawnFailed(command: "npx", underlying: "No such file or directory"))
+        #expect(report.code == .generic)
+        #expect(report.message.contains("npx"))
+        #expect(report.remediation?.contains("PATH") == true)
+    }
+}

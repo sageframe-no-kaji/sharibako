@@ -179,6 +179,71 @@ struct RunCommandTests {
         }
     }
 
+    @Test("Decrypt failure with the wrong key rethrows after releasing the handle")
+    func decryptFailureRethrows() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
+            try CLITestSupport.writeScope("proj", in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
+            try core.addSecret("FOO", value: "x", inScope: "proj")
+
+            // A second, unrelated key: decryption of FOO must fail.
+            let wrongKeyDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sb-run-wrongkey-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: wrongKeyDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: wrongKeyDir) }
+            let wrongKey = wrongKeyDir.appendingPathComponent("age-key.txt")
+            let ageKeygen = try Shell.findExecutable("age-keygen")
+            #expect(try Shell.run(ageKeygen, ["-o", wrongKey.path]).exitCode == 0)
+
+            try withProjectDir { proj in
+                let cmd = try parseRun([
+                    "run", "--vault", vault.path, "--age-key", wrongKey.path, "--scope", "proj",
+                    "--", "sh", "-c", "exit 0",
+                ])
+                #expect(throws: (any Error).self) {
+                    _ = try cmd._run(cwd: proj, forwardSignals: false)
+                }
+            }
+        }
+    }
+
+    @Test("Nonexistent cwd surfaces runSpawnFailed instead of running")
+    func nonexistentCwdSpawnFails() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
+            try CLITestSupport.writeScope("proj", in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
+            try core.addSecret("FOO", value: "x", inScope: "proj")
+
+            let ghostCwd = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sb-run-no-such-dir-\(UUID().uuidString)")
+            let cmd = try parseRun([
+                "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
+                "--", "sh", "-c", "exit 0",
+            ])
+            #expect {
+                _ = try cmd._run(cwd: ghostCwd, forwardSignals: false)
+            } throws: { error in
+                guard case CLIError.runSpawnFailed = error else { return false }
+                return true
+            }
+        }
+    }
+
+    @Test("run --dry-run via run(): returns without exiting")
+    func dryRunRunShim() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vault, key in
+            try CLITestSupport.writeScope("proj", in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
+            try core.addSecret("FOO", value: "x", inScope: "proj")
+
+            // Explicit --scope keeps the marker walk away from the test process's
+            // real cwd; --dry-run returns from run() before Foundation.exit.
+            try await CLITestSupport.runCommand([
+                "run", "--vault", vault.path, "--scope", "proj", "--dry-run",
+            ])
+        }
+    }
+
     @Test("Resolves the scope from a cwd marker when --scope is omitted")
     func resolvesScopeFromMarker() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in

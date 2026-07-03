@@ -98,4 +98,14 @@ struct RunFeedbackTests {
     func sigkillLine() {
         #expect(RunFeedback.sigkillLine() == "sharibako: child unresponsive — sending SIGKILL")
     }
+
+    // MARK: - Sinks
+
+    @Test("standardError sink writes without throwing; disabled sink swallows")
+    func productionSinks() {
+        // stderr in the test runner is a plain pipe/file — writing is harmless
+        // and exercises the production emitter body.
+        RunFeedback.standardError.emit("sharibako-test: standardError sink probe")
+        RunFeedback.disabled.emit("never seen")
+    }
 }

@@ -57,6 +57,23 @@ struct GetCommandTests {
         }
     }
 
+    @Test("get via run(): prints the decrypted value without exiting")
+    func getRunShim() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSecret("API_KEY", value: "run-shim-value", inScope: "s1")
+
+            // Success path through run(): no ErrorReporter, no Foundation.exit.
+            try await CLITestSupport.runCommand([
+                "get",
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "s1", "API_KEY",
+            ])
+        }
+    }
+
     @Test("_run throws scopeNotFound for unknown scope")
     func runThrowsForUnknownScope() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

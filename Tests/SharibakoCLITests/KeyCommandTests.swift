@@ -201,6 +201,244 @@ struct KeyCommandTests {
     }
 }
 
+// MARK: - Generate: prompt and failure paths
+
+@Suite("KeyCommand generate — prompts and failures")
+struct KeyCommandGeneratePromptTests {
+    @Test("generate --force prompts and overwrites on 'y'")
+    func forcePromptYesOverwrites() throws {
+        try withKeyTempDir { tmpDir in
+            let keyPath = tmpDir.appendingPathComponent("age-key.txt")
+            try "existing".write(to: keyPath, atomically: true, encoding: .utf8)
+
+            let cmd = try GenerateCommand.parse(["--force"])
+            try cmd.generateToFile(at: keyPath) { "y" }
+
+            let contents = try String(contentsOf: keyPath, encoding: .utf8)
+            #expect(contents.contains("AGE-SECRET-KEY-"))
+        }
+    }
+
+    @Test("generate --force aborts on 'n', leaving the existing key untouched")
+    func forcePromptNoAborts() throws {
+        try withKeyTempDir { tmpDir in
+            let keyPath = tmpDir.appendingPathComponent("age-key.txt")
+            try "existing".write(to: keyPath, atomically: true, encoding: .utf8)
+
+            let cmd = try GenerateCommand.parse(["--force"])
+            try cmd.generateToFile(at: keyPath) { "n" }
+
+            let contents = try String(contentsOf: keyPath, encoding: .utf8)
+            #expect(contents == "existing")
+        }
+    }
+
+    @Test("generation failure cleans the staging file and rethrows")
+    func generateFailureCleansStaging() throws {
+        try withKeyTempDir { tmpDir in
+            // Read-only directory: age-keygen cannot create the staging file.
+            let lockedDir = tmpDir.appendingPathComponent("locked")
+            try FileManager.default.createDirectory(at: lockedDir, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o500], ofItemAtPath: lockedDir.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o755], ofItemAtPath: lockedDir.path
+                )
+            }
+
+            let keyPath = lockedDir.appendingPathComponent("age-key.txt")
+            let cmd = try GenerateCommand.parse([])
+            #expect(throws: (any Error).self) {
+                try cmd.generateToFile(at: keyPath)
+            }
+            // No key and no staging leftovers.
+            let leftovers = try FileManager.default.contentsOfDirectory(atPath: lockedDir.path)
+            #expect(leftovers.isEmpty)
+        }
+    }
+
+    @Test("generate via run(): key generate --age-key writes the file end-to-end")
+    func generateRunShim() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-keygen-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let keyPath = tmpDir.appendingPathComponent("age-key.txt")
+        try await CLITestSupport.runCommand(["key", "generate", "--age-key", keyPath.path])
+
+        let contents = try String(contentsOf: keyPath, encoding: .utf8)
+        #expect(contents.contains("AGE-SECRET-KEY-"))
+    }
+}
+
+// MARK: - Import: error, prompt, and run() paths
+
+@Suite("KeyCommand import — sources and prompts")
+struct KeyCommandImportTests {
+    @Test("import via run(): copies the key file and keeps the source")
+    func importRunShim() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-import-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let srcPath = try makeRealKey(in: tmpDir, named: "source-key.txt")
+        let destPath = tmpDir.appendingPathComponent("imported-key.txt")
+        try await CLITestSupport.runCommand([
+            "key", "import", srcPath.path, "--keep-source", "--age-key", destPath.path,
+        ])
+
+        let imported = try String(contentsOf: destPath, encoding: .utf8)
+        #expect(imported.contains("AGE-SECRET-KEY-"))
+        #expect(FileManager.default.fileExists(atPath: srcPath.path))
+        // Imported key is private to the user (0600).
+        let attrs = try FileManager.default.attributesOfItem(atPath: destPath.path)
+        #expect((attrs[.posixPermissions] as? Int) == 0o600)
+    }
+
+    @Test("_run throws ageKeyFileNotFound for a missing source file")
+    func importMissingSource() throws {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("no-such-key-\(UUID().uuidString)")
+        let cmd = try ImportCommand.parse([missing.path, "--age-key", "/tmp/dest-unused"])
+        #expect(throws: CLIError.ageKeyFileNotFound(path: missing)) {
+            try cmd._run()
+        }
+    }
+
+    @Test("_run throws invalidAgeKeyFile for a non-key source file")
+    func importInvalidSource() throws {
+        try withKeyTempDir { tmpDir in
+            let srcPath = tmpDir.appendingPathComponent("not-a-key.txt")
+            try "not a key".write(to: srcPath, atomically: true, encoding: .utf8)
+            let cmd = try ImportCommand.parse([srcPath.path, "--age-key", "/tmp/dest-unused"])
+            #expect(throws: CLIError.invalidAgeKeyFile(path: srcPath)) {
+                try cmd._run()
+            }
+        }
+    }
+
+    @Test("importToFile creates missing parent directories; --delete-source removes the source")
+    func importCreatesParentAndDeletesSource() throws {
+        try withKeyTempDir { tmpDir in
+            let srcPath = try makeRealKey(in: tmpDir, named: "source-key.txt")
+            let destPath =
+                tmpDir
+                .appendingPathComponent("nested")
+                .appendingPathComponent("deeper")
+                .appendingPathComponent("age-key.txt")
+
+            let cmd = try ImportCommand.parse([srcPath.path, "--delete-source"])
+            let contents = try Data(contentsOf: srcPath)
+            try cmd.importToFile(contents: contents, at: destPath, sourceURL: srcPath)
+
+            #expect(FileManager.default.fileExists(atPath: destPath.path))
+            #expect(!FileManager.default.fileExists(atPath: srcPath.path))
+        }
+    }
+
+    @Test("source-deletion prompt: 'y' deletes the source file")
+    func sourceDeletionPromptYes() throws {
+        try withKeyTempDir { tmpDir in
+            let srcPath = tmpDir.appendingPathComponent("source-key.txt")
+            try "AGE-SECRET-KEY-1XYZ\n".write(to: srcPath, atomically: true, encoding: .utf8)
+            let cmd = try ImportCommand.parse([srcPath.path])
+            try cmd.handleSourceDeletion(sourceURL: srcPath) { "y" }
+            #expect(!FileManager.default.fileExists(atPath: srcPath.path))
+        }
+    }
+
+    @Test("source-deletion prompt: 'n' keeps the source file")
+    func sourceDeletionPromptNo() throws {
+        try withKeyTempDir { tmpDir in
+            let srcPath = tmpDir.appendingPathComponent("source-key.txt")
+            try "AGE-SECRET-KEY-1XYZ\n".write(to: srcPath, atomically: true, encoding: .utf8)
+            let cmd = try ImportCommand.parse([srcPath.path])
+            try cmd.handleSourceDeletion(sourceURL: srcPath) { "n" }
+            #expect(FileManager.default.fileExists(atPath: srcPath.path))
+        }
+    }
+}
+
+// MARK: - Export: _run and run() paths
+
+@Suite("KeyCommand export — key material paths")
+struct KeyCommandExportTests {
+    @Test("_run default prints the public key derived from the private key file")
+    func exportPublicViaRun() throws {
+        try withKeyTempDir { tmpDir in
+            let keyPath = try makeRealKey(in: tmpDir, named: "age-key.txt")
+            let cmd = try ExportCommand.parse(["--age-key", keyPath.path])
+            // The printed value is loadRawKey → extractPublicKey; assert the pipeline
+            // yields an age1… recipient before driving the print path.
+            let raw = try cmd.loadRawKey()
+            #expect(raw.contains("AGE-SECRET-KEY-"))
+            #expect(try extractPublicKey(from: raw).hasPrefix("age1"))
+            try cmd._run()
+        }
+    }
+
+    @Test("_run --private with acknowledgement prints the raw private key")
+    func exportPrivateAcknowledged() throws {
+        try withKeyTempDir { tmpDir in
+            let keyPath = try makeRealKey(in: tmpDir, named: "age-key.txt")
+            let cmd = try ExportCommand.parse([
+                "--private", "--i-know-this-is-plaintext", "--age-key", keyPath.path,
+            ])
+            try cmd._run()
+            // loadRawKey feeds the print; assert it carries the private key verbatim.
+            let raw = try cmd.loadRawKey()
+            let onDisk = try String(contentsOf: keyPath, encoding: .utf8)
+            #expect(raw == onDisk)
+        }
+    }
+
+    @Test("_run --private without acknowledgement throws")
+    func exportPrivateUnacknowledged() throws {
+        try withKeyTempDir { tmpDir in
+            let keyPath = try makeRealKey(in: tmpDir, named: "age-key.txt")
+            let cmd = try ExportCommand.parse(["--private", "--age-key", keyPath.path])
+            #expect(throws: CLIError.exportRequiresPlaintextAcknowledgement) {
+                try cmd._run()
+            }
+        }
+    }
+
+    @Test("export via run(): public path end-to-end without exiting")
+    func exportRunShim() async throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-export-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let keyPath = try makeRealKey(in: tmpDir, named: "age-key.txt")
+        try await CLITestSupport.runCommand(["key", "export", "--age-key", keyPath.path])
+    }
+}
+
 // MARK: - Helpers
 
 private struct GenerateFailure: Error {}
+
+/// Creates a temp directory, calls `body`, then removes it.
+private func withKeyTempDir(_ body: (URL) throws -> Void) throws {
+    let tmpDir = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sharibako-keycmd-test-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tmpDir) }
+    try body(tmpDir)
+}
+
+/// Generates a real age key file named `name` inside `dir` via `age-keygen`.
+private func makeRealKey(in dir: URL, named name: String) throws -> URL {
+    let keyPath = dir.appendingPathComponent(name)
+    let ageKeygen = try Shell.findExecutable("age-keygen")
+    let result = try Shell.run(ageKeygen, ["-o", keyPath.path])
+    guard result.exitCode == 0 else {
+        throw GenerateFailure()
+    }
+    return keyPath
+}

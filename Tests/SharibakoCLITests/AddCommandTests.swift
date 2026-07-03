@@ -39,6 +39,34 @@ struct AddCommandTests {
         }
     }
 
+    @Test("_run with --json emits an encoded payload whose shape parses")
+    func addJSONOutput() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            var cmd = try AddCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "v1",
+                "--json",
+                "s1", "API_KEY",
+            ])
+            try cmd._run()
+
+            // The secret landed and the JSON path executed.
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            #expect((try? vault.getValue("API_KEY", inScope: "s1")) == "v1")
+
+            // The same payload the command prints round-trips as valid JSON —
+            // encodeJSON (not interpolation) must escape hostile argv characters.
+            let renderer = OutputRenderer(json: true, color: false)
+            let payload = try renderer.encodeJSON(["added": ["scope": "s1", "key": "TRICKY\"KEY"]])
+            let parsed = try JSONSerialization.jsonObject(with: Data(payload.utf8))
+            let added = try #require((parsed as? [String: Any])?["added"] as? [String: String])
+            #expect(added["scope"] == "s1")
+            #expect(added["key"] == "TRICKY\"KEY")
+        }
+    }
+
     @Test("_run throws secretAlreadyExists when key exists without --force")
     func addRefusesOverwrite() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

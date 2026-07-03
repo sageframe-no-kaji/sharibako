@@ -132,3 +132,127 @@ struct HealCommandTests {
         }
     }
 }
+
+/// `_run(cwd:)` and `resolveMarker` integration, split out of `HealCommandTests`
+/// to respect the `type_body_length` limit.
+@Suite("HealCommand — run integration")
+struct HealCommandRunTests {
+    /// Creates a scope with one secret, plus a project dir holding its marker and `.env`.
+    ///
+    /// Returns the project directory; callers remove it when done.
+    private func makeHealFixture(
+        vaultURL: URL, keyURL: URL, scopeID: String, envContent: String
+    ) throws -> URL {
+        try CLITestSupport.writeScope(scopeID, type: .projectDev, in: vaultURL)
+        let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+        try core.addSecret("API_KEY", value: "vault-value", inScope: scopeID)
+
+        let projectDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("heal-run-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        let markerURL = projectDir.appendingPathComponent(".sharibako")
+        let marker = ScopeMarker(scope: scopeID, materializeTo: nil, markerURL: markerURL)
+        let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+        try materializer.writeMarker(marker, at: markerURL)
+
+        try envContent.write(
+            to: projectDir.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+        return projectDir
+    }
+
+    @Test("_run --json resolves the marker by walking up from the injected cwd")
+    func runJSONWalkUp() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            let projectDir = try makeHealFixture(
+                vaultURL: vaultURL,
+                keyURL: keyURL,
+                scopeID: "heal-run",
+                envContent: "API_KEY=vault-value\n"
+            )
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            let cmd = try HealCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--json",
+            ])
+            // Walk-up discovery from a nested subdirectory must find the marker.
+            let nested = projectDir.appendingPathComponent("src")
+            try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+            try cmd._run(cwd: nested)
+        }
+    }
+
+    @Test("_run renders the drift table (with parse warnings) in plain mode")
+    func runPlainDriftTable() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            // One matching key, one wrong value, one missing from the file,
+            // plus a malformed line for a parse warning.
+            let projectDir = try makeHealFixture(
+                vaultURL: vaultURL,
+                keyURL: keyURL,
+                scopeID: "heal-drift",
+                envContent: "API_KEY=file-value\nMATCH_KEY=same-value\nmalformed line\n"
+            )
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try core.addSecret("MATCH_KEY", value: "same-value", inScope: "heal-drift")
+            try core.addSecret("MISSING_KEY", value: "never-materialized", inScope: "heal-drift")
+
+            let cmd = try HealCommand.parse([
+                "heal-drift",
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+            ])
+            // Explicit scope: resolved by scanning down from the injected cwd.
+            try cmd._run(cwd: projectDir)
+        }
+    }
+
+    // MARK: - resolveMarker
+
+    @Test("resolveMarker with an explicit scope scans down from cwd")
+    func resolveMarkerExplicitScope() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            let projectDir = try makeHealFixture(
+                vaultURL: vaultURL,
+                keyURL: keyURL,
+                scopeID: "heal-scan",
+                envContent: ""
+            )
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+            let cmd = try HealCommand.parse(["heal-scan"])
+            let marker = try cmd.resolveMarker(materializer: materializer, cwd: projectDir)
+            #expect(marker.scope == "heal-scan")
+        }
+    }
+
+    @Test("resolveMarker without a scope walks up from cwd")
+    func resolveMarkerWalkUp() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            let projectDir = try makeHealFixture(
+                vaultURL: vaultURL,
+                keyURL: keyURL,
+                scopeID: "heal-walk",
+                envContent: ""
+            )
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            let nested =
+                projectDir
+                .appendingPathComponent("deep")
+                .appendingPathComponent("nested")
+            try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+            let cmd = try HealCommand.parse([])
+            let marker = try cmd.resolveMarker(materializer: materializer, cwd: nested)
+            #expect(marker.scope == "heal-walk")
+        }
+    }
+}

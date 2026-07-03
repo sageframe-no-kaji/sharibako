@@ -47,6 +47,26 @@ struct RotateCommandTests {
         }
     }
 
+    @Test("rotate via run(): succeeds end-to-end without exiting")
+    func rotateRunShim() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSecret("K", value: "old", inScope: "s1")
+
+            try await CLITestSupport.runCommand([
+                "rotate",
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "--value", "rotated-via-run",
+                "s1", "K",
+            ])
+
+            let newVault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            #expect((try? newVault.getValue("K", inScope: "s1")) == "rotated-via-run")
+        }
+    }
+
     @Test("_run throws secretNotFound for an unknown key")
     func rotateUnknownKey() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

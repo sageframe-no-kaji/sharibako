@@ -34,6 +34,24 @@ struct LinkCommandTests {
         }
     }
 
+    @Test("link via run(): succeeds end-to-end without exiting")
+    func linkRunShim() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSharedEntry("shared-db", value: "shared-value")
+
+            try await CLITestSupport.runCommand([
+                "link",
+                "--vault", vaultURL.path,
+                "s1", "DB_URL", "shared-db",
+            ])
+
+            let infos = try vault.inspect("s1")
+            #expect(infos.contains { $0.key == "DB_URL" })
+        }
+    }
+
     @Test("_run throws sharedEntryNotFound for unknown shared entry")
     func linkMissingSharedEntry() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

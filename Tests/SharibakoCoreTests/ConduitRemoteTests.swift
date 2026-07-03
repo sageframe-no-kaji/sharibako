@@ -404,6 +404,33 @@ struct ConduitRemoteTrackingTests {
         }
     }
 
+    @Test("pull re-establishes upstream tracking when it is absent")
+    func pullSetsUpstreamWhenMissing() throws {
+        try VaultTestSupport.withEphemeralBareRemote { vaultA, vaultB, _ in
+            // A pushes a new commit so B has something to pull.
+            let fileA = vaultA.appendingPathComponent("scopes/tracking.txt")
+            try FileManager.default.createDirectory(
+                at: fileA.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "content".write(to: fileA, atomically: true, encoding: .utf8)
+            let conduitA = try Conduit(vaultURL: vaultA)
+            _ = try conduitA.commit(message: "from A")
+            _ = try conduitA.push()
+
+            // Drop B's upstream tracking — the first-time-clone shape pull()'s
+            // set-upstream branch exists for.
+            let git = try Shell.findExecutable("git")
+            let unset = try Shell.run(git, ["branch", "--unset-upstream"], workingDirectory: vaultB)
+            #expect(unset.exitCode == 0)
+
+            let result = try Conduit(vaultURL: vaultB).pull()
+            guard case .success(let pulled) = result else {
+                Issue.record("Expected pull success after re-establishing tracking, got \(result)")
+                return
+            }
+            #expect(pulled >= 1)
+        }
+    }
+
     @Test("First push establishes upstream tracking; second push counts only new commits")
     func pushEstablishesUpstreamTracking() throws {
         try VaultTestSupport.withEphemeralGitVault { vault in

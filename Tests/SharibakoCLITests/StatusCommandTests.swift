@@ -158,3 +158,79 @@ struct StatusCommandTests {
         }
     }
 }
+
+/// `composeOutput` plain-mode branches and the end-to-end `run()` path, split
+/// out of `StatusCommandTests` to respect the `type_body_length` limit.
+@Suite("StatusCommand — output composition")
+struct StatusCommandOutputTests {
+    @Test("composeOutput reports an empty vault in plain mode")
+    func plainEmptyVault() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let cmd = try StatusCommand.parse([])
+            let output = try cmd.composeOutput(
+                vault: vault, renderer: OutputRenderer(json: false, color: false))
+            #expect(output == "No scopes in vault.")
+        }
+    }
+
+    @Test("composeOutput renders the SCOPE/TYPE/SECRETS table in plain mode")
+    func plainTable() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
+            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
+            try Data([0]).write(to: scopeDir.appendingPathComponent("API_KEY.age"))
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let cmd = try StatusCommand.parse([])
+            let output = try cmd.composeOutput(
+                vault: vault, renderer: OutputRenderer(json: false, color: false))
+            #expect(output.contains("SCOPE"))
+            #expect(output.contains("kanyo"))
+            #expect(output.contains("project-dev"))
+            #expect(output.contains("1"))
+        }
+    }
+
+    @Test("composeOutput --json without a scope argument lists every scope")
+    func jsonAllScopes() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            try CLITestSupport.writeScope("scope-a", type: .projectDev, in: vaultURL)
+            try CLITestSupport.writeScope("scope-b", type: .service, in: vaultURL)
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let cmd = try StatusCommand.parse(["--json"])
+            let output = try cmd.composeOutput(
+                vault: vault, renderer: OutputRenderer(json: true, color: false))
+            let decoded = try JSONDecoder().decode([ScopeStatusEntry].self, from: Data(output.utf8))
+            #expect(decoded.map(\.identity).sorted() == ["scope-a", "scope-b"])
+        }
+    }
+
+    @Test("status <scope> table shows local values and link targets by kind")
+    func scopeTableShowsKinds() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            try CLITestSupport.writeScope("kanyo", type: .projectDev, in: vaultURL)
+            let scopeDir = VaultLayout.scopeDirectoryURL("kanyo", in: vaultURL)
+            try Data([0]).write(to: scopeDir.appendingPathComponent("LOCAL_KEY.age"))
+            let vault = try VaultCore(vaultURL: vaultURL)
+            try vault.link("LINKED_KEY", inScope: "kanyo", toShared: "OPENAI_API_KEY")
+
+            let cmd = try StatusCommand.parse(["kanyo"])
+            let output = try cmd.composeOutput(
+                vault: vault, renderer: OutputRenderer(json: false, color: false))
+            #expect(output.contains("LOCAL_KEY"))
+            #expect(output.contains("local"))
+            #expect(output.contains("LINKED_KEY"))
+            #expect(output.contains("→ OPENAI_API_KEY"))
+        }
+    }
+
+    @Test("status runs end-to-end against an ephemeral vault")
+    func statusEndToEnd() async throws {
+        try await CLITestSupport.withEphemeralVaultAndFileKeyAsync { vaultURL, _ in
+            try CLITestSupport.writeScope("e2e", type: .projectDev, in: vaultURL)
+            try await CLITestSupport.runCommand(["status", "--vault", vaultURL.path])
+        }
+    }
+}

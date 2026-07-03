@@ -26,26 +26,31 @@ struct ListCommand: AsyncParsableCommand {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let vault = try VaultCore(vaultURL: vaultURL)
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
+        print(try composeOutput(vault: vault, renderer: renderer))
+    }
 
+    /// Builds the full command output (print-free seam for tests).
+    ///
+    /// Renders shared-entry IDs under `--shared`, scope IDs otherwise; JSON
+    /// arrays under `--json`, one ID per line (or a placeholder) in plain mode.
+    func composeOutput(vault: VaultCore, renderer: OutputRenderer) throws -> String {
         if shared {
             let ids = try vault.listShared()
-            if global.json {
-                print(try renderer.encodeJSON(ids))
-            } else if ids.isEmpty {
-                print("No shared entries.")
-            } else {
-                for id in ids { print(id) }
+            if renderer.json {
+                return try renderer.encodeJSON(ids)
             }
-        } else {
-            let scopes = try vault.listScopes()
-            let ids = scopes.map(\.identity)
-            if global.json {
-                print(try renderer.encodeJSON(ids))
-            } else if ids.isEmpty {
-                print("No scopes.")
-            } else {
-                for id in ids { print(id) }
+            if ids.isEmpty {
+                return "No shared entries."
             }
+            return ids.joined(separator: "\n")
         }
+        let ids = try vault.listScopes().map(\.identity)
+        if renderer.json {
+            return try renderer.encodeJSON(ids)
+        }
+        if ids.isEmpty {
+            return "No scopes."
+        }
+        return ids.joined(separator: "\n")
     }
 }

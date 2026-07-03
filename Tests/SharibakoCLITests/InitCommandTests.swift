@@ -334,3 +334,142 @@ struct InitCommandTests {
         }
     }
 }
+
+// MARK: - Key-generation offer, directory argument, edge paths
+
+@Suite("InitCommand — key generation and edge paths")
+struct InitCommandEdgePathTests {
+    @Test("directory argument resolves relative to cwd")
+    func directoryArgumentResolved() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            let parentDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("init-dirarg-\(UUID().uuidString)")
+            let projectDir = parentDir.appendingPathComponent("proj")
+            try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: parentDir) }
+            try "API=value\n".write(
+                to: projectDir.appendingPathComponent(".env"), atomically: true, encoding: .utf8
+            )
+
+            var lineReaderQueue = ["", ""]
+            var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL, extraArgs: ["proj"])
+            // Directory-marked URL: relative-path resolution against a file-marked
+            // URL would resolve "proj" against the parent's parent.
+            let cwd = URL(fileURLWithPath: parentDir.path, isDirectory: true)
+            try cmd._run(
+                cwd: cwd,
+                decisionSource: ScriptedIngestDecisionSource.allImportLocal()
+            ) { lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst() }
+
+            // Marker lands inside proj/, not in the cwd.
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: projectDir.appendingPathComponent(".sharibako").path
+                )
+            )
+        }
+    }
+
+    @Test("missing key: Enter accepts the generation offer and init continues")
+    func keyGenerationOfferAccepted() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let keyDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("init-genkey-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: keyDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: keyDir) }
+            let keyPath = keyDir.appendingPathComponent("age-key.txt")
+            // Deliberately NOT created — init must offer generation.
+
+            try withProjectDir(env: "API=value\n") { projectDir in
+                // "" accepts generation (default Y), then scope-ID "", scope-type "".
+                var lineReaderQueue = ["", "", ""]
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
+                try cmd._run(
+                    cwd: projectDir,
+                    decisionSource: ScriptedIngestDecisionSource.allImportLocal()
+                ) { lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst() }
+
+                // Key was generated and the secret round-trips through it.
+                let keyContents = try String(contentsOf: keyPath, encoding: .utf8)
+                #expect(keyContents.contains("AGE-SECRET-KEY-"))
+                let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyPath)
+                let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+                let marker = try materializer.loadMarker(
+                    at: projectDir.appendingPathComponent(".sharibako")
+                )
+                #expect(try vault.getValue("API", inScope: marker.scope) == "value")
+            }
+        }
+    }
+
+    @Test("missing key: declining the generation offer stops init without error")
+    func keyGenerationOfferDeclined() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let keyPath = FileManager.default.temporaryDirectory
+                .appendingPathComponent("init-nokey-\(UUID().uuidString).txt")
+            // Deliberately NOT created.
+
+            try withProjectDir(env: "API=value\n") { projectDir in
+                var lineReaderQueue = ["n"]
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
+                try cmd._run(
+                    cwd: projectDir,
+                    decisionSource: ScriptedIngestDecisionSource.allImportLocal()
+                ) { lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst() }
+
+                // Nothing written: no key, no marker, no scope.
+                #expect(!FileManager.default.fileExists(atPath: keyPath.path))
+                let markerURL = projectDir.appendingPathComponent(".sharibako")
+                #expect(!FileManager.default.fileExists(atPath: markerURL.path))
+                let vault = try VaultCore(vaultURL: vaultURL)
+                #expect(try vault.listScopes().isEmpty)
+            }
+        }
+    }
+
+    @Test("scope ID collision: declining the reuse confirmation aborts")
+    func scopeIDCollisionDeclined() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("taken", in: vaultURL)
+
+            try withProjectDir(env: "API=value\n") { projectDir in
+                // ID → "taken" (collision), confirmation → "n" → abort.
+                var lineReaderQueue = ["taken", "n"]
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                #expect(throws: CLIError.aborted) {
+                    try cmd._run(
+                        cwd: projectDir,
+                        decisionSource: ScriptedIngestDecisionSource.allImportLocal()
+                    ) { lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst() }
+                }
+                // No marker written for the aborted init.
+                let markerURL = projectDir.appendingPathComponent(".sharibako")
+                #expect(!FileManager.default.fileExists(atPath: markerURL.path))
+            }
+        }
+    }
+
+    @Test("orphaned marker: scope missing from vault falls back to the full proposal")
+    func orphanedMarkerFallsBackToFullProposal() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: "K=v\n") { projectDir in
+                // Marker points at a scope the vault has never seen (new-machine case).
+                try "scope: ghost\n".write(
+                    to: projectDir.appendingPathComponent(".sharibako"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                try cmd._run(
+                    cwd: projectDir,
+                    decisionSource: ScriptedIngestDecisionSource.allImportLocal()
+                ) { nil }
+
+                // Everything re-ingested under the marker's scope ID.
+                let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+                #expect(try vault.getValue("K", inScope: "ghost") == "v")
+            }
+        }
+    }
+}

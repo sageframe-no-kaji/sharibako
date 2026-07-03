@@ -41,7 +41,11 @@ struct GenerateCommand: AsyncParsableCommand {
         do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
     }
 
-    private func _run() throws {
+    // MARK: - Internal for testing
+
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
+    // swiftlint:disable:next identifier_name
+    func _run() throws {
         let destPath = VaultLocator.resolveAgeKey(globalFlag: global.ageKeyURL)
 
         if let path = destPath {
@@ -61,13 +65,17 @@ struct GenerateCommand: AsyncParsableCommand {
 
     // MARK: - File path
 
-    func generateToFile(at path: URL) throws {
+    /// Generates a key file at `path`, prompting before overwrite under `--force` without `--yes`.
+    ///
+    /// `lineReader` is the injected prompt-answer seam (defaults to stdin) so tests
+    /// can drive the overwrite confirmation without a terminal.
+    func generateToFile(at path: URL, lineReader: () -> String? = { readLine() }) throws {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: path.path) {
             guard force else { throw CLIError.ageKeyAlreadyExists }
             if !yes {
                 fputs("Overwrite existing age key at \(path.path)? [y/N] ", stderr)
-                let answer = readLine() ?? ""
+                let answer = lineReader() ?? ""
                 guard answer.lowercased().hasPrefix("y") else {
                     fputs("Aborted.\n", stderr)
                     return
@@ -143,7 +151,11 @@ struct ImportCommand: AsyncParsableCommand {
         do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
     }
 
-    private func _run() throws {
+    // MARK: - Internal for testing
+
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
+    // swiftlint:disable:next identifier_name
+    func _run() throws {
         let sourceURL = URL(fileURLWithPath: sourcePath)
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             throw CLIError.ageKeyFileNotFound(path: sourceURL)
@@ -170,7 +182,13 @@ struct ImportCommand: AsyncParsableCommand {
         }
     }
 
-    func importToFile(contents: Data, at dest: URL, sourceURL: URL) throws {
+    /// Writes the imported key to `dest` (0600), then runs the source-deletion flow.
+    ///
+    /// `lineReader` is the injected prompt-answer seam (defaults to stdin), threaded
+    /// through to ``handleSourceDeletion(sourceURL:lineReader:)``.
+    func importToFile(
+        contents: Data, at dest: URL, sourceURL: URL, lineReader: () -> String? = { readLine() }
+    ) throws {
         let parent = dest.deletingLastPathComponent()
         if !FileManager.default.fileExists(atPath: parent.path) {
             try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
@@ -178,7 +196,7 @@ struct ImportCommand: AsyncParsableCommand {
         try contents.write(to: dest, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: dest.path)
         fputs("Imported age key to \(dest.path)\n", stderr)
-        try handleSourceDeletion(sourceURL: sourceURL)
+        try handleSourceDeletion(sourceURL: sourceURL, lineReader: lineReader)
     }
 
     #if os(macOS)
@@ -190,7 +208,11 @@ struct ImportCommand: AsyncParsableCommand {
         }
     #endif
 
-    func handleSourceDeletion(sourceURL: URL) throws {
+    /// Deletes, keeps, or prompts about the source file per `--delete-source`/`--keep-source`.
+    ///
+    /// `lineReader` is the injected prompt-answer seam (defaults to stdin) so tests
+    /// can drive the deletion confirmation without a terminal.
+    func handleSourceDeletion(sourceURL: URL, lineReader: () -> String? = { readLine() }) throws {
         if keepSource { return }
         if deleteSource {
             try FileManager.default.removeItem(at: sourceURL)
@@ -198,7 +220,7 @@ struct ImportCommand: AsyncParsableCommand {
             return
         }
         fputs("Delete the source file at \(sourceURL.path)? [y/N] ", stderr)
-        let answer = readLine() ?? ""
+        let answer = lineReader() ?? ""
         if answer.lowercased().hasPrefix("y") {
             try FileManager.default.removeItem(at: sourceURL)
             fputs("Deleted source file.\n", stderr)
@@ -240,7 +262,11 @@ struct ExportCommand: AsyncParsableCommand {
         do { try _run() } catch { ErrorReporter.report(error, json: global.json) }
     }
 
-    private func _run() throws {
+    // MARK: - Internal for testing
+
+    // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
+    // swiftlint:disable:next identifier_name
+    func _run() throws {
         if `private` {
             guard iKnowThisIsPlaintext else {
                 throw CLIError.exportRequiresPlaintextAcknowledgement

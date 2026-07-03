@@ -37,25 +37,29 @@ struct ScanCommand: AsyncParsableCommand {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let vault = try VaultCore(vaultURL: vaultURL)
         let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+        let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
+        print(try composeOutput(materializer: materializer, renderer: renderer))
+    }
+
+    /// Builds the full command output (print-free seam for tests).
+    ///
+    /// JSON array under `--json`, a placeholder when no markers were found,
+    /// and a SCOPE/MARKER/TARGET table otherwise.
+    func composeOutput(materializer: Materializer, renderer: OutputRenderer) throws -> String {
         let entries = try fetchEntries(materializer: materializer)
 
-        let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
-
-        if global.json {
-            print(try renderer.encodeJSON(entries))
-            return
+        if renderer.json {
+            return try renderer.encodeJSON(entries)
         }
 
         guard !entries.isEmpty else {
-            print("No .sharibako markers found.")
-            return
+            return "No .sharibako markers found."
         }
 
-        print(
-            renderer.table(
-                headers: ["SCOPE", "MARKER", "TARGET"],
-                rows: entries.map { [$0.scope, $0.path, $0.target] }
-            ))
+        return renderer.table(
+            headers: ["SCOPE", "MARKER", "TARGET"],
+            rows: entries.map { [$0.scope, $0.path, $0.target] }
+        )
     }
 
     /// Builds scan entries from the resolved root directory.

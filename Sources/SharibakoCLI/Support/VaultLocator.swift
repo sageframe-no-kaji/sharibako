@@ -7,7 +7,14 @@ enum VaultLocator {
     ///
     /// Priority: `--vault` flag → `SHARIBAKO_VAULT` env → `~/.sharibako/vault/`.
     /// Throws `VaultError.vaultNotFound(path:)` if the resolved path does not exist.
-    static func resolve(globalFlag: URL?) throws -> URL {
+    ///
+    /// `environment` and `home` default to the live process values; tests inject
+    /// both to exercise every branch without mutating process state.
+    static func resolve(
+        globalFlag: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) throws -> URL {
         if let flag = globalFlag {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: flag.path, isDirectory: &isDirectory),
@@ -17,7 +24,7 @@ enum VaultLocator {
             }
             return flag
         }
-        if let env = ProcessInfo.processInfo.environment["SHARIBAKO_VAULT"] {
+        if let env = environment["SHARIBAKO_VAULT"] {
             let url = URL(fileURLWithPath: env)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
@@ -27,7 +34,8 @@ enum VaultLocator {
             }
             return url
         }
-        let defaultURL = FileManager.default.homeDirectoryForCurrentUser
+        let defaultURL =
+            home
             .appendingPathComponent(".sharibako")
             .appendingPathComponent("vault")
         var isDirectory: ObjCBool = false
@@ -44,11 +52,14 @@ enum VaultLocator {
     ///
     /// Priority: `--age-key` flag → `SHARIBAKO_AGE_KEY` env → `nil`.
     /// A `nil` return means "use `KeychainAgeKeyProvider` on macOS."
-    static func resolveAgeKey(globalFlag: URL?) -> URL? {
+    static func resolveAgeKey(
+        globalFlag: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL? {
         if let flag = globalFlag {
             return flag
         }
-        if let env = ProcessInfo.processInfo.environment["SHARIBAKO_AGE_KEY"] {
+        if let env = environment["SHARIBAKO_AGE_KEY"] {
             return URL(fileURLWithPath: env)
         }
         return nil
@@ -58,8 +69,11 @@ enum VaultLocator {
     ///
     /// Returns `FileAgeKeyProvider` when a path is resolved, or
     /// `KeychainAgeKeyProvider` on macOS when no path is configured.
-    static func resolveProvider(globalFlag: URL?) -> any AgeKeyProvider {
-        if let path = resolveAgeKey(globalFlag: globalFlag) {
+    static func resolveProvider(
+        globalFlag: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> any AgeKeyProvider {
+        if let path = resolveAgeKey(globalFlag: globalFlag, environment: environment) {
             return FileAgeKeyProvider(path: path)
         }
         #if os(macOS)

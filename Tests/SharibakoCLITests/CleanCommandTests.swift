@@ -102,4 +102,28 @@ struct CleanCommandTests {
             try cmd._run(cwd: projectDir)
         }
     }
+
+    @Test("keeps the .env when non-owned lines remain after cleaning")
+    func cleanKeepsFileWithForeignLines() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            // Add a non-owned line by hand: clean must remove K but keep the file.
+            let envPath = projectDir.appendingPathComponent(".env")
+            let content = try String(contentsOf: envPath, encoding: .utf8)
+            try (content + "FOREIGN=kept\n").write(to: envPath, atomically: true, encoding: .utf8)
+
+            var cmd = try CleanCommand.parse([
+                "--vault", vaultURL.path,
+                "--yes",
+            ])
+            try cmd._run(cwd: projectDir)
+
+            let remaining = try String(contentsOf: envPath, encoding: .utf8)
+            #expect(remaining.contains("FOREIGN=kept"))
+            #expect(!remaining.contains("K=v"))
+        }
+    }
 }
