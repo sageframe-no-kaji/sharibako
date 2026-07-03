@@ -76,6 +76,50 @@ struct ShellTests {
         #expect(!result.stdout.isEmpty)
     }
 
+    // MARK: - Stdin
+
+    @Test("Stdin bytes reach the child, followed by EOF")
+    func stdinReachesChild() throws {
+        let payload = Data("hello from stdin".utf8)
+        let result = try Shell.run(shellBinary, ["-c", "cat"], stdin: payload)
+        #expect(result.exitCode == 0)
+        #expect(result.stdout == "hello from stdin")
+    }
+
+    @Test(
+        "Stdin larger than the pipe buffer does not deadlock against large output",
+        .timeLimit(.minutes(1))
+    )
+    func largeStdinAndStdoutDoNotDeadlock() throws {
+        // The child echoes everything back, so both the stdin write side and
+        // the stdout drain side exceed the ~64 KiB kernel buffer at once. A
+        // synchronous stdin write would deadlock here.
+        let payload = Data(repeating: UInt8(ascii: "x"), count: 200_000)
+        let result = try Shell.run(shellBinary, ["-c", "cat"], stdin: payload)
+        #expect(result.exitCode == 0)
+        #expect(result.stdout.count == 200_000)
+    }
+
+    @Test(
+        "A child that never reads stdin exits cleanly instead of killing the parent",
+        .timeLimit(.minutes(1))
+    )
+    func childIgnoringStdinDoesNotRaiseSigpipe() throws {
+        // Large payload guarantees the background write outlives the child,
+        // forcing the EPIPE path that would be SIGPIPE without F_SETNOSIGPIPE.
+        let payload = Data(repeating: UInt8(ascii: "y"), count: 200_000)
+        let result = try Shell.run(shellBinary, ["-c", "exit 7"], stdin: payload)
+        #expect(result.exitCode == 7)
+    }
+
+    @Test("Nil stdin leaves the child's standard input inherited")
+    func nilStdinInherited() throws {
+        // Behavior guard for existing call sites: no stdin pipe is created,
+        // so the child does not see an unconditional immediate EOF from us.
+        let result = try Shell.run(shellBinary, ["-c", "printf ok"])
+        #expect(result.stdout == "ok")
+    }
+
     // MARK: - Exit codes
 
     @Test("Non-zero exit codes are captured, not thrown")

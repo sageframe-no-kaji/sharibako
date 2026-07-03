@@ -81,13 +81,20 @@ internal enum Shell {
     ///   - environmentOverrides: Variables merged over the inherited environment
     ///     (override wins). When `nil` (the default), the child inherits the
     ///     caller's environment untouched.
+    ///   - stdin: Bytes piped to the child's standard input, followed by EOF.
+    ///     When `nil` (the default), the child inherits the caller's stdin.
+    ///     The write happens on a background queue — the mirror image of
+    ///     `PipeDrain` — so a payload larger than the kernel pipe buffer can
+    ///     never deadlock against a child that is simultaneously producing
+    ///     output.
     /// - Returns: The captured `ShellResult`.
     /// - Throws: Any error thrown by `Process.run()` (typically wrapped `POSIXError`).
     internal static func run(
         _ executableURL: URL,
         _ arguments: [String],
         workingDirectory: URL? = nil,
-        environmentOverrides: [String: String]? = nil
+        environmentOverrides: [String: String]? = nil,
+        stdin: Data? = nil
     ) throws -> ShellResult {
         let process = Process()
         process.executableURL = executableURL
@@ -106,7 +113,30 @@ internal enum Shell {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let stdinPipe: Pipe?
+        if stdin != nil {
+            let pipe = Pipe()
+            process.standardInput = pipe
+            stdinPipe = pipe
+        } else {
+            stdinPipe = nil
+        }
+
         try process.run()
+
+        if let stdin, let stdinPipe {
+            let writeHandle = stdinPipe.fileHandleForWriting
+            // A child that exits without draining its stdin would otherwise
+            // deliver SIGPIPE to THIS process on write, killing the CLI.
+            // F_SETNOSIGPIPE converts that to a plain EPIPE error, which the
+            // write below deliberately swallows — the child's exit code is
+            // the authoritative signal of what went wrong.
+            _ = fcntl(writeHandle.fileDescriptor, F_SETNOSIGPIPE, 1)
+            DispatchQueue.global(qos: .userInitiated).async {
+                try? writeHandle.write(contentsOf: stdin)
+                try? writeHandle.close()
+            }
+        }
 
         let stdoutDrain = PipeDrain(stdoutPipe.fileHandleForReading)
         let stderrDrain = PipeDrain(stderrPipe.fileHandleForReading)
