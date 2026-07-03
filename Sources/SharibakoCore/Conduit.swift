@@ -78,9 +78,11 @@ public struct Conduit: Sendable {
     /// begins with `-` from being parsed as a git option.
     ///
     /// - Parameter url: The remote URL to set (SSH or HTTPS).
-    /// - Throws: ``VaultError/gitInvocationFailed(exitCode:stderr:)`` if git exits non-zero
-    ///   for reasons other than "no such remote".
+    /// - Throws: ``VaultError/remoteURLRejected(url:reason:)`` for a transport
+    ///   outside the allowlist; ``VaultError/gitInvocationFailed(exitCode:stderr:)``
+    ///   if git exits non-zero for reasons other than "no such remote".
     public func setRemote(_ url: String) throws {
+        try Self.validateRemoteURL(url)
         let probe = try git(["remote", "get-url", "origin"])
         if probe.exitCode == 0 {
             let result = try git(["remote", "set-url", "--", "origin", url])
@@ -93,6 +95,45 @@ public struct Conduit: Sendable {
                 throw VaultError.gitInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
             }
         }
+    }
+
+    /// Transport allowlist for remote URLs (ho-04.9, defense-in-depth).
+    ///
+    /// git supports transport helpers (`ext::<command>`, `fd::<n>`) that turn
+    /// a remote "URL" into command execution. `setRemote` isn't currently
+    /// reachable from git-synced vault data, but the allowlist makes the safe
+    /// property structural rather than incidental. Allowed: `https://`,
+    /// `ssh://`, `file://`, absolute local paths, and scp-style
+    /// `user@host:path`.
+    private static func validateRemoteURL(_ url: String) throws {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw VaultError.remoteURLRejected(url: url, reason: "empty URL")
+        }
+        // Explicit-scheme and local-path transports.
+        for prefix in ["https://", "ssh://", "file://"] where trimmed.hasPrefix(prefix) {
+            return
+        }
+        if trimmed.hasPrefix("/") {
+            return  // absolute local path (tests, local mirrors)
+        }
+        // Transport helpers are the command-execution vector — reject before
+        // the scp-style check, which a helper URL would otherwise satisfy.
+        guard !trimmed.contains("::") else {
+            throw VaultError.remoteURLRejected(
+                url: url,
+                reason: "git transport helpers (ext::, fd::) are not allowed"
+            )
+        }
+        // scp-style user@host:path — a colon, but no scheme separator.
+        let colon = trimmed.firstIndex(of: ":")
+        if let colon, colon != trimmed.startIndex, !trimmed.contains("://") {
+            return
+        }
+        throw VaultError.remoteURLRejected(
+            url: url,
+            reason: "unrecognized transport — allowed: https://, ssh://, scp-style, or a local path"
+        )
     }
 
     /// Returns the configured `origin` remote URL, or `nil` if no remote is set.

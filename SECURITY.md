@@ -117,7 +117,7 @@ Inside the vault directory:
 
 Outside the vault:
 
-- `.sharibako` markers (in your project directories) — plaintext, names the scope and materialize target only, no values.
+- `.sharibako` markers (in your project directories) — plaintext, names the scope and materialize target only, no values. Marker fields are validated on load: the scope must satisfy the identifier grammar, and the materialize target must be a relative path contained within the marker's own directory — a marker arriving via git cannot aim `materialize`'s writes or `clean`'s deletions anywhere else.
 - Materialized `.env` files — plaintext values on disk. This is the whole point of the materialize verb, and the whole exposure of Class 4 for materialize users.
 - There is no app configuration file today. The vault location resolves from `--vault`, then `SHARIBAKO_VAULT`, then the default `~/.sharibako/vault/`; the age key from `--age-key`, then `SHARIBAKO_AGE_KEY`, then the Keychain (macOS) or `~/.config/sharibako/age-key`. None of these mechanisms store secret values — paths and environment variable names only.
 
