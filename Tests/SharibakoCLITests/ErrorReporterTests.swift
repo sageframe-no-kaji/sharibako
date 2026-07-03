@@ -168,4 +168,68 @@ struct ErrorReporterTests {
         let report = ErrorReporter.makeReport(for: UnknownError())
         #expect(report.code == .generic)
     }
+
+    // MARK: - New VaultError cases
+
+    @Test("ageIdentityNotConfigured maps to age exit code with key-setup remediation")
+    func ageIdentityNotConfigured() {
+        let report = ErrorReporter.makeReport(for: VaultError.ageIdentityNotConfigured)
+        #expect(report.code == .age)
+        #expect(report.remediation?.contains("--age-key") == true)
+        #expect(report.message.contains("age identity"))
+    }
+
+    // MARK: - Keychain OSStatus branching
+
+    @Test("keychainLoadFailed item-not-found suggests generating or importing a key")
+    func keychainLoadItemNotFound() {
+        let report = ErrorReporter.makeReport(for: CLIError.keychainLoadFailed(osStatus: -25300))
+        #expect(report.code == .keychain)
+        #expect(report.message.contains("No age key found"))
+        #expect(report.remediation?.contains("key generate") == true)
+    }
+
+    @Test("keychainLoadFailed user-cancelled does NOT advise key generate")
+    func keychainLoadUserCancelled() {
+        let report = ErrorReporter.makeReport(for: CLIError.keychainLoadFailed(osStatus: -128))
+        #expect(report.code == .keychain)
+        #expect(report.message.contains("cancelled"))
+        // `key generate --force` after a cancelled prompt would destroy vault
+        // access — the remediation must never point there.
+        #expect(report.remediation?.contains("key generate") != true)
+    }
+
+    @Test("keychainLoadFailed unknown status surfaces the OSStatus for decoding")
+    func keychainLoadUnknownStatus() {
+        let report = ErrorReporter.makeReport(for: CLIError.keychainLoadFailed(osStatus: -25293))
+        #expect(report.code == .keychain)
+        #expect(report.message.contains("-25293"))
+        #expect(report.remediation?.contains("security error") == true)
+    }
+
+    // MARK: - JSON payload encoding
+
+    @Test("jsonPayload stays valid JSON when the message contains quotes and newlines")
+    func jsonPayloadEscapesSpecialCharacters() throws {
+        // gitInvocationFailed passes raw subprocess stderr straight through —
+        // quotes, backslashes, and newlines included.
+        let hostile = "fatal: \"branch\" rejected\nhint: use \\force maybe"
+        let report = ErrorReporter.makeReport(
+            for: VaultError.gitInvocationFailed(exitCode: 128, stderr: hostile))
+        let payload = ErrorReporter.jsonPayload(for: report)
+
+        let parsed = try JSONSerialization.jsonObject(with: Data(payload.utf8))
+        let object = try #require(parsed as? [String: Any])
+        let message = try #require(object["error"] as? String)
+        #expect(message.contains("\"branch\" rejected"))
+        #expect(object["code"] as? Int == Int(SharibakoExitCode.git.rawValue))
+    }
+
+    @Test("jsonPayload stays valid JSON for a scope name containing quotes")
+    func jsonPayloadEscapesScopeQuotes() throws {
+        let report = ErrorReporter.makeReport(for: VaultError.scopeNotFound(id: "we\"ird"))
+        let payload = ErrorReporter.jsonPayload(for: report)
+        let parsed = try JSONSerialization.jsonObject(with: Data(payload.utf8))
+        #expect(parsed is [String: Any])
+    }
 }

@@ -59,8 +59,10 @@ struct AddCommand: AsyncParsableCommand {
         try vault.addSecret(key, value: plaintext, inScope: scope, notes: notes)
 
         if global.json {
-            let payload = "{\"added\":{\"scope\":\"\(scope)\",\"key\":\"\(key)\"}}"
-            print(payload)
+            // Encoded, not interpolated — scope and key are user-supplied argv
+            // and may contain characters that break hand-built JSON.
+            let renderer = OutputRenderer(json: true, color: false)
+            print(try renderer.encodeJSON(["added": ["scope": scope, "key": key]]))
         } else {
             print("Added \(scope)/\(key)")
         }

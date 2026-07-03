@@ -43,8 +43,7 @@ enum ErrorReporter {
     static func report(_ error: Error, json: Bool) -> Never {
         let errorReport = makeReport(for: error)
         if json {
-            let payload = "{\"error\": \"\(errorReport.message)\", \"code\": \(errorReport.code.rawValue)}"
-            fputs(payload + "\n", stderr)
+            fputs(jsonPayload(for: errorReport) + "\n", stderr)
         } else {
             fputs("Error: \(errorReport.message)\n", stderr)
             if let fix = errorReport.remediation {
@@ -52,6 +51,29 @@ enum ErrorReporter {
             }
         }
         exit(errorReport.code.rawValue)
+    }
+
+    /// Encodes an `ErrorReport` as a single-line JSON object.
+    ///
+    /// Uses `JSONEncoder` so messages containing quotes, backslashes, or
+    /// newlines (git/age stderr passes through verbatim) stay valid JSON —
+    /// string interpolation did not escape them.
+    static func jsonPayload(for errorReport: ErrorReport) -> String {
+        struct Payload: Encodable {
+            let error: String
+            let code: Int32
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let payload = Payload(error: errorReport.message, code: errorReport.code.rawValue)
+        guard let data = try? encoder.encode(payload),
+            let rendered = String(bytes: data, encoding: .utf8)
+        else {
+            // Encodable String/Int32 cannot realistically fail to encode; keep
+            // a valid-JSON fallback rather than crashing the error path.
+            return "{\"error\":\"(unrenderable error message)\",\"code\":\(errorReport.code.rawValue)}"
+        }
+        return rendered
     }
 
     // MARK: - Private mapping
@@ -190,11 +212,32 @@ enum ErrorReporter {
                 remediation: nil
             )
         case .keychainLoadFailed(let osStatus):
-            return ErrorReport(
-                code: .keychain,
-                message: "Failed to retrieve age key from Keychain (OSStatus \(osStatus)).",
-                remediation: "Run `sharibako key generate` to create a new key."
-            )
+            // Branch on the OSStatus so the remediation matches the cause —
+            // advising `key generate` to a user who merely cancelled Touch ID
+            // points them at the command that (with --force) destroys vault
+            // access. Numeric literals keep this file buildable on Linux,
+            // where the Security framework is unavailable.
+            switch osStatus {
+            case -25300:  // errSecItemNotFound
+                return ErrorReport(
+                    code: .keychain,
+                    message: "No age key found in the Keychain.",
+                    remediation:
+                        "Run `sharibako key generate` to create one, or `sharibako key import` to store an existing key."
+                )
+            case -128:  // errSecUserCanceled
+                return ErrorReport(
+                    code: .keychain,
+                    message: "The Touch ID / password prompt was cancelled.",
+                    remediation: "Re-run the command and approve the prompt."
+                )
+            default:
+                return ErrorReport(
+                    code: .keychain,
+                    message: "Failed to retrieve age key from Keychain (OSStatus \(osStatus)).",
+                    remediation: "Decode the status with `security error \(osStatus)`."
+                )
+            }
         case .invalidAgeKeyFile(let path):
             return ErrorReport(
                 code: .userError,
