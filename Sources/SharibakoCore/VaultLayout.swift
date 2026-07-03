@@ -6,6 +6,22 @@ import Foundation
 /// or write a vault file passes through one of these helpers so the layout
 /// exists in exactly one place.
 internal enum VaultLayout {
+    /// Filename prefix for encrypt-path staging files.
+    ///
+    /// `encryptAndWrite` stages `age` output as `.sharibako-tmp-<uuid>` in the
+    /// destination's own directory (same volume, so the final rename is atomic)
+    /// and renames over the real name on success. The prefix is distinctive so
+    /// Conduit's `git add -A` can exclude crash leftovers from sync commits —
+    /// a leftover is ciphertext-only and deliberately stays VISIBLE in
+    /// `git status` rather than being hidden by ignore rules.
+    internal static let stagingPrefix = ".sharibako-tmp-"
+
+    /// URL of a staging sibling for an encrypt destination, unique per call.
+    internal static func stagingURL(for destination: URL) -> URL {
+        destination.deletingLastPathComponent()
+            .appendingPathComponent("\(stagingPrefix)\(UUID().uuidString)", isDirectory: false)
+    }
+
     /// URL of the vault's `shared/` directory.
     internal static func sharedDirectoryURL(in vault: URL) -> URL {
         vault.appendingPathComponent("shared", isDirectory: true)

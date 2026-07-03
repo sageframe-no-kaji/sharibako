@@ -228,8 +228,21 @@ extension VaultCore {
         }
     }
 
-    /// YAML-encodes `content`, writes it to a temp file, and runs
-    /// `age --encrypt --recipient <pub> -o <dest> <tempFile>`.
+    /// YAML-encodes `content`, pipes it to `age --encrypt` via stdin, and
+    /// atomically renames the ciphertext into place.
+    ///
+    /// Two hygiene properties (ho-04.8) this method is responsible for:
+    ///
+    /// - **The plaintext never touches disk.** It travels only through the
+    ///   stdin pipe to `age`. (The previous implementation wrote it to a
+    ///   default-permissions temp file with `try?` cleanup.)
+    /// - **The destination write is atomic.** `age -o` truncates its output
+    ///   target before writing, so pointing it at the real destination would
+    ///   let a crash mid-`rotate` destroy the only good ciphertext. Instead
+    ///   `age` writes a staging sibling in the destination's directory (same
+    ///   volume) which is renamed over the destination on success. A crash
+    ///   leftover is ciphertext-only, visible in `git status`, and excluded
+    ///   from Conduit's sync commits by ``VaultLayout/stagingPrefix``.
     private func encryptAndWrite(_ content: SecretContent, to destination: URL) throws {
         guard let publicKey else {
             throw VaultError.ageIdentityNotConfigured
@@ -241,27 +254,37 @@ extension VaultCore {
             throw VaultError.yamlEncodeError(path: destination, underlying: error)
         }
 
-        let tempFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sharibako-\(UUID().uuidString).yaml")
-        do {
-            try yaml.write(to: tempFile, atomically: true, encoding: .utf8)
-        } catch {
-            throw VaultError.fileSystemError(path: tempFile, underlying: error)
-        }
-        defer { try? FileManager.default.removeItem(at: tempFile) }
+        let staging = VaultLayout.stagingURL(for: destination)
+        defer { try? FileManager.default.removeItem(at: staging) }
 
         let ageBinary = try Shell.findExecutable("age")
         let result: ShellResult
         do {
             result = try Shell.run(
                 ageBinary,
-                ["--encrypt", "--recipient", publicKey, "-o", destination.path, tempFile.path]
+                ["--encrypt", "--recipient", publicKey, "-o", staging.path],
+                stdin: Data(yaml.utf8)
             )
         } catch {
             throw VaultError.ageInvocationFailed(exitCode: -1, stderr: "\(error)")
         }
         guard result.exitCode == 0 else {
             throw VaultError.ageInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+
+        // POSIX rename(2), not FileManager.replaceItemAt: the latter requires
+        // an existing destination, but addSecret targets don't exist yet.
+        // rename atomically creates-or-replaces on the same volume.
+        let fileManager = FileManager.default
+        let renameStatus = rename(
+            fileManager.fileSystemRepresentation(withPath: staging.path),
+            fileManager.fileSystemRepresentation(withPath: destination.path)
+        )
+        guard renameStatus == 0 else {
+            throw VaultError.fileSystemError(
+                path: destination,
+                underlying: POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            )
         }
     }
 
