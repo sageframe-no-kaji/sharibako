@@ -281,6 +281,41 @@ struct ConduitLocalTests {
         }
     }
 
+    @Test("commit excludes encrypt-path staging leftovers but keeps them visible in status")
+    func commitExcludesStagingLeftovers() throws {
+        try VaultTestSupport.withEphemeralGitVault { vault in
+            let conduit = try Conduit(vaultURL: vault)
+            // A real change plus a crash leftover from the encrypt path's
+            // staging write, both at the root and nested in a scope directory.
+            let real = vault.appendingPathComponent("scopes/key.age")
+            try FileManager.default.createDirectory(
+                at: vault.appendingPathComponent("scopes"),
+                withIntermediateDirectories: true
+            )
+            try "ciphertext".write(to: real, atomically: true, encoding: .utf8)
+            let strayRoot = vault.appendingPathComponent("\(VaultLayout.stagingPrefix)abc")
+            let strayNested = vault.appendingPathComponent("scopes/\(VaultLayout.stagingPrefix)def")
+            try "stray".write(to: strayRoot, atomically: true, encoding: .utf8)
+            try "stray".write(to: strayNested, atomically: true, encoding: .utf8)
+
+            guard case .success = try conduit.commit(message: "add key") else {
+                Issue.record("Expected .success(sha:)")
+                return
+            }
+
+            // The committed tree carries the real file and neither stray…
+            let git = try Shell.findExecutable("git")
+            let tree = try Shell.run(git, ["ls-tree", "-r", "--name-only", "HEAD"], workingDirectory: vault)
+            #expect(tree.stdout.contains("scopes/key.age"))
+            #expect(!tree.stdout.contains(VaultLayout.stagingPrefix))
+
+            // …and the strays remain visible as untracked files (not ignored).
+            let status = try Shell.run(git, ["status", "--porcelain"], workingDirectory: vault)
+            #expect(status.stdout.contains("\(VaultLayout.stagingPrefix)abc"))
+            #expect(status.stdout.contains("scopes/\(VaultLayout.stagingPrefix)def"))
+        }
+    }
+
     @Test("commit SHA matches git rev-parse HEAD")
     func commitSHAMatchesRevParse() throws {
         try VaultTestSupport.withEphemeralGitVault { vault in
