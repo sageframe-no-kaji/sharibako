@@ -150,13 +150,13 @@ struct EnvParserTests {
         #expect(result.warnings[0].reason.contains("BOM"))
     }
 
-    @Test("CRLF endings parse cleanly with no warning")
+    @Test("CRLF endings parse cleanly with no warning; CR stored with the line (ho-04.10)")
     func crlfLineEndings() {
         let raw = "A=1\r\nB=2\r\n"
         let result = parse(raw)
         #expect(result.lines.count == 2)
-        #expect(result.lines[0] == .keyValue(key: "A", value: "1", rawText: "A=1"))
-        #expect(result.lines[1] == .keyValue(key: "B", value: "2", rawText: "B=2"))
+        #expect(result.lines[0] == .keyValue(key: "A", value: "1", rawText: "A=1\r"))
+        #expect(result.lines[1] == .keyValue(key: "B", value: "2", rawText: "B=2\r"))
         #expect(result.warnings.isEmpty)
         #expect(result.hadTrailingNewline == true)
     }
@@ -306,9 +306,11 @@ struct EnvParserTests {
         #expect(canonicalizeEnvLine(key: "K", value: "a#b") == "K=\"a#b\"")
     }
 
-    @Test("canonicalize value with $ double-quotes it")
+    @Test("canonicalize value with $ single-quotes it — literal to compose and dotenv (ho-04.10)")
     func canonicalizeDollar() {
-        #expect(canonicalizeEnvLine(key: "K", value: "$FOO") == "K=\"$FOO\"")
+        #expect(canonicalizeEnvLine(key: "K", value: "$FOO") == "K='$FOO'")
+        #expect(canonicalizeEnvLine(key: "K", value: "pa$$word") == "K='pa$$word'")
+        #expect(canonicalizeEnvLine(key: "K", value: "say \"hi\" $x") == "K='say \"hi\" $x'")
     }
 
     @Test("canonicalize escapes backslash, double-quote, newline, tab")

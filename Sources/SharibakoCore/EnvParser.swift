@@ -3,7 +3,10 @@ import Foundation
 /// Structured representation of a single line in a `.env`-style file.
 ///
 /// Every line the parser reads becomes exactly one `EnvLine`. Non-owned lines
-/// pass through the Materializer byte-for-byte via each case's stored raw text.
+/// pass through the Materializer byte-for-byte via each case's stored raw text —
+/// including the `\r` of a CRLF terminator, which is stored with the line's
+/// text so a CRLF file round-trips without a wholesale line-ending rewrite
+/// (ho-04.10). Key/value *content* is always parsed from the CR-free form.
 internal enum EnvLine: Sendable, Equatable {
     /// Empty line or whitespace-only line.
     case blank(text: String)
@@ -21,6 +24,40 @@ internal enum EnvLine: Sendable, Equatable {
             return text
         case .keyValue(_, _, let rawText):
             return rawText
+        }
+    }
+
+    /// `true` when this line's stored text carries the `\r` of a CRLF terminator.
+    internal var endsWithCR: Bool {
+        text.hasSuffix("\r")
+    }
+
+    /// Re-attaches the `\r` of a CRLF-terminated source line to the stored text.
+    internal func appendingCarriageReturn() -> Self {
+        switch self {
+        case .blank(let text):
+            return .blank(text: text + "\r")
+        case .comment(let text):
+            return .comment(text: text + "\r")
+        case .malformed(let text, let reason):
+            return .malformed(text: text + "\r", reason: reason)
+        case .keyValue(let key, let value, let rawText):
+            return .keyValue(key: key, value: value, rawText: rawText + "\r")
+        }
+    }
+
+    /// Strips a trailing `\r` from the stored text; no-op when none is present.
+    internal func removingCarriageReturn() -> Self {
+        guard endsWithCR else { return self }
+        switch self {
+        case .blank(let text):
+            return .blank(text: String(text.dropLast()))
+        case .comment(let text):
+            return .comment(text: String(text.dropLast()))
+        case .malformed(let text, let reason):
+            return .malformed(text: String(text.dropLast()), reason: reason)
+        case .keyValue(let key, let value, let rawText):
+            return .keyValue(key: key, value: value, rawText: String(rawText.dropLast()))
         }
     }
 }
@@ -83,17 +120,25 @@ internal func parseEnvString(_ text: String, sourceFile: URL) -> ParseResult {
     let rawSegments = working.components(separatedBy: "\n")
     var lines: [EnvLine] = []
     for (idx, segment) in rawSegments.enumerated() {
-        var lineText = segment
-        if lineText.hasSuffix("\r") {
-            lineText = String(lineText.dropLast())
-        }
-        let parsed = parseEnvLine(lineText, sourceFile: sourceFile, lineNumber: idx + 1)
-        lines.append(parsed.line)
-        if let warning = parsed.warning {
-            warnings.append(warning)
-        }
+        // Parse content CR-free, but store the CR with the line (ho-04.10):
+        // render joins with "\n", so the stored "\r" reproduces the CRLF.
+        let hadCR = segment.hasSuffix("\r")
+        let content = hadCR ? String(segment.dropLast()) : segment
+        let parsed = parseEnvLine(content, sourceFile: sourceFile, lineNumber: idx + 1)
+        lines.append(hadCR ? parsed.line.appendingCarriageReturn() : parsed.line)
+        warnings.append(contentsOf: parsed.warnings)
     }
     return ParseResult(lines: lines, warnings: warnings, hadTrailingNewline: hadTrailingNewline)
+}
+
+/// `true` when `lines` are predominantly CRLF-terminated.
+///
+/// Drives the terminator choice for lines the Materializer appends. Half-or-more
+/// CR-bearing lines (with at least one) counts as CRLF — a file missing its final
+/// newline under-counts by one, so ties break toward CRLF. Empty input is LF.
+internal func dominantLineEndingIsCRLF(_ lines: [EnvLine]) -> Bool {
+    let crCount = lines.count(where: \.endsWithCR)
+    return crCount > 0 && crCount * 2 >= lines.count
 }
 
 /// Renders a list of `EnvLine`s back to text.
@@ -112,9 +157,14 @@ internal func renderEnvLines(_ lines: [EnvLine], withTrailingNewline: Bool) -> S
 
 /// Builds a canonical `KEY=value` line for an owned key's rewrite.
 ///
-/// Quotes with double quotes when the value contains whitespace, quotes, backslash,
-/// `#`, `$`, or newline; escapes `\\`, `"`, `\n`, `\t` inside the quoted form.
-/// Otherwise emits bare `KEY=value`.
+/// Bare when no character needs quoting. Values containing `$` prefer single
+/// quotes — the one quoting style docker-compose, the dotenv family, and this
+/// parser all read literally, where double quotes invite interpolation this
+/// parser can't see (ho-04.10). A `$`-bearing value that also holds a single
+/// quote or newline falls back to double quotes with `$` escaped as `\$`
+/// (read back as `$` by this parser; downstream support for the escape is
+/// less universal, which is why the single-quoted form leads). Everything
+/// else quotes double, escaping `\\`, `"`, `\n`, `\t`.
 internal func canonicalizeEnvLine(key: String, value: String) -> String {
     if value.isEmpty {
         return "\(key)="
@@ -126,6 +176,9 @@ internal func canonicalizeEnvLine(key: String, value: String) -> String {
     if !needsQuoting {
         return "\(key)=\(value)"
     }
+    if value.contains("$"), !value.contains("'"), !value.contains("\n") {
+        return "\(key)='\(value)'"
+    }
     var escaped = ""
     for char in value {
         switch char {
@@ -133,26 +186,57 @@ internal func canonicalizeEnvLine(key: String, value: String) -> String {
         case "\"": escaped += "\\\""
         case "\n": escaped += "\\n"
         case "\t": escaped += "\\t"
+        case "$": escaped += "\\$"
         default: escaped.append(char)
         }
     }
     return "\(key)=\"\(escaped)\""
 }
 
+/// Returns the key a line *intends* — the `[A-Za-z_][A-Za-z0-9_]*` run before
+/// the first `=`, after optional whitespace and an `export ` prefix — regardless
+/// of whether the rest of the line parses. Mirrors `parseKeyValueLine`'s prefix
+/// walk. The Materializer uses this to recognize a corrupted owned line
+/// (ho-04.10): a malformed line whose intended key is owned counts as drift
+/// and is rewritten in place rather than passed through.
+internal func envLineIntendedKey(_ text: String) -> String? {
+    var idx = text.startIndex
+    while idx < text.endIndex, text[idx].isWhitespace {
+        idx = text.index(after: idx)
+    }
+    let exportKeyword = "export"
+    if text[idx...].hasPrefix(exportKeyword) {
+        let afterExport = text.index(idx, offsetBy: exportKeyword.count)
+        if afterExport < text.endIndex, text[afterExport].isWhitespace {
+            idx = afterExport
+            while idx < text.endIndex, text[idx].isWhitespace {
+                idx = text.index(after: idx)
+            }
+        }
+    }
+    guard idx < text.endIndex, isKeyStart(text[idx]) else { return nil }
+    let keyStart = idx
+    while idx < text.endIndex, isKeyRest(text[idx]) {
+        idx = text.index(after: idx)
+    }
+    guard idx < text.endIndex, text[idx] == "=" else { return nil }
+    return String(text[keyStart..<idx])
+}
+
 // MARK: - Line-level parsing
 
 private struct ParsedLine {
     let line: EnvLine
-    let warning: ParseWarning?
+    let warnings: [ParseWarning]
 }
 
 private func parseEnvLine(_ raw: String, sourceFile: URL, lineNumber: Int) -> ParsedLine {
     if raw.allSatisfy({ $0.isWhitespace }) {
-        return ParsedLine(line: .blank(text: raw), warning: nil)
+        return ParsedLine(line: .blank(text: raw), warnings: [])
     }
     let firstNonWhitespace = raw.first { !$0.isWhitespace }
     if firstNonWhitespace == "#" {
-        return ParsedLine(line: .comment(text: raw), warning: nil)
+        return ParsedLine(line: .comment(text: raw), warnings: [])
     }
     return parseKeyValueLine(raw, sourceFile: sourceFile, lineNumber: lineNumber)
 }
@@ -218,7 +302,7 @@ private func parseValue(
 ) -> ParsedLine {
     let rest = raw[cursor...]
     guard let first = rest.first else {
-        return ParsedLine(line: .keyValue(key: key, value: "", rawText: raw), warning: nil)
+        return ParsedLine(line: .keyValue(key: key, value: "", rawText: raw), warnings: [])
     }
     let afterFirst = raw.index(after: cursor)
     if first == "\"" {
@@ -256,7 +340,7 @@ private func parseValue(
             lineNumber: lineNumber
         )
     }
-    return ParsedLine(line: .keyValue(key: key, value: bare, rawText: raw), warning: nil)
+    return ParsedLine(line: .keyValue(key: key, value: bare, rawText: raw), warnings: [])
 }
 
 private func parseDoubleQuoted(
@@ -267,6 +351,7 @@ private func parseDoubleQuoted(
     lineNumber: Int
 ) -> ParsedLine {
     var result = ""
+    var warnings: [ParseWarning] = []
     var idx = cursor
     while idx < raw.endIndex {
         let char = raw[idx]
@@ -285,13 +370,32 @@ private func parseDoubleQuoted(
             case "\"": result += "\""
             case "n": result += "\n"
             case "t": result += "\t"
-            default: result.append(raw[next])
+            case "$": result += "$"
+            default:
+                // Keeps the character and drops the backslash (historical
+                // behavior) — but visibly, not silently (ho-04.10).
+                warnings.append(
+                    ParseWarning(
+                        file: sourceFile,
+                        lineNumber: lineNumber,
+                        text: raw,
+                        reason: "unknown escape '\\\(raw[next])' in double-quoted value — backslash dropped"
+                    )
+                )
+                result.append(raw[next])
             }
             idx = raw.index(after: next)
             continue
         }
         if char == "\"" {
-            return ParsedLine(line: .keyValue(key: key, value: result, rawText: raw), warning: nil)
+            if let junk = postQuoteJunkWarning(
+                raw: raw, closingQuote: idx, sourceFile: sourceFile, lineNumber: lineNumber
+            ) {
+                warnings.append(junk)
+            }
+            return ParsedLine(
+                line: .keyValue(key: key, value: result, rawText: raw), warnings: warnings
+            )
         }
         result.append(char)
         idx = raw.index(after: idx)
@@ -316,7 +420,15 @@ private func parseSingleQuoted(
     while idx < raw.endIndex {
         let char = raw[idx]
         if char == "'" {
-            return ParsedLine(line: .keyValue(key: key, value: result, rawText: raw), warning: nil)
+            var warnings: [ParseWarning] = []
+            if let junk = postQuoteJunkWarning(
+                raw: raw, closingQuote: idx, sourceFile: sourceFile, lineNumber: lineNumber
+            ) {
+                warnings.append(junk)
+            }
+            return ParsedLine(
+                line: .keyValue(key: key, value: result, rawText: raw), warnings: warnings
+            )
         }
         result.append(char)
         idx = raw.index(after: idx)
@@ -326,6 +438,29 @@ private func parseSingleQuoted(
         reason: "unterminated single-quoted value",
         sourceFile: sourceFile,
         lineNumber: lineNumber
+    )
+}
+
+/// Warns when text follows a value's closing quote (ho-04.10).
+///
+/// The remainder is not part of the parsed value and never was — the warning
+/// makes the swallow visible. A trailing comment (`#` after whitespace) stays
+/// silent: it's a common, unambiguous idiom and round-trips via `rawText`.
+private func postQuoteJunkWarning(
+    raw: String,
+    closingQuote: String.Index,
+    sourceFile: URL,
+    lineNumber: Int
+) -> ParseWarning? {
+    let rest = raw[raw.index(after: closingQuote)...].drop(while: \.isWhitespace)
+    if rest.isEmpty || rest.hasPrefix("#") {
+        return nil
+    }
+    return ParseWarning(
+        file: sourceFile,
+        lineNumber: lineNumber,
+        text: raw,
+        reason: "text after the closing quote is not part of the value and is ignored"
     )
 }
 
@@ -341,7 +476,7 @@ private func malformed(
         text: raw,
         reason: reason
     )
-    return ParsedLine(line: .malformed(text: raw, reason: reason), warning: warning)
+    return ParsedLine(line: .malformed(text: raw, reason: reason), warnings: [warning])
 }
 
 private func isKeyStart(_ char: Character) -> Bool {
