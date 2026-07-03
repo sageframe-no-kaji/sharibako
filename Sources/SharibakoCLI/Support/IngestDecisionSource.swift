@@ -4,8 +4,8 @@ import SharibakoCore
 /// ``ProposedScope``.
 ///
 /// The two concrete implementations shipped in this module are:
-/// - ``InteractiveIngestPrompt`` — arrow-key TTY prompt driven by
-///   ``InteractiveSelect``.
+/// - ``DashboardIngestPrompt`` — full-screen TTY dashboard driven by
+///   ``IngestDashboard``.
 /// - ``ScriptedIngestDecisionSource`` — deterministic double used by tests
 ///   and the deferred non-interactive init path.
 protocol IngestDecisionSource {

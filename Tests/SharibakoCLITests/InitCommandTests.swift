@@ -314,13 +314,13 @@ struct InitCommandTests {
 
     // MARK: - Non-TTY refusal
 
-    @Test("non-TTY: notInteractiveTerminal surfaces when selectFactory refuses")
+    @Test("non-TTY: notInteractiveTerminal surfaces when dashboard refuses")
     func nonTTYRefusal() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try withProjectDir(env: "SECRET=value\n") { projectDir in
                 // Inject a prompt that immediately throws notInteractiveTerminal.
-                var nonTTYPrompt = InteractiveIngestPrompt()
-                nonTTYPrompt.selectFactory = { _, _, _ in throw CLIError.notInteractiveTerminal }
+                var nonTTYPrompt = DashboardIngestPrompt()
+                nonTTYPrompt.dashboardRunner = { _, _, _ in throw CLIError.notInteractiveTerminal }
                 // Provide "" responses for scope-ID and scope-type prompts.
                 var lineReaderQueue = ["", ""]
                 let lineReader = { () -> String? in

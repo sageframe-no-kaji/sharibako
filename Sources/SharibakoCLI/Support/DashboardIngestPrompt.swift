@@ -10,8 +10,7 @@ import SharibakoCore
 /// ## Testability
 ///
 /// Inject `dashboardRunner` to supply canned `[ResolvedChoice]` values without
-/// a real terminal — the same pattern `InteractiveIngestPrompt` uses for
-/// `selectFactory`.  Propagates `CLIError.aborted` and
+/// a real terminal.  Propagates `CLIError.aborted` and
 /// `CLIError.notInteractiveTerminal` unchanged.
 struct DashboardIngestPrompt: IngestDecisionSource {
     /// Factory that runs the dashboard and returns one `ResolvedChoice` per row.

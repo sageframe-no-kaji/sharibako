@@ -588,9 +588,8 @@ struct IngestDashboard {
 
 // MARK: - Slug sanitizer
 //
-// Local copy of the sanitize rules from InteractiveIngestPrompt (to be deleted in AT-02).
-// Must remain identical to `sanitizeSharedID` in that file until it is removed.
-// If these rules ever diverge from SharibakoCore's scope-ID rules, factor a
+// Sanitize rules for shared-entry IDs. Must remain identical to the scope-ID
+// rules in SharibakoCore's Materializer. If these rules ever diverge, factor a
 // public helper on SharibakoCore rather than maintaining two copies.
 
 private func sanitizeSharedID(_ raw: String) -> String {
