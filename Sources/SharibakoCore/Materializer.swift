@@ -35,12 +35,17 @@ extension Materializer {
     /// Loads a marker from a specific `.sharibako` file.
     ///
     /// Decodes YAML via Yams, then attaches the on-disk path so ``ScopeMarker/targetURL``
-    /// resolves correctly. Rejects markers with an empty `scope` field or a
-    /// `materialize_to` value that begins with `~` (breaks portability across machines).
+    /// resolves correctly. Markers sync via git, so both declared fields are
+    /// untrusted input (ho-04.9): `scope` must satisfy the identifier grammar
+    /// (it becomes a vault path component), and `materialize_to` must pass
+    /// ``ScopeMarker/validatedTargetURL()``'s containment policy (relative,
+    /// no `~`, resolves within the marker's directory subtree) so a crafted
+    /// marker cannot aim `materialize`/`clean` outside the project.
     ///
     /// - Throws: ``VaultError/markerNotFound(startingFrom:)`` if the file does not exist;
-    ///   ``VaultError/markerMalformed(path:reason:)`` if the YAML is invalid or missing
-    ///   required fields; ``VaultError/fileSystemError(path:underlying:)`` on IO failure.
+    ///   ``VaultError/markerMalformed(path:reason:)`` if the YAML is invalid, missing
+    ///   required fields, or fails validation; ``VaultError/fileSystemError(path:underlying:)``
+    ///   on IO failure.
     public func loadMarker(at path: URL) throws -> ScopeMarker {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path.path) else {
@@ -61,13 +66,17 @@ extension Materializer {
         guard !decoded.scope.isEmpty else {
             throw VaultError.markerMalformed(path: path, reason: "'scope' field is empty")
         }
-        if let materializeTo = decoded.materializeTo, materializeTo.hasPrefix("~") {
+        guard VaultLayout.isValidIdentifier(decoded.scope) else {
             throw VaultError.markerMalformed(
                 path: path,
-                reason: "'materialize_to' must not begin with '~' — markers must be portable across machines"
+                reason: "'scope' is not a valid identifier (got \"\(decoded.scope)\")"
             )
         }
-        return decoded.withMarkerURL(path)
+        let marker = decoded.withMarkerURL(path)
+        // Fail at load, not first write: a marker whose target escapes should
+        // surface on scan/status, before anything acts on it.
+        _ = try marker.validatedTargetURL()
+        return marker
     }
 
     /// Writes a marker to a specific path atomically.
@@ -218,7 +227,7 @@ extension Materializer {
         overwriteDrift: Bool = false
     ) throws -> MaterializeResult {
         let scopeID = marker.scope
-        let targetURL = marker.targetURL
+        let targetURL = try marker.validatedTargetURL()
         let readResult = try readAndParseTarget(at: targetURL)
         let originalText = readResult.originalText
         let parseResult = readResult.parseResult
@@ -469,7 +478,7 @@ extension Materializer {
     /// preserved. Deletes the file when nothing but blanks and comments remain.
     public func clean(marker: ScopeMarker) throws -> CleanResult {
         let scopeID = marker.scope
-        let targetURL = marker.targetURL
+        let targetURL = try marker.validatedTargetURL()
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: targetURL.path) else {
             return .fileMissing(path: targetURL)
@@ -519,7 +528,7 @@ extension Materializer {
     /// owned key is reported as ``KeyDrift/fileMissing(key:)``.
     public func heal(marker: ScopeMarker) throws -> DriftReport {
         let scopeID = marker.scope
-        let targetURL = marker.targetURL
+        let targetURL = try marker.validatedTargetURL()
         let fileManager = FileManager.default
         let ownedKeys = try vaultCore.inspect(scopeID).map(\.key).sorted()
 

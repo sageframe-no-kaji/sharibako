@@ -56,11 +56,53 @@ public struct ScopeMarker: Sendable, Equatable, Codable {
     /// The absolute path `materialize`/`clean`/`heal` operate on.
     ///
     /// Resolves ``materializeTo`` (defaulting to `./.env` when nil) against the
-    /// marker's parent directory, then standardizes the URL.
+    /// marker's parent directory, then standardizes the URL. Display/derivation
+    /// only — write/delete consumers must use ``validatedTargetURL()``, which
+    /// enforces containment.
     public var targetURL: URL {
         let raw = materializeTo ?? "./.env"
         return URL(fileURLWithPath: raw, relativeTo: markerURL.deletingLastPathComponent())
             .standardizedFileURL
+    }
+
+    /// ``targetURL`` with the ho-04.9 containment policy enforced.
+    ///
+    /// Markers sync via git — a crafted `materialize_to` in a cloned repo
+    /// could otherwise direct `materialize` to write decrypted secrets to, or
+    /// `clean` to DELETE, an arbitrary path. Policy: relative-only, and the
+    /// standardized target must stay within the marker's own directory
+    /// subtree. A legitimate cross-directory materialize is a deliberate
+    /// future opt-in, not a default.
+    ///
+    /// - Returns: The standardized, contained target URL.
+    /// - Throws: ``VaultError/markerMalformed(path:reason:)`` for absolute,
+    ///   `~`-prefixed, or subtree-escaping targets.
+    public func validatedTargetURL() throws -> URL {
+        let raw = materializeTo ?? "./.env"
+        guard !raw.hasPrefix("~") else {
+            throw VaultError.markerMalformed(
+                path: markerURL,
+                reason: "materialize_to must not use ~ (got \"\(raw)\")"
+            )
+        }
+        guard !raw.hasPrefix("/") else {
+            throw VaultError.markerMalformed(
+                path: markerURL,
+                reason: "materialize_to must be a relative path (got absolute \"\(raw)\")"
+            )
+        }
+        let base = markerURL.deletingLastPathComponent().standardizedFileURL
+        let resolved = URL(fileURLWithPath: raw, relativeTo: base).standardizedFileURL
+        // Lexical containment: after standardization (which resolves `..`),
+        // the target must still sit under the marker's directory.
+        let basePath = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard resolved.path.hasPrefix(basePath), resolved.path != base.path else {
+            throw VaultError.markerMalformed(
+                path: markerURL,
+                reason: "materialize_to escapes the marker's directory (got \"\(raw)\")"
+            )
+        }
+        return resolved
     }
 
     /// Returns a copy of this marker with ``markerURL`` replaced.
