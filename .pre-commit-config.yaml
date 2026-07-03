@@ -41,9 +41,18 @@ repos:
         pass_filenames: false
         files: \.swift$
 
+      # Target builds, not `swift build`: the hook exists to TYPE-CHECK, and
+      # target builds compile without linking the executable products. Full
+      # builds hit a swift-driver incremental bug (Swift 6.2.4 / macOS 26 SDK):
+      # after pre-commit's stash cycle flips source content, the executables'
+      # @main alias object goes stale and linking fails with
+      # `Undefined symbols: _<Target>_main`. Each target below pulls in
+      # SharibakoCore, so all of Sources/ still type-checks. CI's cold full
+      # build remains the link gate. Only the last --target flag is honored
+      # per invocation, hence two invocations.
       - id: swift-build
         name: swift build (type-check)
-        entry: swift build
+        entry: bash -c 'swift build --target SharibakoCLI && swift build --target Sharibako'
         language: system
         pass_filenames: false
         files: \.(swift|json)$
