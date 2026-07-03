@@ -13,7 +13,8 @@ import Foundation
 /// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
 /// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
 /// ``markerNotFound(startingFrom:)``, ``markerMalformed(path:reason:)``,
-/// ``envParseFailed(path:reason:)``, ``ingestKeyMismatch(unknownKey:)``.
+/// ``envParseFailed(path:reason:)``, ``ingestKeyMismatch(unknownKey:)``,
+/// ``ageIdentityNotConfigured``.
 public enum VaultError: Error {
     /// The vault directory does not exist at the given path.
     case vaultNotFound(path: URL)
@@ -50,4 +51,26 @@ public enum VaultError: Error {
     case envParseFailed(path: URL, reason: String)
     /// A ``KeyDecision`` passed to `acceptIngest` names a key absent from the proposal.
     case ingestKeyMismatch(unknownKey: String)
+    /// An encrypt/decrypt operation was attempted on a ``VaultCore`` bound
+    /// without an age identity (no key URL / public key configured).
+    case ageIdentityNotConfigured
+}
+
+/// Stand-in for a decoder error whose description may embed decrypted secret
+/// material.
+///
+/// Yams errors carry the source YAML text and problem-mark context; on the
+/// decrypt path that source IS the secret. Surfaces print
+/// `underlying.localizedDescription` when rendering ``VaultError/yamlDecodeError(path:underlying:)``,
+/// so this type guarantees the rendered string never contains payload bytes —
+/// only the original error's type name survives for diagnosis.
+struct RedactedDecodeError: Error, CustomStringConvertible, LocalizedError {
+    /// Type name of the error being redacted (e.g. `YamlError`).
+    let originalErrorType: String
+
+    var description: String {
+        "decode failed (\(originalErrorType)); details redacted — the payload is secret material"
+    }
+
+    var errorDescription: String? { description }
 }

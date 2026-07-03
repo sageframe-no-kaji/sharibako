@@ -45,6 +45,36 @@ struct MaterializerUpdateTests {
         }
     }
 
+    @Test("update survives a key holding both .age and .link — link wins, no trap")
+    func updateDualStateKeyDoesNotCrash() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("bento", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+
+            // Reach the dual state through the public API: link the key to a
+            // shared entry, then addSecret the same key — addSecret documents
+            // that it does not delete a pre-existing .link, so both files exist.
+            try core.addSharedEntry("openai-personal", value: "shared-value")
+            try core.link("API_KEY", inScope: "bento", toShared: "openai-personal")
+            try core.addSecret("API_KEY", value: "local-value", inScope: "bento")
+
+            try VaultTestSupport.withEphemeralProjectDirectory { project in
+                let markerURL = project.appendingPathComponent(".sharibako")
+                let targetURL = project.appendingPathComponent(".env")
+                try "API_KEY=hand-edited\n".write(to: targetURL, atomically: true, encoding: .utf8)
+                let marker = ScopeMarker(scope: "bento", materializeTo: "./.env", markerURL: markerURL)
+                let mat = Materializer(vaultCore: core, vaultURL: vault)
+
+                // Before the uniquing fix this trapped in
+                // Dictionary(uniqueKeysWithValues:). Now: the link wins,
+                // matching read-path precedence, so the SHARED entry rotates.
+                let result = try mat.update(scopeID: "bento", marker: marker)
+                #expect(result == .updated(keysUpdated: ["API_KEY"], warnings: []))
+                #expect(try core.getValue("API_KEY", inScope: "bento") == "hand-edited")
+            }
+        }
+    }
+
     // MARK: - Drift
 
     @Test("update with a drifted scope-local key rotates the .age and returns .updated")

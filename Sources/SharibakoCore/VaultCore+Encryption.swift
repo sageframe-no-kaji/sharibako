@@ -200,7 +200,7 @@ extension VaultCore {
     /// Runs `age --decrypt --identity <keyFile> <cipherURL>` and YAML-decodes stdout.
     private func decryptSecretContent(at cipherURL: URL) throws -> SecretContent {
         guard let ageKeyURL else {
-            throw VaultError.shellNotFound(name: "age")
+            throw VaultError.ageIdentityNotConfigured
         }
         let ageBinary = try Shell.findExecutable("age")
         let result: ShellResult
@@ -218,7 +218,13 @@ extension VaultCore {
         do {
             return try YAMLDecoder().decode(SecretContent.self, from: result.stdout)
         } catch {
-            throw VaultError.yamlDecodeError(path: cipherURL, underlying: error)
+            // Yams/DecodingError descriptions can embed `result.stdout` — the
+            // DECRYPTED payload. Redact before the error can reach a terminal
+            // or log; only the error's type name survives.
+            throw VaultError.yamlDecodeError(
+                path: cipherURL,
+                underlying: RedactedDecodeError(originalErrorType: "\(type(of: error))")
+            )
         }
     }
 
@@ -226,7 +232,7 @@ extension VaultCore {
     /// `age --encrypt --recipient <pub> -o <dest> <tempFile>`.
     private func encryptAndWrite(_ content: SecretContent, to destination: URL) throws {
         guard let publicKey else {
-            throw VaultError.shellNotFound(name: "age")
+            throw VaultError.ageIdentityNotConfigured
         }
         let yaml: String
         do {

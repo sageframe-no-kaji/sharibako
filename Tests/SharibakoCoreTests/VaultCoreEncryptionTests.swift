@@ -242,19 +242,30 @@ struct VaultCoreEncryptionTests {
             }
         }
     }
+}
 
-    @Test("addSecret from a vault opened without an age key throws shellNotFound")
+/// Error-path tests for a `VaultCore` bound without an age identity.
+///
+/// Split from `VaultCoreEncryptionTests` to keep each suite inside the
+/// type-body-length ceiling.
+@Suite("VaultCore Encryption — no identity configured")
+struct VaultCoreNoIdentityTests {
+    @Test("addSecret from a vault opened without an age key throws ageIdentityNotConfigured")
     func addSecretWithoutKeyRefuses() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, _ in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let core = try VaultCore(vaultURL: vault)  // no ageKeyURL
-            #expect(throws: VaultError.self) {
+            let error = #expect(throws: VaultError.self) {
                 try core.addSecret("K", value: "v", inScope: "kanyo-dev")
+            }
+            guard case .ageIdentityNotConfigured = error else {
+                Issue.record("expected ageIdentityNotConfigured, got \(String(describing: error))")
+                return
             }
         }
     }
 
-    @Test("getValue from a vault opened without an age key throws shellNotFound")
+    @Test("getValue from a vault opened without an age key throws ageIdentityNotConfigured")
     func getValueWithoutKeyRefuses() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
             try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
@@ -268,7 +279,14 @@ struct VaultCoreEncryptionTests {
             }
         }
     }
+}
 
+/// Continuation of the encryption error-path tests.
+///
+/// Split from `VaultCoreEncryptionTests` to keep each suite inside the
+/// type-body-length ceiling.
+@Suite("VaultCore Encryption — failure modes")
+struct VaultCoreEncryptionFailureTests {
     @Test("addSecret throws scopeNotFound when the scope directory is absent")
     func addSecretMissingScope() throws {
         try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
@@ -312,9 +330,19 @@ struct VaultCoreEncryptionTests {
             #expect(result.exitCode == 0)
 
             let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
-            #expect(throws: VaultError.self) {
+            let error = #expect(throws: VaultError.self) {
                 _ = try core.getValue("CORRUPT", inScope: "kanyo-dev")
             }
+
+            // The thrown error must never echo the decrypted payload — decoder
+            // errors carry source context, and on this path the source is the
+            // secret. Assert the sentinel text is redacted everywhere visible.
+            guard case .yamlDecodeError(_, let underlying) = error else {
+                Issue.record("expected yamlDecodeError, got \(String(describing: error))")
+                return
+            }
+            #expect(!underlying.localizedDescription.contains("this is not"))
+            #expect(!String(describing: underlying).contains("this is not"))
         }
     }
 

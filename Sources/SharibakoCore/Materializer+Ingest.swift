@@ -130,7 +130,16 @@ extension Materializer {
         }
 
         let ownedInfos = try vaultCore.inspect(scopeID)
-        let ownedByKey = Dictionary(uniqueKeysWithValues: ownedInfos.map { ($0.key, $0) })
+        // A key can hold BOTH <key>.age and <key>.link (addSecret documents
+        // that it does not delete a pre-existing link; a crash inside link()
+        // or a git merge of two machines can also persist the pair). Resolve
+        // the collision the way every read does — the link wins, matching
+        // VaultCore's resolveSecretTarget precedence — instead of trapping in
+        // Dictionary(uniqueKeysWithValues:).
+        let ownedByKey = Dictionary(ownedInfos.map { ($0.key, $0) }) { first, second in
+            if case .link = first.kind { return first }
+            return second
+        }
         let fileValues = firstFileValues(from: parseResult.lines, ownedKeys: Set(ownedByKey.keys))
 
         var keysUpdated: [String] = []

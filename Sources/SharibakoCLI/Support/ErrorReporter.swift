@@ -164,6 +164,13 @@ enum ErrorReporter {
                 message: "Ingest decision references unknown key \"\(unknownKey)\".",
                 remediation: nil
             )
+        case .ageIdentityNotConfigured:
+            return ErrorReport(
+                code: .age,
+                message: "No age identity is configured for this vault handle.",
+                remediation:
+                    "Pass --age-key <path>, set SHARIBAKO_AGE_KEY, or run `sharibako key generate`."
+            )
         }
     }
 
