@@ -125,6 +125,18 @@ Outside the vault:
 
 ## Verb-by-verb exposure
 
+### `sharibako add` / `sharibako rotate` — how values enter
+
+**Where the value lives:** depends on which entry form you use, and the three forms have different exposure profiles.
+
+- **Echo-off prompt (the default on a terminal).** Run `add`/`rotate` with no value flag and Sharibako prompts for the value with input hidden — the way password prompts work. Nothing lands on your command line, in shell history, or on screen. This is the hygienic default.
+- **`--from-stdin`.** The value transits a pipe (`op read ... | sharibako add ...`). Nothing in argv or history; exposure is whatever produced the pipe.
+- **`--value <v>`.** The value is on your command line: it lands in **shell history** (a plaintext file in your home directory) and is visible in **`ps` output** to other processes for the duration of the run. Use it in scripts that already handle the value, not interactively.
+
+**Who can read it:** for the prompt and stdin forms, effectively nobody beyond the process itself. For `--value`: anything that reads your shell history file, and any process listing running commands while the command runs.
+
+**Mitigations:** prefer the prompt interactively; prefer `--from-stdin` in pipelines. If you have used `--value` with a real secret interactively, treat the shell history entry as an exposure — delete the line (`history -d` or edit the history file) or rotate the value.
+
 ### `sharibako materialize <scope>`
 
 **Where the value lives:** in the plaintext `.env` file at the marker's target path — but *only the lines whose keys are sharibako-owned* carry sharibako's exposure. Non-owned lines are the user's; sharibako neither writes them nor reads them. Owned-line values persist on disk until overwritten by another materialize, cleaned by `sharibako clean`, or rotated in place by a user's editor.

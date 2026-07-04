@@ -89,9 +89,13 @@ jobs:
           #     the test runner kills the run itself.
           #   TerminalDetector — isatty() answers for CI's pipes are constant,
           #     so the interactive branch can never execute.
+          #   SecureValuePrompt — echo-off entry requires a controlling
+          #     terminal (termios against a real TTY); under CI's pipes the
+          #     default prompt is nil and no path in the file can run
+          #     (ho-04.11, same class as TerminalDetector).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|SignalForwarder|TerminalDetector"
+          EXCLUDED="KeychainAgeKeyProvider|SignalForwarder|TerminalDetector|SecureValuePrompt"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

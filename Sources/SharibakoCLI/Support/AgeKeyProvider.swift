@@ -90,6 +90,10 @@ enum CLIError: Error, Equatable {
     case syncConflict
     /// `init` was invoked without an interactive terminal; non-interactive flags are a followup.
     case notInteractiveTerminal
+    /// A command needs an interactive confirmation but stdin is not a terminal
+    /// and the named skip flag was absent (ho-04.11). Failing loudly beats the
+    /// prior behavior — declining by default and exiting 0 as a false positive.
+    case promptRequiresTTY(command: String, flag: String)
     /// The user cancelled the interactive prompt (Ctrl-C).
     case aborted
     /// `init` found no secrets to import in the target directory; nothing was written.

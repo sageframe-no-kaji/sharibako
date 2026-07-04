@@ -205,6 +205,8 @@ sharibako status kanyo-dev
 sharibako heal kanyo-dev
 ```
 
+Two flags carry the CLI's consent grammar: `--force` authorizes a command's destructive variant (`add --force` overwrites an existing key, `materialize --force` overwrites drifted lines, `key generate --force` replaces your age key), and `--yes` skips an interactive confirmation (`clean --yes`, `key generate --yes`). `key generate` takes both — one to authorize the replacement, one to skip the ask. Commands that confirm interactively require `--yes` when stdin is not a terminal; declining a confirmation exits `130`.
+
 For the difference between `materialize` and `run` and the security implications of each, see [SECURITY.md](SECURITY.md).
 
 ## Requirements

@@ -137,7 +137,7 @@ struct AddCommandTests {
         }
     }
 
-    @Test("_run throws valueInputRequired when neither input flag is set")
+    @Test("_run throws valueInputRequired when neither input flag is set and no terminal is available")
     func addMissingInput() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
@@ -146,9 +146,27 @@ struct AddCommandTests {
                 "--age-key", keyURL.path,
                 "s1", "K",
             ])
+            // valuePrompt nil = non-TTY stdin, pinned so the test doesn't
+            // depend on the runner's terminal (ho-04.11).
             #expect(throws: CLIError.valueInputRequired) {
-                try cmd._run()
+                try cmd._run(valuePrompt: nil)
             }
+        }
+    }
+
+    @Test("flagless add on a terminal takes the value from the echo-off prompt (ho-04.11)")
+    func addViaSecurePrompt() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            var cmd = try AddCommand.parse([
+                "--vault", vaultURL.path,
+                "--age-key", keyURL.path,
+                "s1", "K",
+            ])
+            try cmd._run { "prompted-secret" }
+
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            #expect(try vault.getValue("K", inScope: "s1") == "prompted-secret")
         }
     }
 }

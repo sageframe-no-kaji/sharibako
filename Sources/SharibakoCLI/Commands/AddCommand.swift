@@ -29,7 +29,7 @@ struct AddCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Optional notes stored alongside the value.")
     var notes: String?
 
-    @Flag(name: .long, help: "Overwrite an existing key without prompting.")
+    @Flag(name: .long, help: "Overwrite an existing key (add otherwise refuses).")
     var force: Bool = false
 
     func run() async throws {
@@ -40,8 +40,10 @@ struct AddCommand: AsyncParsableCommand {
 
     // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
-    func _run() throws {
-        let plaintext = try ValueInput(value: value, fromStdin: fromStdin).read()
+    func _run(valuePrompt: (() throws -> String)? = SecureValuePrompt.defaultPrompt) throws {
+        let plaintext = try ValueInput(
+            value: value, fromStdin: fromStdin, securePrompt: valuePrompt
+        ).read()
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let handle = try provider.loadIdentity(reason: "Encrypt new secret \(key)")

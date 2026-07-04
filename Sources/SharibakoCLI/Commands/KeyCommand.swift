@@ -30,11 +30,11 @@ struct GenerateCommand: AsyncParsableCommand {
     @OptionGroup var global: GlobalOptions
 
     /// Overwrite an existing key when present.
-    @Flag(help: "Force overwrite of an existing key.")
+    @Flag(help: "Replace an existing age key (generate otherwise refuses).")
     var force: Bool = false
 
     /// Skip the interactive confirmation prompt when `--force` is used.
-    @Flag(help: "Skip the overwrite confirmation prompt.")
+    @Flag(help: "Skip the replacement confirmation prompt.")
     var yes: Bool = false
 
     func run() async throws {

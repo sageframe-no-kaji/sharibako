@@ -19,8 +19,9 @@ struct ScanCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL)
             let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
             let cmd = try ScanCommand.parse([emptyDir.path])
-            let entries = try cmd.fetchEntries(materializer: materializer)
-            #expect(entries.isEmpty)
+            let result = try cmd.fetchResult(materializer: materializer)
+            #expect(result.markers.isEmpty)
+            #expect(result.failures.isEmpty)
         }
     }
 
@@ -42,7 +43,8 @@ struct ScanCommandTests {
             try materializer.writeMarker(marker, at: markerURL)
 
             let cmd = try ScanCommand.parse([rootDir.path])
-            let entries = try cmd.fetchEntries(materializer: materializer)
+            let result = try cmd.fetchResult(materializer: materializer)
+            let entries = result.markers
             #expect(entries.count == 1)
             #expect(entries.first?.scope == "my-proj")
             // Compare the filename only: macOS enumerators resolve /var/folders to
@@ -74,7 +76,7 @@ struct ScanCommandTests {
             try materializer.writeMarker(markerB, at: dirB.appendingPathComponent(".sharibako"))
 
             let cmd = try ScanCommand.parse([rootDir.path])
-            let entries = try cmd.fetchEntries(materializer: materializer)
+            let entries = try cmd.fetchResult(materializer: materializer).markers
             #expect(entries.count == 2)
             #expect(entries.map(\.scope).sorted() == ["proj-a", "proj-b"])
         }
@@ -120,8 +122,9 @@ struct ScanCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL)
             let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
             let cmd = try ScanCommand.parse([emptyDir.path])
+            let result = try cmd.fetchResult(materializer: materializer)
             let output = try cmd.composeOutput(
-                materializer: materializer, renderer: OutputRenderer(json: false, color: false))
+                result: result, renderer: OutputRenderer(json: false, color: false))
             #expect(output == "No .sharibako markers found.")
         }
     }
@@ -140,8 +143,9 @@ struct ScanCommandTests {
             try materializer.writeMarker(marker, at: rootDir.appendingPathComponent(".sharibako"))
 
             let cmd = try ScanCommand.parse([rootDir.path])
+            let result = try cmd.fetchResult(materializer: materializer)
             let output = try cmd.composeOutput(
-                materializer: materializer, renderer: OutputRenderer(json: false, color: false))
+                result: result, renderer: OutputRenderer(json: false, color: false))
             #expect(output.contains("SCOPE"))
             #expect(output.contains("table-proj"))
             #expect(output.contains(".sharibako"))
@@ -163,10 +167,71 @@ struct ScanCommandTests {
             try materializer.writeMarker(marker, at: rootDir.appendingPathComponent(".sharibako"))
 
             let cmd = try ScanCommand.parse([rootDir.path, "--json"])
+            let result = try cmd.fetchResult(materializer: materializer)
             let output = try cmd.composeOutput(
-                materializer: materializer, renderer: OutputRenderer(json: true, color: false))
-            let decoded = try JSONDecoder().decode([ScanEntry].self, from: Data(output.utf8))
-            #expect(decoded.map(\.scope) == ["json-proj"])
+                result: result, renderer: OutputRenderer(json: true, color: false))
+            let decoded = try JSONDecoder().decode(ScanJSONResult.self, from: Data(output.utf8))
+            #expect(decoded.markers.map(\.scope) == ["json-proj"])
+            #expect(decoded.failures.isEmpty)
+        }
+    }
+
+    // MARK: - Skip-and-report (ho-04.11)
+
+    @Test("one hostile marker is skipped and reported; healthy markers still scan")
+    func scanSkipsAndReportsHostileMarker() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            let rootDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-scan-hostile-\(UUID().uuidString)")
+            let goodDir = rootDir.appendingPathComponent("good-proj")
+            let badDir = rootDir.appendingPathComponent("cloned-repo")
+            try FileManager.default.createDirectory(at: goodDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: badDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: rootDir) }
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+            let good = ScopeMarker(scope: "good-proj", materializeTo: nil, markerURL: .init(fileURLWithPath: "/"))
+            try materializer.writeMarker(good, at: goodDir.appendingPathComponent(".sharibako"))
+            // Hostile marker: escaping materialize_to, rejected at load since ho-04.9.
+            try "scope: evil\nmaterialize_to: ../../outside/.env\n".write(
+                to: badDir.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8
+            )
+
+            let cmd = try ScanCommand.parse([rootDir.path])
+            let result = try cmd.fetchResult(materializer: materializer)
+            #expect(result.markers.map(\.scope) == ["good-proj"])
+            #expect(result.failures.count == 1)
+            #expect(result.failures.first?.path.contains("cloned-repo") == true)
+        }
+    }
+
+    @Test("status for a healthy scope survives a hostile marker in the same scan root")
+    func statusSurvivesHostileMarker() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            try CLITestSupport.writeScope("good-proj", type: .projectDev, in: vaultURL)
+            let rootDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-status-hostile-\(UUID().uuidString)")
+            let goodDir = rootDir.appendingPathComponent("good-proj")
+            let badDir = rootDir.appendingPathComponent("cloned-repo")
+            try FileManager.default.createDirectory(at: goodDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: badDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: rootDir) }
+
+            let vault = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+            let good = ScopeMarker(scope: "good-proj", materializeTo: nil, markerURL: .init(fileURLWithPath: "/"))
+            try materializer.writeMarker(good, at: goodDir.appendingPathComponent(".sharibako"))
+            try "scope: ../evil\n".write(
+                to: badDir.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8
+            )
+
+            // Pre-ho-04.11 this threw markerMalformed out of the scan walk.
+            let state = try materializer.status(scopeID: "good-proj", scanRoots: [rootDir])
+            guard case .liveHere = state else {
+                Issue.record("expected .liveHere, got \(state)")
+                return
+            }
         }
     }
 

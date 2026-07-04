@@ -12,6 +12,22 @@ struct ScanEntry: Codable, Sendable {
     let target: String
 }
 
+/// JSON shape for a marker that failed to load in `scan --json` output (ho-04.11).
+struct ScanFailureEntry: Codable, Sendable {
+    /// Absolute path of the `.sharibako` marker file that failed to load.
+    let path: String
+    /// Load-failure reason.
+    let reason: String
+}
+
+/// JSON root for `scan --json` output: loaded markers plus load failures (ho-04.11).
+struct ScanJSONResult: Codable, Sendable {
+    /// Markers that loaded and validated.
+    let markers: [ScanEntry]
+    /// Markers that failed to load.
+    let failures: [ScanFailureEntry]
+}
+
 /// Walks a directory tree for `.sharibako` markers.
 ///
 /// Defaults to the current working directory when `<root>` is omitted.
@@ -38,43 +54,55 @@ struct ScanCommand: AsyncParsableCommand {
         let vault = try VaultCore(vaultURL: vaultURL)
         let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
-        print(try composeOutput(materializer: materializer, renderer: renderer))
+        let result = try fetchResult(materializer: materializer)
+        // Human mode: failures go to stderr as warnings so stdout stays a
+        // clean table; JSON mode carries them in the payload instead.
+        if !renderer.json {
+            for failure in result.failures {
+                fputs(renderer.warn("Skipped \(failure.path): \(failure.reason)") + "\n", stderr)
+            }
+        }
+        print(try composeOutput(result: result, renderer: renderer))
     }
 
     /// Builds the full command output (print-free seam for tests).
     ///
-    /// JSON array under `--json`, a placeholder when no markers were found,
-    /// and a SCOPE/MARKER/TARGET table otherwise.
-    func composeOutput(materializer: Materializer, renderer: OutputRenderer) throws -> String {
-        let entries = try fetchEntries(materializer: materializer)
-
+    /// `{markers, failures}` object under `--json`, a placeholder when nothing
+    /// was found, and a SCOPE/MARKER/TARGET table otherwise (failures print to
+    /// stderr in `_run`, not here — stdout stays pipeable).
+    func composeOutput(result: ScanJSONResult, renderer: OutputRenderer) throws -> String {
         if renderer.json {
-            return try renderer.encodeJSON(entries)
+            return try renderer.encodeJSON(result)
         }
 
-        guard !entries.isEmpty else {
+        guard !result.markers.isEmpty else {
             return "No .sharibako markers found."
         }
 
         return renderer.table(
             headers: ["SCOPE", "MARKER", "TARGET"],
-            rows: entries.map { [$0.scope, $0.path, $0.target] }
+            rows: result.markers.map { [$0.scope, $0.path, $0.target] }
         )
     }
 
-    /// Builds scan entries from the resolved root directory.
+    /// Runs the scan and converts the report to output entries.
     ///
     /// Exposed for tests to verify data without capturing stdout.
-    func fetchEntries(materializer: Materializer) throws -> [ScanEntry] {
+    func fetchResult(materializer: Materializer) throws -> ScanJSONResult {
         let rootURL: URL
         if let rootPath = root {
             rootURL = URL(fileURLWithPath: rootPath)
         } else {
             rootURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         }
-        let markers = try materializer.scan(roots: [rootURL])
-        return markers.map {
-            ScanEntry(path: $0.markerURL.path, scope: $0.scope, target: $0.targetURL.path)
-        }
+        let report = try materializer.scan(roots: [rootURL])
+        return ScanJSONResult(
+            markers: report.markers.map {
+                ScanEntry(path: $0.markerURL.path, scope: $0.scope, target: $0.targetURL.path)
+            },
+            failures: report.failures.map {
+                ScanFailureEntry(path: $0.markerURL.path, reason: $0.reason)
+            }
+        )
     }
 }

@@ -43,11 +43,43 @@ struct ValueInputTests {
         }
     }
 
-    @Test("read throws valueInputRequired when neither --value nor --from-stdin is set")
+    @Test("read throws valueInputRequired when neither flag is set and no terminal is available")
     func readNeitherThrowsRequired() {
-        let input = ValueInput(value: nil, fromStdin: false)
+        // securePrompt nil = non-TTY stdin; pinned explicitly so the test
+        // doesn't depend on whether the test runner itself has a terminal.
+        var input = ValueInput(value: nil, fromStdin: false)
+        input.securePrompt = nil
         #expect(throws: CLIError.valueInputRequired) {
             _ = try input.read()
         }
+    }
+
+    // MARK: - Secure prompt routing (ho-04.11)
+
+    @Test("read runs the secure prompt when neither flag is set and a terminal is available")
+    func readNeitherRunsSecurePrompt() throws {
+        var input = ValueInput(value: nil, fromStdin: false)
+        input.securePrompt = { "prompted-secret" }
+        #expect(try input.read() == "prompted-secret")
+    }
+
+    @Test("--value bypasses the secure prompt even when one is available")
+    func readValueBypassesPrompt() throws {
+        var input = ValueInput(value: "flag-value", fromStdin: false)
+        input.securePrompt = {
+            Issue.record("secure prompt must not run when --value is supplied")
+            return "wrong"
+        }
+        #expect(try input.read() == "flag-value")
+    }
+
+    @Test("--from-stdin bypasses the secure prompt even when one is available")
+    func readStdinBypassesPrompt() throws {
+        var input = ValueInput(value: nil, fromStdin: true) { Data("piped\n".utf8) }
+        input.securePrompt = {
+            Issue.record("secure prompt must not run when --from-stdin is supplied")
+            return "wrong"
+        }
+        #expect(try input.read() == "piped")
     }
 }
