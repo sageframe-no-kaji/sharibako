@@ -51,8 +51,10 @@ struct RotateCommand: AsyncParsableCommand {
 
     // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
-    func _run() throws {
-        let newValue = try ValueInput(value: value, fromStdin: fromStdin).read()
+    func _run(valuePrompt: (() throws -> String)? = SecureValuePrompt.defaultPrompt) throws {
+        let newValue = try ValueInput(
+            value: value, fromStdin: fromStdin, securePrompt: valuePrompt
+        ).read()
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
         let provider = VaultLocator.resolveProvider(globalFlag: global.ageKeyURL)
         let subject = shared.map { "shared entry \($0)" } ?? "secret \(key ?? "")"
