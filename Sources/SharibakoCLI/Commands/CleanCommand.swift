@@ -18,7 +18,7 @@ struct CleanCommand: AsyncParsableCommand {
     @Argument(help: "Scope to clean (resolved from cwd when omitted).")
     var scope: String?
 
-    @Flag(name: .long, help: "Skip the confirmation prompt.")
+    @Flag(name: .long, help: "Skip the confirmation prompt (required when stdin is not a terminal).")
     var yes: Bool = false
 
     func run() async throws {
@@ -34,6 +34,7 @@ struct CleanCommand: AsyncParsableCommand {
     // swiftlint:disable:next identifier_name
     func _run(
         cwd: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        isInteractive: Bool = TerminalDetector.isInteractiveInput,
         lineReader: () -> String? = { readLine() }
     ) throws {
         let vaultURL = try VaultLocator.resolve(globalFlag: global.vaultURL)
@@ -46,7 +47,16 @@ struct CleanCommand: AsyncParsableCommand {
         let marker = try discovered ?? materializer.resolveMarker(forScope: scopeID, scanRoots: [cwd])
 
         if !yes {
-            guard confirmClean(marker: marker, vault: vault, lineReader: lineReader) else { return }
+            // Without a terminal there is nobody to answer the prompt — fail
+            // loudly instead of declining by default and exiting 0 as a
+            // hygiene false positive (ho-04.11).
+            guard isInteractive else {
+                throw CLIError.promptRequiresTTY(command: "clean", flag: "--yes")
+            }
+            guard confirmClean(marker: marker, vault: vault, lineReader: lineReader) else {
+                // A human declined — that's an abort (exit 130), not success.
+                throw CLIError.aborted
+            }
         }
 
         let result = try materializer.clean(marker: marker)

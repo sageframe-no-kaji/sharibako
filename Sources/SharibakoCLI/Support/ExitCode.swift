@@ -20,4 +20,9 @@ enum SharibakoExitCode: Int32 {
     case git = 5
     /// macOS Keychain or authentication error.
     case keychain = 6
+    /// The user declined or cancelled an interactive prompt (ho-04.11).
+    ///
+    /// `128 + SIGINT` — the shell convention for user-cancel, so scripts can
+    /// tell an abort from success (previously 0) and from real failures.
+    case userAbort = 130
 }

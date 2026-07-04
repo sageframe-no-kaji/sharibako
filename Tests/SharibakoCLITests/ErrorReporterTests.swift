@@ -338,11 +338,22 @@ struct ErrorReporterMappingTests {
         #expect(report.message.contains("interactive"))
     }
 
-    @Test("aborted maps to the success exit code — a cancelled prompt is not a failure")
+    @Test("aborted maps to userAbort (130) — distinguishable from success and from failures (ho-04.11)")
     func aborted() {
         let report = ErrorReporter.makeReport(for: CLIError.aborted)
-        #expect(report.code == .success)
+        #expect(report.code == .userAbort)
+        #expect(report.code.rawValue == 130)
         #expect(report.message == "Aborted.")
+    }
+
+    @Test("promptRequiresTTY maps to userError naming the command and the skip flag")
+    func promptRequiresTTY() {
+        let report = ErrorReporter.makeReport(
+            for: CLIError.promptRequiresTTY(command: "clean", flag: "--yes")
+        )
+        #expect(report.code == .userError)
+        #expect(report.message.contains("clean"))
+        #expect(report.remediation?.contains("--yes") == true)
     }
 
     @Test("nothingToInitialize maps to userError with the directory in the message")

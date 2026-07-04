@@ -261,9 +261,24 @@ struct InitCommand: AsyncParsableCommand {
         }
 
         // Scope type: default project-dev; practitioner can override inline.
+        // Re-prompt on an unrecognized answer (ho-04.11) — a typo silently
+        // becoming project-dev misrecorded the vault. Empty answer (or EOF)
+        // is a deliberate Enter and accepts the default, so the loop terminates.
         fputs("Scope type [project-dev] (project-dev/project-prod/service/machine/other): ", stderr)
-        let rawType = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let scopeType = ScopeType(rawValue: rawType) ?? .projectDev
+        var scopeType = ScopeType.projectDev
+        while true {
+            let rawType = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if rawType.isEmpty { break }
+            if let parsed = ScopeType(rawValue: rawType) {
+                scopeType = parsed
+                break
+            }
+            fputs(
+                "Unrecognized scope type \"\(rawType)\" — choose one of "
+                    + "project-dev/project-prod/service/machine/other.\nScope type [project-dev]: ",
+                stderr
+            )
+        }
 
         return ScopeSelection(scopeID: scopeID, scopeType: scopeType)
     }

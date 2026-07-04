@@ -51,14 +51,14 @@ struct CleanCommandTests {
             var cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
             ])
-            try cmd._run(cwd: projectDir) { "y" }
+            try cmd._run(cwd: projectDir, isInteractive: true) { "y" }
 
             let envPath = projectDir.appendingPathComponent(".env")
             #expect(!FileManager.default.fileExists(atPath: envPath.path))
         }
     }
 
-    @Test("confirmation prompt: 'n' aborts without changing .env")
+    @Test("confirmation prompt: 'n' throws aborted (exit 130) without changing .env (ho-04.11)")
     func cleanConfirmationNo() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
@@ -68,12 +68,33 @@ struct CleanCommandTests {
             var cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
             ])
-            try cmd._run(cwd: projectDir) { "n" }
+            #expect(throws: CLIError.aborted) {
+                try cmd._run(cwd: projectDir, isInteractive: true) { "n" }
+            }
 
             let envPath = projectDir.appendingPathComponent(".env")
             #expect(FileManager.default.fileExists(atPath: envPath.path))
             let content = try String(contentsOf: envPath, encoding: .utf8)
             #expect(content.contains("K=v"))
+        }
+    }
+
+    @Test("non-TTY stdin without --yes fails loudly instead of exiting 0 having cleaned nothing (ho-04.11)")
+    func cleanNonTTYWithoutYesFails() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
+            defer { try? FileManager.default.removeItem(at: projectDir) }
+
+            var cmd = try CleanCommand.parse([
+                "--vault", vaultURL.path,
+            ])
+            #expect(throws: CLIError.promptRequiresTTY(command: "clean", flag: "--yes")) {
+                try cmd._run(cwd: projectDir, isInteractive: false) { nil }
+            }
+
+            let envPath = projectDir.appendingPathComponent(".env")
+            #expect(FileManager.default.fileExists(atPath: envPath.path))
         }
     }
 

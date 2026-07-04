@@ -17,7 +17,7 @@ struct MaterializeCommand: AsyncParsableCommand {
     @Argument(help: "Scope to materialize (resolved from cwd when omitted).")
     var scope: String?
 
-    @Flag(name: .long, help: "Overwrite differing owned lines without prompting.")
+    @Flag(name: .long, help: "Overwrite differing owned lines (materialize otherwise stops at the diff).")
     var force: Bool = false
 
     func run() async throws {

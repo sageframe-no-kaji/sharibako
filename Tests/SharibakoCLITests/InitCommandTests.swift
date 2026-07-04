@@ -188,6 +188,52 @@ struct InitCommandTests {
         }
     }
 
+    @Test("scope type: unrecognized answer re-prompts instead of silently defaulting (ho-04.11)")
+    func scopeTypeReprompts() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: "API=value\n") { projectDir in
+                let source = ScriptedIngestDecisionSource.allImportLocal()
+                // ID → "" (accept suggestion); type → typo, then a valid answer.
+                var lineReaderQueue = ["", "porject-dev", "service"]
+                let lineReader = { () -> String? in
+                    lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
+                }
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
+
+                let markerURL = projectDir.appendingPathComponent(".sharibako")
+                let vault = try VaultCore(vaultURL: vaultURL)
+                let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+                let marker = try materializer.loadMarker(at: markerURL)
+                let scopeMeta = try vault.getScope(marker.scope)
+                // The typo did NOT become project-dev; the corrected answer landed.
+                #expect(scopeMeta.type == .service)
+            }
+        }
+    }
+
+    @Test("scope type: empty answer still accepts the project-dev default")
+    func scopeTypeEmptyAcceptsDefault() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: "API=value\n") { projectDir in
+                let source = ScriptedIngestDecisionSource.allImportLocal()
+                var lineReaderQueue = ["", ""]
+                let lineReader = { () -> String? in
+                    lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
+                }
+                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
+
+                let markerURL = projectDir.appendingPathComponent(".sharibako")
+                let vault = try VaultCore(vaultURL: vaultURL)
+                let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+                let marker = try materializer.loadMarker(at: markerURL)
+                let scopeMeta = try vault.getScope(marker.scope)
+                #expect(scopeMeta.type == .projectDev)
+            }
+        }
+    }
+
     // MARK: - First-run offer
 
     @Test("--no-generate throws when no age key file is present")

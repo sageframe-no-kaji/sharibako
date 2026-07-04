@@ -44,6 +44,10 @@ enum ErrorReporter {
         let errorReport = makeReport(for: error)
         if json {
             fputs(jsonPayload(for: errorReport) + "\n", stderr)
+        } else if errorReport.code == .userAbort {
+            // An abort is the user declining, not a failure — no "Error:"
+            // prefix (ho-04.11). The 130 exit code carries the semantics.
+            fputs("\(errorReport.message)\n", stderr)
         } else {
             fputs("Error: \(errorReport.message)\n", stderr)
             if let fix = errorReport.remediation {
@@ -331,9 +335,15 @@ extension ErrorReporter {
                 message: "`init` needs an interactive terminal; scriptable flags are a followup.",
                 remediation: nil
             )
+        case .promptRequiresTTY(let command, let flag):
+            return ErrorReport(
+                code: .userError,
+                message: "`\(command)` needs an interactive terminal to confirm.",
+                remediation: "Pass \(flag) to proceed without confirmation."
+            )
         case .aborted:
             return ErrorReport(
-                code: .success,
+                code: .userAbort,
                 message: "Aborted.",
                 remediation: nil
             )
