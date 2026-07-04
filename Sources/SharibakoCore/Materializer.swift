@@ -127,90 +127,12 @@ extension Materializer {
     ///
     /// - Throws: ``VaultError/markerNotFound(startingFrom:)`` if no matching marker exists.
     public func resolveMarker(forScope scopeID: String, scanRoots: [URL]) throws -> ScopeMarker {
-        let markers = try scan(roots: scanRoots)
+        let markers = try scan(roots: scanRoots).markers
         if let match = markers.first(where: { $0.scope == scopeID }) {
             return match
         }
         let hint = scanRoots.first ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         throw VaultError.markerNotFound(startingFrom: hint)
-    }
-}
-
-// MARK: - Scan and status
-
-extension Materializer {
-    /// Walks `roots` recursively and returns every `.sharibako` marker found.
-    ///
-    /// Results are ordered breadth-first from each root, alphabetical within a depth,
-    /// deduplicated by absolute path when roots overlap.
-    public func scan(roots: [URL]) throws -> [ScopeMarker] {
-        let fileManager = FileManager.default
-        var seen = Set<String>()
-        var results: [ScopeMarker] = []
-        for root in roots {
-            guard fileManager.fileExists(atPath: root.path) else { continue }
-            let markerURLs = enumerateMarkerFiles(under: root)
-            for url in markerURLs {
-                let standardized = url.standardizedFileURL.path
-                if seen.contains(standardized) { continue }
-                seen.insert(standardized)
-                results.append(try loadMarker(at: url))
-            }
-        }
-        return results
-    }
-
-    /// Reports where the scope lives from this machine's perspective.
-    ///
-    /// - Throws: ``VaultError/scopeNotFound(id:)`` if neither the vault nor any marker
-    ///   knows about the scope; other `VaultError` cases for underlying failures.
-    public func status(scopeID: String, scanRoots: [URL]) throws -> ScopeState {
-        let allScopes = try vaultCore.listScopes()
-        let hasScope = allScopes.contains { $0.identity == scopeID }
-        let markers = try scan(roots: scanRoots)
-        let matchingMarker = markers.first { $0.scope == scopeID }
-        if hasScope {
-            if let marker = matchingMarker {
-                return .liveHere(markerURL: marker.markerURL, targetURL: marker.targetURL)
-            }
-            return .liveElsewhere
-        }
-        if let marker = matchingMarker {
-            return .orphaned(
-                markerURL: marker.markerURL,
-                reason: "vault has no scope named '\(scopeID)'"
-            )
-        }
-        throw VaultError.scopeNotFound(id: scopeID)
-    }
-
-    /// Recursive enumeration of `.sharibako` regular files below `root`, ordered
-    /// breadth-first / alphabetical.
-    private func enumerateMarkerFiles(under root: URL) -> [URL] {
-        let fileManager = FileManager.default
-        guard
-            let enumerator = fileManager.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: []
-            )
-        else {
-            return []
-        }
-        var found: [URL] = []
-        for case let url as URL in enumerator where url.lastPathComponent == ".sharibako" {
-            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
-            if values?.isRegularFile == true {
-                found.append(url)
-            }
-        }
-        found.sort { lhs, rhs in
-            let lhsDepth = lhs.pathComponents.count
-            let rhsDepth = rhs.pathComponents.count
-            if lhsDepth != rhsDepth { return lhsDepth < rhsDepth }
-            return lhs.path < rhs.path
-        }
-        return found
     }
 }
 

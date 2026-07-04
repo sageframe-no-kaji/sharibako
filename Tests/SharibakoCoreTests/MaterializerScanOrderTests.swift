@@ -24,7 +24,7 @@ struct MaterializerScanOrderTests {
                     .write(to: alpha.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8)
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
+                let markers = try mat.scan(roots: [project]).markers
                 #expect(markers.map(\.scope) == ["alpha", "bento"])
             }
         }
@@ -42,7 +42,7 @@ struct MaterializerScanOrderTests {
                     .write(to: project.appendingPathComponent(".sharibako"), atomically: true, encoding: .utf8)
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
+                let markers = try mat.scan(roots: [project]).markers
                 #expect(markers.map(\.scope) == ["root", "backend"])
             }
         }

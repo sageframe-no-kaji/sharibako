@@ -164,7 +164,7 @@ struct MaterializerWriteTests {
                 try "scope: kanyo-dev\n".write(to: markerURL, atomically: true, encoding: .utf8)
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
+                let markers = try mat.scan(roots: [project]).markers
                 #expect(markers.count == 1)
                 #expect(markers[0].scope == "kanyo-dev")
             }
@@ -181,7 +181,7 @@ struct MaterializerWriteTests {
                 try "scope: kanyo-dev\n".write(to: markerURL, atomically: true, encoding: .utf8)
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
+                let markers = try mat.scan(roots: [project]).markers
                 #expect(markers.count == 1)
                 #expect(markers[0].scope == "kanyo-dev")
             }
@@ -194,7 +194,7 @@ struct MaterializerWriteTests {
             try VaultTestSupport.withEphemeralProjectDirectory { project in
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project])
+                let markers = try mat.scan(roots: [project]).markers
                 #expect(markers.isEmpty)
             }
         }
@@ -237,7 +237,7 @@ struct MaterializerWriteTests {
                 try "scope: kanyo-dev\n".write(to: markerURL, atomically: true, encoding: .utf8)
                 let core = try VaultCore(vaultURL: vault)
                 let mat = Materializer(vaultCore: core, vaultURL: vault)
-                let markers = try mat.scan(roots: [project, subdir])
+                let markers = try mat.scan(roots: [project, subdir]).markers
                 #expect(markers.count == 1)
             }
         }

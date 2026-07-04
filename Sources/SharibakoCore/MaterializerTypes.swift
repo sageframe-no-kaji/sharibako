@@ -192,6 +192,46 @@ public struct DriftReport: Sendable, Equatable {
     }
 }
 
+/// One `.sharibako` marker that failed to load during a scan (ho-04.11).
+///
+/// Scan roots contain other people's repositories; a malformed or hostile
+/// marker is a *finding*, not a reason to abort the walk.
+public struct ScanFailure: Sendable, Equatable {
+    /// Absolute URL of the marker file that failed to load.
+    public let markerURL: URL
+
+    /// Human-readable load-failure reason (YAML error, grammar violation,
+    /// containment rejection).
+    public let reason: String
+
+    /// Member-wise initializer for tests and library callers.
+    public init(markerURL: URL, reason: String) {
+        self.markerURL = markerURL
+        self.reason = reason
+    }
+}
+
+/// Result of a scan walk: the markers that loaded and the ones that didn't (ho-04.11).
+///
+/// One bad marker used to abort the entire scan — and `status`, `clean`, and
+/// scope resolution all ride on scan, so one broken file in one project
+/// bricked visibility into every project. Skip-and-report keeps the hostile-
+/// marker signal (ho-04.9's strict loading) visible without the denial of
+/// service.
+public struct ScanReport: Sendable, Equatable {
+    /// Markers that loaded and validated, in breadth-first scan order.
+    public let markers: [ScopeMarker]
+
+    /// Markers that failed to load, in scan order.
+    public let failures: [ScanFailure]
+
+    /// Member-wise initializer for tests and library callers.
+    public init(markers: [ScopeMarker], failures: [ScanFailure]) {
+        self.markers = markers
+        self.failures = failures
+    }
+}
+
 /// Drift state for a single owned key.
 public enum KeyDrift: Sendable, Equatable {
     /// Vault value and file value agree byte-for-byte.
