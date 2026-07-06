@@ -26,6 +26,27 @@ struct CLIShellTests {
         #expect(name == bogus)
     }
 
+    @Test("findExecutable honors PATH first, then falls back to the fixed list (ho-04.12 D6)")
+    func findExecutableHonorsPath() throws {
+        // A fake `git` on PATH wins over the real one in the fixed fallback list.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("clishell-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        FileManager.default.createFile(
+            atPath: dir.appendingPathComponent("git").path,
+            contents: Data("#!/bin/sh\n".utf8),
+            attributes: [.posixPermissions: 0o755]
+        )
+        let onPath = try CLIShell.findExecutable("git", pathVariable: dir.path)
+        #expect(onPath.deletingLastPathComponent().path == dir.path)
+
+        // Empty PATH forces the fixed fallback, where git is a dev/CI prerequisite.
+        let fallback = try CLIShell.findExecutable("git", pathVariable: "")
+        #expect(fallback.lastPathComponent == "git")
+        #expect(fallback.deletingLastPathComponent().path != dir.path)
+    }
+
     @Test("run captures stdout, stderr, and a non-zero exit code")
     func runCapturesStreamsAndExitCode() throws {
         let sh = URL(fileURLWithPath: "/bin/sh")
