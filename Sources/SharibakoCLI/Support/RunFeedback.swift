@@ -71,6 +71,7 @@ struct RunFeedback: Sendable {
         case SIGINT: return "SIGINT"
         case SIGTERM: return "SIGTERM"
         case SIGHUP: return "SIGHUP"
+        case SIGQUIT: return "SIGQUIT"
         default: return "signal \(signal)"
         }
     }

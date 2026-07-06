@@ -43,8 +43,19 @@
             }
 
             let tempURL = writeTempKeyFile(data)
+            let byteCount = data.count
+
+            // Trap fatal signals for the temp key's whole lifetime: an interrupt
+            // in this window (Ctrl-C during Touch ID, a kill from another
+            // terminal) would otherwise leave the plaintext key on disk (D1).
+            let signalGuard = TempKeySignalGuard {
+                scrubAndDelete(at: tempURL, byteCount: byteCount)
+            }
+            signalGuard.install()
+
             return AgeKeyHandle(url: tempURL) {
-                scrubAndDelete(at: tempURL, byteCount: data.count)
+                signalGuard.teardown()
+                scrubAndDelete(at: tempURL, byteCount: byteCount)
             }
         }
 

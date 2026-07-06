@@ -161,7 +161,8 @@ struct RunCommand: AsyncParsableCommand {
         // Live signal plumbing (coverage-excluded): tests pass forwardSignals: false so the
         // process-wide handler install doesn't race the parallel runner. Dogfood-validated.
         let forwarder =
-            forwardSignals ? SignalForwarder(childPID: process.processIdentifier, feedback: feedback) : nil
+            forwardSignals
+            ? SignalForwarder(controller: ProcessChildController(process), feedback: feedback) : nil
         forwarder?.install()
         defer { forwarder?.teardown() }
 
