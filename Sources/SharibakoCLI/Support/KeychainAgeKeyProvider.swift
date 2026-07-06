@@ -127,18 +127,30 @@
         }
 
         /// Returns `true` if a Sharibako age key item already exists in the Keychain.
-        func itemExists() -> Bool {
+        ///
+        /// Probes without triggering Touch ID: `LAContext.interactionNotAllowed`
+        /// (the modern replacement for the deprecated `kSecUseAuthenticationUIFail`)
+        /// tells the Keychain to answer from metadata rather than prompt. The
+        /// status is classified by ``KeychainProbe/exists(from:)``, which throws
+        /// on an unexpected status instead of reporting a silent `false`.
+        ///
+        /// - Throws: `CLIError.keychainLoadFailed` for any status other than
+        ///   present (`errSecSuccess`/`errSecInteractionNotAllowed`) or absent
+        ///   (`errSecItemNotFound`).
+        func itemExists() throws -> Bool {
+            let context = LAContext()
+            context.interactionNotAllowed = true
+
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
                 kSecAttrAccessGroup as String: keychainAccessGroup,
                 kSecReturnAttributes as String: true,
-                kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+                kSecUseAuthenticationContext as String: context,
             ]
             let status = SecItemCopyMatching(query as CFDictionary, nil)
-            // errSecInteractionNotAllowed means item exists but needs auth (access control).
-            return status == errSecSuccess || status == errSecInteractionNotAllowed
+            return try KeychainProbe.exists(from: status)
         }
     }
 

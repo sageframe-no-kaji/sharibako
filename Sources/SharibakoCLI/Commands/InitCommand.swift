@@ -125,12 +125,16 @@ struct InitCommand: AsyncParsableCommand {
 
     /// Returns `true` when an age key is already available (Keychain item on macOS
     /// or key file on file-based paths), `false` otherwise.
-    private func ageKeyExists() -> Bool {
+    ///
+    /// - Throws: `CLIError.keychainLoadFailed` if the macOS Keychain probe returns
+    ///   an unexpected status (ho-04.12 D5) — surfaced rather than swallowed, so a
+    ///   transient failure can't masquerade as "no key" and trigger generation.
+    private func ageKeyExists() throws -> Bool {
         if let path = VaultLocator.resolveAgeKey(globalFlag: global.ageKeyURL) {
             return FileManager.default.fileExists(atPath: path.path)
         }
         #if os(macOS)
-            return KeychainAgeKeyProvider().itemExists()
+            return try KeychainAgeKeyProvider().itemExists()
         #else
             let defaultPath = FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".config")
@@ -167,7 +171,7 @@ struct InitCommand: AsyncParsableCommand {
     /// - Throws: `CLIError.ageKeyFileNotFound` when `--no-generate` is set and no
     ///   key is available.
     private func offerKeyGeneration(lineReader: () -> String?) throws -> Bool {
-        guard !ageKeyExists() else { return true }
+        guard !(try ageKeyExists()) else { return true }
         guard !noGenerate else {
             // fileURLWithPath does not expand `~` — build the default path from
             // the real home directory so the error names an absolute location.

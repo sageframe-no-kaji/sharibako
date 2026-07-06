@@ -109,7 +109,7 @@ struct GenerateCommand: AsyncParsableCommand {
     #if os(macOS)
         private func generateToKeychain() throws {
             let keychain = KeychainAgeKeyProvider()
-            if keychain.itemExists() {
+            if try keychain.itemExists() {
                 guard force else { throw CLIError.ageKeyAlreadyExists }
                 if !yes {
                     fputs("Overwrite existing age key in Keychain? [y/N] ", stderr)
