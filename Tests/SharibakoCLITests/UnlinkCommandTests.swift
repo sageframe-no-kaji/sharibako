@@ -14,7 +14,7 @@ struct UnlinkCommandTests {
             try vault.addSharedEntry("shared-db", value: "the-value")
             try vault.link("DB_URL", inScope: "s1", toShared: "shared-db")
 
-            var cmd = try UnlinkCommand.parse([
+            let cmd = try UnlinkCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "DB_URL",
@@ -54,7 +54,7 @@ struct UnlinkCommandTests {
     func unlinkMissingLink() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try UnlinkCommand.parse([
+            let cmd = try UnlinkCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "NO_LINK",

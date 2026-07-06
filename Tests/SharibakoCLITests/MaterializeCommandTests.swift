@@ -30,7 +30,7 @@ struct MaterializeCommandTests {
             let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1",
@@ -52,7 +52,7 @@ struct MaterializeCommandTests {
             let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
@@ -73,7 +73,7 @@ struct MaterializeCommandTests {
             let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1",
@@ -100,7 +100,7 @@ struct MaterializeCommandTests {
             let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1",
@@ -135,7 +135,7 @@ struct MaterializeCommandTests {
             let (projectDir, _) = try makeProject(vaultURL: vaultURL, core: core, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1",
@@ -147,7 +147,7 @@ struct MaterializeCommandTests {
                 .replacingOccurrences(of: "K1=v1", with: "K1=tampered")
             try drifted.write(to: envPath, atomically: true, encoding: .utf8)
 
-            var forceCmd = try MaterializeCommand.parse([
+            let forceCmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--force",
@@ -168,7 +168,7 @@ struct MaterializeCommandTests {
             try FileManager.default.createDirectory(at: emptyDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: emptyDir) }
 
-            var cmd = try MaterializeCommand.parse([
+            let cmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])

@@ -13,7 +13,7 @@ struct RotateCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSecret("K", value: "old", inScope: "s1")
 
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "new",
@@ -34,7 +34,7 @@ struct RotateCommandTests {
             try vault.addSharedEntry("shared-db", value: "old-shared")
             try vault.link("DB_URL", inScope: "s1", toShared: "shared-db")
 
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "new-shared",
@@ -71,7 +71,7 @@ struct RotateCommandTests {
     func rotateUnknownKey() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v",
@@ -86,7 +86,7 @@ struct RotateCommandTests {
     @Test("_run throws valueInputConflict when both input flags set")
     func rotateConflictingInput() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v",
@@ -107,7 +107,7 @@ struct RotateCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSharedEntry("zero-links", value: "old")
 
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "new",
@@ -126,7 +126,7 @@ struct RotateCommandTests {
     @Test("rotate --shared throws sharedEntryNotFound for an unknown entry")
     func rotateSharedUnknown() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
-            var cmd = try RotateCommand.parse([
+            let cmd = try RotateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v",

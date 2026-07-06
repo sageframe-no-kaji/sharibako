@@ -27,7 +27,7 @@ struct RoundTripCommandTests {
             ])
 
             // ── Step 2: get via CLI internal helper ────────────────────────────────
-            var getCmd = try GetCommand.parse([
+            let getCmd = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 scopeID, "API_KEY",
@@ -48,7 +48,7 @@ struct RoundTripCommandTests {
             try materializer.writeMarker(marker, at: markerURL)
 
             // ── Step 4: materialize (no scope arg → cwd resolution) ────────────────
-            var matCmd = try MaterializeCommand.parse([
+            let matCmd = try MaterializeCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
@@ -63,14 +63,14 @@ struct RoundTripCommandTests {
             try edited.write(to: envPath, atomically: true, encoding: .utf8)
 
             // ── Step 6: update (no scope arg → cwd resolution) ────────────────────
-            var updateCmd = try UpdateCommand.parse([
+            let updateCmd = try UpdateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
             try updateCmd._run(cwd: projectDir)
 
             // ── Step 7: get — assert new value in vault ────────────────────────────
-            var getCmd2 = try GetCommand.parse([
+            let getCmd2 = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 scopeID, "API_KEY",
@@ -79,7 +79,7 @@ struct RoundTripCommandTests {
             #expect(updatedValue == "sk-live-xyz")
 
             // ── Step 8: clean --yes ────────────────────────────────────────────────
-            var cleanCmd = try CleanCommand.parse([
+            let cleanCmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
                 "--yes",
             ])

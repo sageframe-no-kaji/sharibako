@@ -11,7 +11,7 @@ struct SyncCommandTests {
         try CLITestSupport.withEphemeralGitVaultAndRemote { vaultURL, _, _ in
             try CLITestSupport.writeScope("s1", in: vaultURL)
 
-            var cmd = try SyncCommand.parse([
+            let cmd = try SyncCommand.parse([
                 "--vault", vaultURL.path,
                 "--no-pull",
             ])
@@ -28,7 +28,7 @@ struct SyncCommandTests {
     @Test("_run with --no-push skips the push step")
     func syncNoPush() throws {
         try CLITestSupport.withEphemeralGitVaultAndRemote { vaultURL, _, _ in
-            var cmd = try SyncCommand.parse([
+            let cmd = try SyncCommand.parse([
                 "--vault", vaultURL.path,
                 "--no-push",
                 "--no-pull",
@@ -43,7 +43,7 @@ struct SyncCommandTests {
         try CLITestSupport.withEphemeralGitVaultAndRemote { vaultURL, _, _ in
             try CLITestSupport.writeScope("s2", in: vaultURL)
 
-            var cmd = try SyncCommand.parse([
+            let cmd = try SyncCommand.parse([
                 "--vault", vaultURL.path,
                 "--no-push",
                 "--no-pull",
@@ -60,7 +60,7 @@ struct SyncCommandTests {
     @Test("sync does not require the age key")
     func syncNoAgeKey() throws {
         try CLITestSupport.withEphemeralGitVaultAndRemote { vaultURL, _, _ in
-            var cmd = try SyncCommand.parse([
+            let cmd = try SyncCommand.parse([
                 "--vault", vaultURL.path,
                 "--no-push",
                 "--no-pull",
@@ -108,7 +108,7 @@ struct SyncCommandRemoteFlowTests {
     func syncUpToDate() throws {
         try CLITestSupport.withEphemeralGitVaultAndRemote { vaultURL, _, _ in
             // Fixture setup already pushed the initial commit; both directions are current.
-            var cmd = try SyncCommand.parse(["--vault", vaultURL.path])
+            let cmd = try SyncCommand.parse(["--vault", vaultURL.path])
             try cmd._run()
         }
     }
@@ -125,7 +125,7 @@ struct SyncCommandRemoteFlowTests {
                 return
             }
 
-            var cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-push"])
+            let cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-push"])
             try cmd._run()
 
             // The pulled commit is now part of the vault's history.
@@ -150,7 +150,7 @@ struct SyncCommandRemoteFlowTests {
 
             // The vault commits its own change without pulling — push must be rejected.
             try CLITestSupport.writeScope("local-change", in: vaultURL)
-            var cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-pull"])
+            let cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-pull"])
             #expect(throws: CLIError.syncRejected) {
                 try cmd._run()
             }
@@ -172,7 +172,7 @@ struct SyncCommandRemoteFlowTests {
             _ = try commitFile(
                 named: "conflict.txt", content: "from A", in: vaultURL, message: "A adds conflict.txt")
 
-            var cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-push"])
+            let cmd = try SyncCommand.parse(["--vault", vaultURL.path, "--no-push"])
             #expect(throws: CLIError.syncConflict) {
                 try cmd._run()
             }

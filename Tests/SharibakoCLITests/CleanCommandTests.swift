@@ -30,7 +30,7 @@ struct CleanCommandTests {
             let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
                 "--yes",
             ])
@@ -48,7 +48,7 @@ struct CleanCommandTests {
             let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
             ])
             try cmd._run(cwd: projectDir, isInteractive: true) { "y" }
@@ -65,7 +65,7 @@ struct CleanCommandTests {
             let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
             ])
             #expect(throws: CLIError.aborted) {
@@ -86,7 +86,7 @@ struct CleanCommandTests {
             let projectDir = try makeProjectWithEnv(vaultURL: vaultURL, keyURL: keyURL, scopeID: "s1")
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
             ])
             #expect(throws: CLIError.promptRequiresTTY(command: "clean", flag: "--yes")) {
@@ -115,7 +115,7 @@ struct CleanCommandTests {
             let marker = ScopeMarker(scope: "s1", materializeTo: nil, markerURL: markerURL)
             try materializer.writeMarker(marker, at: markerURL)
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
                 "--yes",
             ])
@@ -136,7 +136,7 @@ struct CleanCommandTests {
             let content = try String(contentsOf: envPath, encoding: .utf8)
             try (content + "FOREIGN=kept\n").write(to: envPath, atomically: true, encoding: .utf8)
 
-            var cmd = try CleanCommand.parse([
+            let cmd = try CleanCommand.parse([
                 "--vault", vaultURL.path,
                 "--yes",
             ])
