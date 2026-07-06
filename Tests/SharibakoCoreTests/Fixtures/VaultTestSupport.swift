@@ -46,6 +46,25 @@ enum VaultTestSupport {
         try body(vault, fixture)
     }
 
+    /// Materializes a temp vault directory WITHOUT the vault layout, plus an age
+    /// key pair, and hands both to `body`.
+    ///
+    /// Unlike ``withEphemeralVaultAndKey(_:)`` this skips `createVaultLayout` —
+    /// no `shared/`, no `scopes/`. It stands in for a fresh or git-cloned vault
+    /// (git drops empty directories), where the write path must create the
+    /// destination's parent itself (ho-04.12 D8). Both artifacts are removed
+    /// after `body` returns (even if it throws).
+    static func withEphemeralBareVaultAndKey(_ body: (URL, AgeKeyFixture) throws -> Void) throws {
+        let vault = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: vault) }
+
+        let fixture = try AgeKeyFixture.generate()
+        defer { try? fixture.cleanup() }
+
+        try body(vault, fixture)
+    }
+
     /// Returns a minimal `scope.yaml` YAML string.
     static func makeScopeYAML(identity: String, type: ScopeType, displayName: String? = nil) -> String {
         var lines = [

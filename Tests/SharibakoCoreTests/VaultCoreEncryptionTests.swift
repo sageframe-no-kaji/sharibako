@@ -115,6 +115,28 @@ struct VaultCoreEncryptionTests {
         }
     }
 
+    // MARK: - Vault scaffold (ho-04.12 D8)
+
+    @Test("addSharedEntry succeeds in a bare vault with no shared/ directory")
+    func addSharedEntryScaffoldsBareVault() throws {
+        try VaultTestSupport.withEphemeralBareVaultAndKey { vault, fixture in
+            // A fresh or git-cloned vault arrives without `shared/` (git drops
+            // empty directories). Before D8 this first write died with a raw
+            // `age` "failed to write header" (2026-07-03 smoke).
+            let sharedDir = VaultLayout.sharedDirectoryURL(in: vault)
+            #expect(!FileManager.default.fileExists(atPath: sharedDir.path))
+
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSharedEntry("openai-personal", value: "sk-live-scaffold")
+
+            // The write created shared/ and the entry decrypts through a link.
+            #expect(FileManager.default.fileExists(atPath: sharedDir.path))
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            #expect(try core.getValue("OPENAI_API_KEY", inScope: "kanyo-dev") == "sk-live-scaffold")
+        }
+    }
+
     // MARK: - rotateShared
 
     @Test("rotateShared propagates through every linking scope")

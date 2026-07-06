@@ -261,6 +261,21 @@ extension VaultCore {
             throw VaultError.yamlEncodeError(path: destination, underlying: error)
         }
 
+        // Ensure the destination's parent exists before `age` writes its staging
+        // sibling there. `createVaultLayout` runs only from fixtures, so no
+        // production path creates `shared/`; a fresh or git-cloned vault (git
+        // drops empty directories) arrives without it, and the first shared or
+        // scope write would otherwise die with a raw `age` "failed to write
+        // header". This is the single write choke point every writer passes
+        // through, so ensuring here covers `addSharedEntry`, every scope write,
+        // and any future writer (ho-04.12 D8).
+        let parent = destination.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        } catch {
+            throw VaultError.fileSystemError(path: parent, underlying: error)
+        }
+
         let staging = VaultLayout.stagingURL(for: destination)
         defer { try? FileManager.default.removeItem(at: staging) }
 
