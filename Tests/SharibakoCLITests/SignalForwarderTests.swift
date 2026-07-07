@@ -95,25 +95,17 @@ struct SignalForwarderTests {
         #expect(harness.sink.joined.contains("forwarding SIGTERM"))
     }
 
-    @Test("SIGQUIT joins the forwarded set (ho-04.12 D2)")
-    func forwardsSIGQUIT() {
-        let harness = makeForwarder()
-        harness.forwarder.receive(signal: SIGQUIT)
-        defer { harness.forwarder.teardown() }
-        #expect(harness.controller.sent == [SIGQUIT])
-        #expect(harness.sink.joined.contains("forwarding SIGQUIT"))
-    }
-
-    @Test("SIGINT is observed but NOT forwarded, and prints no forwarding line (ho-04.12 D2)")
-    func doesNotForwardSIGINT() {
+    @Test("SIGINT is forwarded to the child")
+    func forwardsSIGINT() {
         let harness = makeForwarder()
         harness.forwarder.receive(signal: SIGINT)
         defer { harness.forwarder.teardown() }
-        // The child already got SIGINT from the kernel via the shared process
-        // group; the wrapper must not send a second one.
-        #expect(harness.controller.sent.isEmpty)
-        #expect(!harness.sink.joined.contains("forwarding"))
-        // First signal only starts the countdown — no immediate kill.
+        // The child is in its own process group, so the terminal never signals
+        // it directly — the wrapper's forward is its only SIGINT (dogfood
+        // finding; ho-04.12 D2 reverted, ownership redesign in ho-04.13).
+        #expect(harness.controller.sent == [SIGINT])
+        #expect(harness.sink.joined.contains("forwarding SIGINT"))
+        // First signal forwards and starts the countdown — no immediate kill.
         #expect(!harness.controller.forceKilled)
     }
 

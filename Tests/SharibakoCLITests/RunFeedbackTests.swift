@@ -80,7 +80,6 @@ struct RunFeedbackTests {
         #expect(RunFeedback.signalName(SIGINT) == "SIGINT")
         #expect(RunFeedback.signalName(SIGTERM) == "SIGTERM")
         #expect(RunFeedback.signalName(SIGHUP) == "SIGHUP")
-        #expect(RunFeedback.signalName(SIGQUIT) == "SIGQUIT")
         #expect(RunFeedback.signalName(SIGKILL) == "signal 9")
     }
 

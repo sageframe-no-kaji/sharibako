@@ -60,14 +60,13 @@ final class ProcessChildController: ChildController, @unchecked Sendable {
 /// through a `DispatchSourceSignal`. The policy that runs per signal lives in
 /// ``receive(signal:)``:
 ///
-/// - **SIGINT is observed but not forwarded (ho-04.12 D2).** The child shares
-///   the wrapper's process group, so a terminal Ctrl-C already reached it from
-///   the kernel; forwarding a second SIGINT is what makes npm-class tools treat
-///   it as a hard abort. The wrapper only starts the escalation countdown.
-/// - **SIGTERM, SIGHUP, and SIGQUIT are forwarded** — they target the wrapper
-///   alone, so the child must be told. (Accepted cost: a targeted
-///   `kill -INT <wrapper-pid>` no longer reaches the child; SIGTERM is the
-///   targeted-shutdown path.)
+/// - **SIGINT, SIGTERM, and SIGHUP are forwarded to the child.** Foundation's
+///   `Process` spawns the child in its own process group, off the terminal's
+///   foreground group, so a terminal Ctrl-C does NOT reach the child (verified
+///   by the ho-04.12 dogfood gate) — the wrapper's forward is the child's only
+///   SIGINT. (ho-04.12 D2 proposed dropping SIGINT on the premise the kernel
+///   already delivered it; the dogfood disproved that premise, D2 was reverted,
+///   and the signal-ownership redesign moved to ho-04.13.)
 /// - **A signal arriving while the countdown is live escalates immediately to
 ///   SIGKILL (ho-04.12 D3).** Mashing Ctrl-C means "die now", not "postpone" —
 ///   the previous code cancel-and-restarted the countdown, deferring SIGKILL
@@ -85,16 +84,12 @@ final class ProcessChildController: ChildController, @unchecked Sendable {
 /// `RunFeedback`; the feedback *strings* are the pure `RunFeedback` formatters,
 /// tested there.
 final class SignalForwarder: @unchecked Sendable {
-    /// Signals the wrapper observes.
+    /// Terminating signals the wrapper observes and forwards to the child.
     ///
-    /// SIGINT is here so Ctrl-C starts the countdown, but it is absent from
-    /// ``forwardedSet`` — see the type doc.
-    private static let observed: [Int32] = [SIGINT, SIGTERM, SIGHUP, SIGQUIT]
-
-    /// The subset actually relayed to the child (ho-04.12 D2).
-    ///
-    /// SIGINT is deliberately excluded; SIGQUIT joins the forwarded set.
-    private static let forwardedSet: Set<Int32> = [SIGTERM, SIGHUP, SIGQUIT]
+    /// All three are relayed: the child is in its own process group, so the
+    /// terminal never signals it directly. Signal ownership (process groups,
+    /// which signals to forward) is redesigned in ho-04.13.
+    private static let forwarded: [Int32] = [SIGINT, SIGTERM, SIGHUP]
 
     private let controller: ChildController
     private let grace: TimeInterval
@@ -122,7 +117,7 @@ final class SignalForwarder: @unchecked Sendable {
     }
 
     func install() {
-        for sig in Self.observed {
+        for sig in Self.forwarded {
             // Ignore at the process level so the dispatch source receives the
             // signal instead of the default terminating action firing on the
             // wrapper. updateValue (not subscript) so a nil result — SIG_DFL —
@@ -151,9 +146,9 @@ final class SignalForwarder: @unchecked Sendable {
 
     /// The forwarder's per-signal policy.
     ///
-    /// The first observed signal forwards (if in the forwarded set) and starts
-    /// the countdown; any signal arriving while the countdown is already live
-    /// escalates straight to SIGKILL.
+    /// The first signal forwards to the child and starts the countdown; any
+    /// signal arriving while the countdown is already live escalates straight to
+    /// SIGKILL.
     ///
     /// Serialized on `countdownQueue` so a burst of signals can't interleave the
     /// active-check with the countdown start.
@@ -163,10 +158,8 @@ final class SignalForwarder: @unchecked Sendable {
                 killNowLocked()
                 return
             }
-            if Self.forwardedSet.contains(sig) {
-                feedback.emit(RunFeedback.forwardingLine(signal: sig))
-                controller.send(sig)
-            }
+            feedback.emit(RunFeedback.forwardingLine(signal: sig))
+            controller.send(sig)
             startCountdownLocked()
         }
     }
