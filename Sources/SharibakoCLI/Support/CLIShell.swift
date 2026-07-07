@@ -42,7 +42,11 @@ private final class PipeDrain: @unchecked Sendable {
 /// Mirrors `Shell` from `SharibakoCore` (which is internal to that library).
 /// Only the subset needed by CLI commands — `age-keygen` invocations — lives here.
 enum CLIShell {
-    /// Standard locations searched in priority order.
+    /// Fixed fallback directories, probed after `PATH`.
+    ///
+    /// Kept working for GUI-launched contexts where the inherited `PATH` is
+    /// minimal (ho-04.12 D6). Mirrors `Shell.searchPaths` in `SharibakoCore`,
+    /// which is internal to that library.
     private static let searchPaths: [String] = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -50,12 +54,24 @@ enum CLIShell {
         "/usr/bin",
     ]
 
-    /// Finds the named binary on the standard search paths.
+    /// Finds the named binary, honoring `PATH` first (ho-04.12 D6).
     ///
-    /// - Throws: `VaultError.shellNotFound(name:)` if none of the paths contain the binary.
+    /// - Throws: `VaultError.shellNotFound(name:)` if neither `PATH` nor the
+    ///   fixed fallback list contains the binary.
     static func findExecutable(_ name: String) throws -> URL {
+        try findExecutable(name, pathVariable: ProcessInfo.processInfo.environment["PATH"])
+    }
+
+    /// `PATH`-first executable lookup with the fixed list as fallback.
+    ///
+    /// `pathVariable` is injected so the search order is testable without
+    /// mutating the process environment. Empty `PATH` entries are dropped rather
+    /// than treated as the current directory. Mirrors `Shell.findExecutable` in
+    /// `SharibakoCore` (internal to that library, hence the duplication).
+    static func findExecutable(_ name: String, pathVariable: String?) throws -> URL {
         let fileManager = FileManager.default
-        for directory in searchPaths {
+        let pathDirs = (pathVariable ?? "").split(separator: ":").map(String.init)
+        for directory in pathDirs + searchPaths {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
             if fileManager.fileExists(atPath: candidate.path) {
                 return candidate

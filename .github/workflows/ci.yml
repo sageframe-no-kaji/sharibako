@@ -61,10 +61,10 @@ jobs:
         run: swiftlint lint --strict --quiet
 
       - name: Build
-        run: swift build
+        run: swift build -Xswiftc -warnings-as-errors
 
       - name: Test with coverage
-        run: swift test --enable-code-coverage
+        run: swift test --enable-code-coverage -Xswiftc -warnings-as-errors
 
       - name: Enforce 90% line coverage floor
         run: |
@@ -84,9 +84,15 @@ jobs:
           #     Touch ID entitlement, which only the signed app-bundle install
           #     has; a bare CI test binary cannot reach it (see CLAUDE.md,
           #     "Keychain dogfood gate").
-          #   SignalForwarder — signal-handler bodies run only when a live
-          #     child process receives real signals mid-run; sending SIGINT to
-          #     the test runner kills the run itself.
+          #   SignalForwarder — its per-signal POLICY (which signals forward,
+          #     what a second signal does) is now seam-testable and covered in
+          #     SignalForwarderTests via an injected ChildController, but the
+          #     file stays excluded because install()/teardown() and the
+          #     real-time countdown timer only run when a live child receives
+          #     real signals; sending SIGINT to the test runner kills the run
+          #     itself (ho-04.12 D1–D4). ProcessChildController lives here too —
+          #     it wraps a live Process the test binary never spawns. The
+          #     testable seam TempKeySignalGuard is deliberately NOT excluded.
           #   TerminalDetector — isatty() answers for CI's pipes are constant,
           #     so the interactive branch can never execute.
           #   SecureValuePrompt — echo-off entry requires a controlling

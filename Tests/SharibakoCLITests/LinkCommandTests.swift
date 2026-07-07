@@ -13,7 +13,7 @@ struct LinkCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSharedEntry("shared-db", value: "shared-value")
 
-            var cmd = try LinkCommand.parse([
+            let cmd = try LinkCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "DB_URL", "shared-db",
@@ -56,7 +56,7 @@ struct LinkCommandTests {
     func linkMissingSharedEntry() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try LinkCommand.parse([
+            let cmd = try LinkCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "K", "no-such-shared",
@@ -76,7 +76,7 @@ struct LinkCommandTests {
 
             // Supply no --age-key: the command should succeed without decrypting anything.
             // (The vault layout exists, so VaultCore(vaultURL:) succeeds.)
-            var cmd = try LinkCommand.parse([
+            let cmd = try LinkCommand.parse([
                 "--vault", vaultURL.path,
                 "s1", "DB_URL", "shared-db",
             ])

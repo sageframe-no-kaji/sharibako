@@ -13,7 +13,7 @@ struct GetCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSecret("API_KEY", value: "secret-value", inScope: "s1")
 
-            var cmd = try GetCommand.parse([
+            let cmd = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "API_KEY",
@@ -31,7 +31,7 @@ struct GetCommandTests {
             try vault.addSharedEntry("shared-db", value: "shared-secret")
             try vault.link("DB_URL", inScope: "s1", toShared: "shared-db")
 
-            var cmd = try GetCommand.parse([
+            let cmd = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "DB_URL",
@@ -46,7 +46,7 @@ struct GetCommandTests {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
 
-            var cmd = try GetCommand.parse([
+            let cmd = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "MISSING",
@@ -77,7 +77,7 @@ struct GetCommandTests {
     @Test("_run throws scopeNotFound for unknown scope")
     func runThrowsForUnknownScope() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
-            var cmd = try GetCommand.parse([
+            let cmd = try GetCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "no-such-scope", "KEY",

@@ -43,8 +43,19 @@
             }
 
             let tempURL = writeTempKeyFile(data)
+            let byteCount = data.count
+
+            // Trap fatal signals for the temp key's whole lifetime: an interrupt
+            // in this window (Ctrl-C during Touch ID, a kill from another
+            // terminal) would otherwise leave the plaintext key on disk (D1).
+            let signalGuard = TempKeySignalGuard {
+                scrubAndDelete(at: tempURL, byteCount: byteCount)
+            }
+            signalGuard.install()
+
             return AgeKeyHandle(url: tempURL) {
-                scrubAndDelete(at: tempURL, byteCount: data.count)
+                signalGuard.teardown()
+                scrubAndDelete(at: tempURL, byteCount: byteCount)
             }
         }
 
@@ -116,18 +127,35 @@
         }
 
         /// Returns `true` if a Sharibako age key item already exists in the Keychain.
-        func itemExists() -> Bool {
+        ///
+        /// Existence-only probe: it requests neither the secret data nor an
+        /// authentication context, so it never triggers Touch ID. The item's
+        /// `.userPresence` access control guards the secret *value*, not the
+        /// item's presence — a match by service/account/group returns
+        /// `errSecSuccess` without evaluating the ACL.
+        ///
+        /// It deliberately does NOT attach `LAContext.interactionNotAllowed` (nor
+        /// the deprecated `kSecUseAuthenticationUIFail`): that flag tells the
+        /// Keychain to treat any item that *would* require interaction as
+        /// non-matching, so a Touch-ID-protected key reports `errSecItemNotFound`
+        /// — a false negative that let `key generate` overwrite an existing key
+        /// (ho-04.12 dogfood). The status is classified by
+        /// ``KeychainProbe/exists(from:)``, which throws on an unexpected status
+        /// rather than reporting a silent `false`.
+        ///
+        /// - Throws: `CLIError.keychainLoadFailed` for any status other than
+        ///   present (`errSecSuccess`/`errSecInteractionNotAllowed`) or absent
+        ///   (`errSecItemNotFound`).
+        func itemExists() throws -> Bool {
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: keychainService,
                 kSecAttrAccount as String: keychainAccount,
                 kSecAttrAccessGroup as String: keychainAccessGroup,
-                kSecReturnAttributes as String: true,
-                kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
+                kSecMatchLimit as String: kSecMatchLimitOne,
             ]
             let status = SecItemCopyMatching(query as CFDictionary, nil)
-            // errSecInteractionNotAllowed means item exists but needs auth (access control).
-            return status == errSecSuccess || status == errSecInteractionNotAllowed
+            return try KeychainProbe.exists(from: status)
         }
     }
 

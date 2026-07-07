@@ -39,10 +39,11 @@ internal final class PipeDrain: @unchecked Sendable {
 /// and `git` (Conduit, ho-02) through this single surface rather than
 /// scattering `Process` boilerplate at each call site.
 internal enum Shell {
-    /// Paths probed in order when locating an external binary.
+    /// Fixed fallback directories, probed after `PATH`.
     ///
     /// Homebrew on Apple Silicon and Intel, Linuxbrew, and the system fallback.
-    /// The first hit wins.
+    /// These keep GUI-launched contexts working, where the inherited `PATH` is
+    /// minimal (ho-04.12 D6). The first hit wins.
     private static let searchPaths: [String] = [
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -50,14 +51,29 @@ internal enum Shell {
         "/usr/bin",
     ]
 
-    /// Locates a named executable on the standard search paths.
+    /// Locates a named executable, honoring `PATH` first (ho-04.12 D6).
     ///
     /// - Parameter name: The binary name (e.g. `"age"`, `"git"`).
     /// - Returns: URL of the first matching executable.
     /// - Throws: `VaultError.shellNotFound(name:)` if no candidate exists.
     internal static func findExecutable(_ name: String) throws -> URL {
+        try findExecutable(name, pathVariable: ProcessInfo.processInfo.environment["PATH"])
+    }
+
+    /// `PATH`-first executable lookup with the fixed list as fallback.
+    ///
+    /// `PATH` is honored first so the code matches the "on PATH" contract the
+    /// error text and CLAUDE.md already stated; the fixed ``searchPaths`` follow.
+    /// A poisoned `PATH` could serve a hostile `age`, but anyone who can edit
+    /// `PATH` can already alias `sharibako` itself (SECURITY.md).
+    ///
+    /// `pathVariable` is injected so the search order is testable without
+    /// mutating the process environment. Empty `PATH` entries are dropped rather
+    /// than treated as the current directory.
+    internal static func findExecutable(_ name: String, pathVariable: String?) throws -> URL {
         let fileManager = FileManager.default
-        for directory in searchPaths {
+        let pathDirs = (pathVariable ?? "").split(separator: ":").map(String.init)
+        for directory in pathDirs + searchPaths {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
             if fileManager.fileExists(atPath: candidate.path) {
                 return candidate

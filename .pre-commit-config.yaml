@@ -52,7 +52,7 @@ repos:
       # per invocation, hence two invocations.
       - id: swift-build
         name: swift build (type-check)
-        entry: bash -c 'swift build --target SharibakoCLI && swift build --target Sharibako'
+        entry: bash -c 'swift build --target SharibakoCLI -Xswiftc -warnings-as-errors && swift build --target Sharibako -Xswiftc -warnings-as-errors'
         language: system
         pass_filenames: false
         files: \.(swift|json)$

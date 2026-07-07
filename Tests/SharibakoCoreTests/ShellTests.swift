@@ -127,4 +127,75 @@ struct ShellTests {
         let result = try Shell.run(shellBinary, ["-c", "exit 3"])
         #expect(result.exitCode == 3)
     }
+
+    // MARK: - findExecutable PATH resolution (ho-04.12 D6)
+
+    /// Creates a temp directory holding an executable stub named `name`.
+    private func makeBinDir(name: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shell-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let binary = dir.appendingPathComponent(name)
+        FileManager.default.createFile(
+            atPath: binary.path,
+            contents: Data("#!/bin/sh\n".utf8),
+            attributes: [.posixPermissions: 0o755]
+        )
+        return dir
+    }
+
+    @Test("findExecutable locates a binary on PATH")
+    func findsBinaryOnPath() throws {
+        let dir = try makeBinDir(name: "sharibako-fake-tool")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let found = try Shell.findExecutable("sharibako-fake-tool", pathVariable: dir.path)
+        #expect(found.path == dir.appendingPathComponent("sharibako-fake-tool").path)
+    }
+
+    @Test("PATH is searched before the fixed fallback list")
+    func pathBeatsFixedFallback() throws {
+        // A fake `age` on PATH must win over the real one in the fixed list.
+        let dir = try makeBinDir(name: "age")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let found = try Shell.findExecutable("age", pathVariable: dir.path)
+        #expect(found.deletingLastPathComponent().path == dir.path)
+    }
+
+    @Test("PATH entries are searched in order; the first hit wins")
+    func pathSearchedInOrder() throws {
+        let first = try makeBinDir(name: "sharibako-order-tool")
+        let second = try makeBinDir(name: "sharibako-order-tool")
+        defer {
+            try? FileManager.default.removeItem(at: first)
+            try? FileManager.default.removeItem(at: second)
+        }
+        let combined = "\(first.path):\(second.path)"
+        let found = try Shell.findExecutable("sharibako-order-tool", pathVariable: combined)
+        #expect(found.deletingLastPathComponent().path == first.path)
+    }
+
+    @Test("Falls back to the fixed list when PATH lacks the binary")
+    func fallsBackToFixedList() throws {
+        // Empty PATH forces the fixed list; `age` is a dev/CI prerequisite there.
+        let found = try Shell.findExecutable("age", pathVariable: "")
+        #expect(found.lastPathComponent == "age")
+        #expect(found.path.hasPrefix("/"))
+    }
+
+    @Test("Throws shellNotFound when neither PATH nor the fallback has the binary")
+    func throwsWhenAbsentEverywhere() throws {
+        let empty = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shell-empty-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: empty) }
+        let bogus = "sharibako-no-such-binary-\(UUID().uuidString)"
+        let error = #expect(throws: VaultError.self) {
+            _ = try Shell.findExecutable(bogus, pathVariable: empty.path)
+        }
+        guard case .shellNotFound(let name) = error else {
+            Issue.record("expected shellNotFound, got \(String(describing: error))")
+            return
+        }
+        #expect(name == bogus)
+    }
 }

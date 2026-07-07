@@ -67,7 +67,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 // Marker exists and binds a scope.
@@ -122,7 +122,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 // Marker exists; scope ID is derived from the directory name.
@@ -147,7 +147,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 let markerURL = projectDir.appendingPathComponent(".sharibako")
@@ -172,7 +172,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 let markerURL = projectDir.appendingPathComponent(".sharibako")
@@ -198,7 +198,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 let markerURL = projectDir.appendingPathComponent(".sharibako")
@@ -221,7 +221,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
 
                 let markerURL = projectDir.appendingPathComponent(".sharibako")
@@ -267,7 +267,7 @@ struct InitCommandTests {
                     decisions: ["KEY_A": .importAsLocal(key: "KEY_A")]
                 )
                 var firstReader = ["", ""]
-                var firstCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let firstCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try firstCmd._run(
                     cwd: projectDir,
                     decisionSource: firstSource
@@ -287,7 +287,7 @@ struct InitCommandTests {
                     decisions: ["KEY_B": .importAsLocal(key: "KEY_B")]
                 ) { key in .skip(key: key) }
                 // Re-init does not prompt scope ID.
-                var reInitCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let reInitCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try reInitCmd._run(cwd: projectDir, decisionSource: reInitSource) { nil }
 
                 let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
@@ -310,7 +310,7 @@ struct InitCommandTests {
                 // First init.
                 let firstSource = ScriptedIngestDecisionSource.allImportLocal()
                 var firstQueue = ["original-scope", ""]
-                var firstCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let firstCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try firstCmd._run(
                     cwd: projectDir,
                     decisionSource: firstSource
@@ -318,7 +318,7 @@ struct InitCommandTests {
 
                 // Re-init (no new keys in .env, so nothing to present — but marker is preserved).
                 let reInitSource = ScriptedIngestDecisionSource.allSkip()
-                var reInitCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let reInitCmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try reInitCmd._run(cwd: projectDir, decisionSource: reInitSource) { nil }
 
                 let vault = try VaultCore(vaultURL: vaultURL)
@@ -341,7 +341,7 @@ struct InitCommandTests {
             try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: projectDir) }
 
-            var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+            let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
             // allSkip is a safeguard — the decision source must not be reached for an empty proposal.
             #expect(throws: CLIError.nothingToInitialize(directory: projectDir)) {
                 try cmd._run(
@@ -372,7 +372,7 @@ struct InitCommandTests {
                 let lineReader = { () -> String? in
                     lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
                 }
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 #expect(throws: CLIError.notInteractiveTerminal) {
                     try cmd._run(cwd: projectDir, decisionSource: nonTTYPrompt, lineReader: lineReader)
                 }
@@ -398,7 +398,7 @@ struct InitCommandEdgePathTests {
             )
 
             var lineReaderQueue = ["", ""]
-            var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL, extraArgs: ["proj"])
+            let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL, extraArgs: ["proj"])
             // Directory-marked URL: relative-path resolution against a file-marked
             // URL would resolve "proj" against the parent's parent.
             let cwd = URL(fileURLWithPath: parentDir.path, isDirectory: true)
@@ -429,7 +429,7 @@ struct InitCommandEdgePathTests {
             try withProjectDir(env: "API=value\n") { projectDir in
                 // "" accepts generation (default Y), then scope-ID "", scope-type "".
                 var lineReaderQueue = ["", "", ""]
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
                 try cmd._run(
                     cwd: projectDir,
                     decisionSource: ScriptedIngestDecisionSource.allImportLocal()
@@ -457,7 +457,7 @@ struct InitCommandEdgePathTests {
 
             try withProjectDir(env: "API=value\n") { projectDir in
                 var lineReaderQueue = ["n"]
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyPath)
                 try cmd._run(
                     cwd: projectDir,
                     decisionSource: ScriptedIngestDecisionSource.allImportLocal()
@@ -481,7 +481,7 @@ struct InitCommandEdgePathTests {
             try withProjectDir(env: "API=value\n") { projectDir in
                 // ID → "taken" (collision), confirmation → "n" → abort.
                 var lineReaderQueue = ["taken", "n"]
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 #expect(throws: CLIError.aborted) {
                     try cmd._run(
                         cwd: projectDir,
@@ -506,7 +506,7 @@ struct InitCommandEdgePathTests {
                     encoding: .utf8
                 )
 
-                var cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
                 try cmd._run(
                     cwd: projectDir,
                     decisionSource: ScriptedIngestDecisionSource.allImportLocal()

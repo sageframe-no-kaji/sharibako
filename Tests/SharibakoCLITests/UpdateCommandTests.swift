@@ -34,7 +34,7 @@ struct UpdateCommandTests {
             try content.write(to: envPath, atomically: true, encoding: .utf8)
 
             // Run update command.
-            var cmd = try UpdateCommand.parse([
+            let cmd = try UpdateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
@@ -64,7 +64,7 @@ struct UpdateCommandTests {
             let loadedMarker = try materializer.loadMarker(at: markerURL)
             _ = try materializer.materialize(marker: loadedMarker)
 
-            var cmd = try UpdateCommand.parse([
+            let cmd = try UpdateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
@@ -93,7 +93,7 @@ struct UpdateCommandTests {
             let marker = ScopeMarker(scope: "s1", materializeTo: nil, markerURL: markerURL)
             try materializer.writeMarker(marker, at: markerURL)
 
-            var cmd = try UpdateCommand.parse([
+            let cmd = try UpdateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])
@@ -130,7 +130,7 @@ struct UpdateCommandTests {
                 to: envPath, atomically: true, encoding: .utf8
             )
 
-            var cmd = try UpdateCommand.parse([
+            let cmd = try UpdateCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
             ])

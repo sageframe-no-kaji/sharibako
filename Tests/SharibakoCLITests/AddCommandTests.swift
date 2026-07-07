@@ -26,7 +26,7 @@ struct AddCommandTests {
     func addWithNotes() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v1",
@@ -43,7 +43,7 @@ struct AddCommandTests {
     func addJSONOutput() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v1",
@@ -74,7 +74,7 @@ struct AddCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSecret("K", value: "v1", inScope: "s1")
 
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v2",
@@ -93,7 +93,7 @@ struct AddCommandTests {
             let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
             try vault.addSecret("K", value: "v1", inScope: "s1")
 
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v2",
@@ -109,7 +109,7 @@ struct AddCommandTests {
     @Test("_run throws scopeNotFound for missing scope")
     func addFailsMissingScope() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v",
@@ -124,7 +124,7 @@ struct AddCommandTests {
     @Test("_run throws valueInputConflict when both --value and --from-stdin are set")
     func addConflictingInput() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "--value", "v",
@@ -141,7 +141,7 @@ struct AddCommandTests {
     func addMissingInput() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "K",
@@ -158,7 +158,7 @@ struct AddCommandTests {
     func addViaSecurePrompt() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
             try CLITestSupport.writeScope("s1", in: vaultURL)
-            var cmd = try AddCommand.parse([
+            let cmd = try AddCommand.parse([
                 "--vault", vaultURL.path,
                 "--age-key", keyURL.path,
                 "s1", "K",
