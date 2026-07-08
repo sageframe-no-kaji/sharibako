@@ -1,6 +1,6 @@
 # Sharibako — Security
 
-_Sharibako holds secrets. This document says what it protects, what it doesn't, and how the two verbs — `materialize` and `run` — differ in exposure. Written as if v1.0 is done; revised as the software lands. Last revision: 2026-07-01._
+_Sharibako holds secrets. This document says what it protects, what it doesn't, and how the two verbs — `materialize` and `run` — differ in exposure. Written as if v1.0 is done; revised as the software lands. Last revision: 2026-07-08._
 
 If you find a security issue, see [Reporting a vulnerability](#reporting-a-vulnerability) at the bottom of this document.
 
@@ -149,13 +149,21 @@ Outside the vault:
 
 ### `sharibako run [--scope <id>] -- <command>`
 
-**Where the value lives:** in the memory of the sharibako wrapper process and the memory of the child process it spawns. Set as environment variables in the child. Exits with the process.
+**Where the value lives:** in the environment of the process itself. `run` composes the values into its own environment and then `exec`s into the command — replacing its process image — so there is one process, not a wrapper plus a spawned child. The values live in that process's environment for its lifetime and exit with it. Nothing is written to disk.
 
-**Who can read it:** the wrapper process and the child process (intended). On Linux, `/proc/<pid>/environ` is readable by the same user; on macOS, `ps -E` shows env vars for processes owned by the user. A privileged debugger attached to the child process can read memory. These are all Class 3 (code execution) concerns, not Class 4.
+**Who can read it:** the process itself (intended). On Linux, `/proc/<pid>/environ` is readable by the same user; on macOS, `ps -E` shows env vars for processes owned by the user. A privileged debugger attached to the process can read its memory. These are all Class 3 (code execution) concerns, not Class 4.
 
 **When to use it:** for anything you launch interactively. `sharibako run -- npm run dev`, `sharibako run -- python app.py`, `sharibako run -- docker-compose up`, `sharibako run -- cargo run`.
 
-**Mitigations:** the temporary age-key file is scrubbed and deleted as soon as decryption completes — before the child is spawned, so it does not persist for the child's lifetime. Decrypted values themselves are not wiped from the wrapper's memory in v1 — they go out of scope and exit with the process (see Known limits).
+**Mitigations:** the temporary age-key file is scrubbed and deleted as soon as decryption completes — before `run` `exec`s into the command, so it does not persist for the command's lifetime. Decrypted values themselves are not wiped from memory in v1 — they are handed to the command via the environment and exit with the process (see Known limits).
+
+### `run` injects secrets as environment variables (accepted tradeoff)
+
+`sharibako run` decrypts a scope's secrets, composes them into the environment, and `exec`s into the command. For the command's lifetime the secret values live in its process environment in plaintext.
+
+This is a deliberate tradeoff, not an oversight. Environment variables are plaintext by nature — any tool that consumes secrets via the environment (the pattern `run` targets) holds them in plaintext while it runs. Sharibako's security boundary is a **Mac at rest**: the vault files, age key, and any temp key are protected by FileVault at rest; the injected environment is protected only by macOS process isolation while the machine is unlocked and the process is live.
+
+We know what this does not cover: a hostile process running as the same user in an unlocked session can potentially observe the command's environment, and `run` does not redact secrets a command prints to its own stdout/stderr. The stronger model — a broker that never places secrets in the environment and mediates access at runtime — is understood and deliberately deferred (see the [parked issue](https://github.com/sageframe-no-kaji/sharibako/issues/7)). We have thought about it; this is the tradeoff we ship.
 
 ### `sharibako get <scope> <KEY>`
 
@@ -321,7 +329,7 @@ Per-key ownership means sharibako has a specific list of things it interacts wit
 - **No key escrow.** Sharibako cannot recover a lost age key. No support process, no override.
 - **No password-manager features.** No autofill, no browser extension, no card storage, no identity records. Website logins belong in a password manager.
 - **No team features.** No RBAC, no per-user audit log, no shared-vault permission model. Multiple humans CAN share a vault by sharing the age key, but they are not distinguished by Sharibako.
-- **No runtime process attachment.** Sharibako does not inject env vars into already-running processes. `sharibako run` spawns a fresh process with values set at fork time.
+- **No runtime process attachment.** Sharibako does not inject env vars into already-running processes. `sharibako run` sets the values in its own environment and then replaces itself with the command via `exec` — the command starts with the values already in place.
 
 ---
 

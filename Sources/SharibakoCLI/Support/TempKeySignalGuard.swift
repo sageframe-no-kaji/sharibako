@@ -14,10 +14,10 @@ import Foundation
 /// disposition, and re-raises, so the process still dies of the same signal —
 /// observably — but after the key is gone.
 ///
-/// The trap is a `DispatchSourceSignal`, not a raw `sigaction` handler, for the
-/// same reason `SignalForwarder` is: the handler runs on a normal dispatch
-/// queue, so it may call `FileManager` and friends (a raw C signal handler is
-/// restricted to async-signal-safe calls, which `scrubAndDelete` is not).
+/// The trap is a `DispatchSourceSignal`, not a raw `sigaction` handler: the
+/// handler runs on a normal dispatch queue, so it may call `FileManager` and
+/// friends (a raw C signal handler is restricted to async-signal-safe calls,
+/// which `scrubAndDelete` is not).
 ///
 /// The scrub action and the re-raise are both injected, so a test can drive
 /// ``handle(_:)`` directly — asserting the file is gone and the signal was

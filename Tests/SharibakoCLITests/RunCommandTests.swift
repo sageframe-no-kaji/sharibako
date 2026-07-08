@@ -7,11 +7,13 @@ import Testing
 
 /// Tests for `sharibako run`.
 ///
-/// Serialized because these exercise process-global state — environment variables
-/// (scope-wins) and spawned child processes. `_run(forwardSignals: false)` keeps the
-/// real signal-handler installation out of the test process; the live forwarding is
-/// coverage-excluded and dogfood-validated. Every test drives `_run` directly rather
-/// than `run()`, since `run()` calls `Foundation.exit` to propagate the child's status.
+/// `_run` resolves the scope, decrypts, composes the child environment, and returns
+/// `RunOutcome.ready` **without** exec-ing — so these drive it in-process and read the
+/// composed environment back. The actual `execve` (ho-04.13) lives in `ExecReplace`,
+/// which replaces the process image and can only be exercised by the dogfood gate; the
+/// exec-side behaviors (exit-code propagation, signal-death mapping, chdir failure) move
+/// there with it. Serialized because `scopeWinsOverParentEnv` mutates the process's own
+/// environment.
 @Suite("sharibako run", .serialized)
 struct RunCommandTests {
     /// Parses an argv into a `RunCommand` via the root command's dispatch.
@@ -29,8 +31,17 @@ struct RunCommandTests {
         try body(dir)
     }
 
-    @Test("Injects scope secrets into the child's environment")
-    func injectsEnvironment() throws {
+    /// Unwraps a `.ready` outcome's composed environment, failing the test otherwise.
+    private func readyEnvironment(_ outcome: RunOutcome) throws -> [String: String] {
+        guard case .ready(let environment, _, _) = outcome else {
+            Issue.record("expected .ready, got \(outcome)")
+            throw CLIError.runCommandEmpty
+        }
+        return environment
+    }
+
+    @Test("Composes scope secrets into the child environment")
+    func composesEnvironment() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
             try CLITestSupport.writeScope("proj", in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
@@ -39,12 +50,10 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                    "--", "sh", "-c", "printf %s \"$FOO\" > out.txt",
+                    "--", "sh", "-c", "true",
                 ])
-                let outcome = try cmd._run(cwd: proj, forwardSignals: false)
-                #expect(outcome == .ran(exitCode: 0))
-                let out = try String(contentsOf: proj.appendingPathComponent("out.txt"), encoding: .utf8)
-                #expect(out == "bar-123")
+                let env = try readyEnvironment(cmd._run(cwd: proj))
+                #expect(env["FOO"] == "bar-123")
             }
         }
     }
@@ -62,17 +71,16 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                    "--", "sh", "-c", "printf %s \"$SHARIBAKO_RUN_TEST_KEY\" > out.txt",
+                    "--", "sh", "-c", "true",
                 ])
-                _ = try cmd._run(cwd: proj, forwardSignals: false)
-                let out = try String(contentsOf: proj.appendingPathComponent("out.txt"), encoding: .utf8)
-                #expect(out == "scope-val")
+                let env = try readyEnvironment(cmd._run(cwd: proj))
+                #expect(env["SHARIBAKO_RUN_TEST_KEY"] == "scope-val")
             }
         }
     }
 
-    @Test("Propagates the child's exit code")
-    func propagatesExitCode() throws {
+    @Test("Passes the command through to the outcome, keeping the -- separator for env")
+    func passesCommandThrough() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
             try CLITestSupport.writeScope("proj", in: vault)
             let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
@@ -81,27 +89,16 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                    "--", "sh", "-c", "exit 7",
+                    "--", "node", "app.js",
                 ])
-                #expect(try cmd._run(cwd: proj, forwardSignals: false) == .ran(exitCode: 7))
-            }
-        }
-    }
-
-    @Test("Maps signal death to 128 + signum")
-    func mapsSignalDeath() throws {
-        try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
-            try CLITestSupport.writeScope("proj", in: vault)
-            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
-            try core.addSecret("FOO", value: "x", inScope: "proj")
-
-            try withProjectDir { proj in
-                let cmd = try parseRun([
-                    "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                    "--", "sh", "-c", "kill -TERM $$",
-                ])
-                // SIGTERM is 15 → 128 + 15 = 143.
-                #expect(try cmd._run(cwd: proj, forwardSignals: false) == .ran(exitCode: 143))
+                guard case .ready(_, let command, let cwd) = try cmd._run(cwd: proj) else {
+                    Issue.record("expected .ready")
+                    return
+                }
+                // `.captureForPassthrough` keeps the leading `--`; ExecReplace hands it to
+                // /usr/bin/env, which consumes it — parity with the old Process path.
+                #expect(command == ["--", "node", "app.js"])
+                #expect(cwd == proj)
             }
         }
     }
@@ -117,7 +114,7 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 // No --age-key supplied: if dry-run tried to decrypt it would need one.
                 let cmd = try parseRun(["run", "--vault", vault.path, "--scope", "proj", "--dry-run"])
-                let outcome = try cmd._run(cwd: proj, forwardSignals: false)
+                let outcome = try cmd._run(cwd: proj)
                 #expect(outcome == .dryRun(names: ["BAZ", "FOO"]))
             }
         }
@@ -132,32 +129,34 @@ struct RunCommandTests {
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
                 ])
                 #expect(throws: CLIError.runCommandEmpty) {
-                    _ = try cmd._run(cwd: proj, forwardSignals: false)
+                    _ = try cmd._run(cwd: proj)
                 }
             }
         }
     }
 
-    @Test("Runs the child with the parent environment when the scope is empty")
-    func emptyScopeStillRuns() throws {
+    @Test("An empty scope still composes the parent environment and a zero-count line")
+    func emptyScopeStillComposes() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
             try CLITestSupport.writeScope("empty", in: vault)
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "empty",
-                    "--", "sh", "-c", "exit 0",
+                    "--", "sh", "-c", "true",
                 ])
                 let feedback = CLITestSupport.FeedbackCollector()
-                #expect(
-                    try cmd._run(cwd: proj, forwardSignals: false, feedback: feedback.sink()) == .ran(exitCode: 0)
-                )
+                let outcome = try cmd._run(cwd: proj, feedback: feedback.sink())
+                guard case .ready = outcome else {
+                    Issue.record("expected .ready")
+                    return
+                }
                 // The zero-count startup line replaces the former empty-scope note.
-                #expect(feedback.lines.contains("sharibako: scope 'empty' — no secrets to inject → sh -c exit 0"))
+                #expect(feedback.lines.contains("sharibako: scope 'empty' — no secrets to inject → sh -c true"))
             }
         }
     }
 
-    @Test("Emits the startup line to the feedback sink, never to stdout")
+    @Test("Emits the startup line to the feedback sink, never to stdout, never a value")
     func emitsStartupLine() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
             try CLITestSupport.writeScope("proj", in: vault)
@@ -167,13 +166,13 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                    "--", "sh", "-c", "exit 0",
+                    "--", "sh", "-c", "true",
                 ])
                 let feedback = CLITestSupport.FeedbackCollector()
-                _ = try cmd._run(cwd: proj, forwardSignals: false, feedback: feedback.sink())
+                _ = try cmd._run(cwd: proj, feedback: feedback.sink())
                 // Feedback flows only through the injected sink — the sole emission path,
-                // so stdout is untouched by construction. The child's value never appears.
-                #expect(feedback.lines == ["sharibako: scope 'proj' — 1 secret → sh -c exit 0"])
+                // so stdout is untouched by construction. The secret's value never appears.
+                #expect(feedback.lines == ["sharibako: scope 'proj' — 1 secret → sh -c true"])
                 #expect(!feedback.lines.contains { $0.contains("bar") })
             }
         }
@@ -198,33 +197,11 @@ struct RunCommandTests {
             try withProjectDir { proj in
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", wrongKey.path, "--scope", "proj",
-                    "--", "sh", "-c", "exit 0",
+                    "--", "sh", "-c", "true",
                 ])
                 #expect(throws: (any Error).self) {
-                    _ = try cmd._run(cwd: proj, forwardSignals: false)
+                    _ = try cmd._run(cwd: proj)
                 }
-            }
-        }
-    }
-
-    @Test("Nonexistent cwd surfaces runSpawnFailed instead of running")
-    func nonexistentCwdSpawnFails() throws {
-        try CLITestSupport.withEphemeralVaultAndFileKey { vault, key in
-            try CLITestSupport.writeScope("proj", in: vault)
-            let core = try VaultCore(vaultURL: vault, ageKeyURL: key)
-            try core.addSecret("FOO", value: "x", inScope: "proj")
-
-            let ghostCwd = FileManager.default.temporaryDirectory
-                .appendingPathComponent("sb-run-no-such-dir-\(UUID().uuidString)")
-            let cmd = try parseRun([
-                "run", "--vault", vault.path, "--age-key", key.path, "--scope", "proj",
-                "--", "sh", "-c", "exit 0",
-            ])
-            #expect {
-                _ = try cmd._run(cwd: ghostCwd, forwardSignals: false)
-            } throws: { error in
-                guard case CLIError.runSpawnFailed = error else { return false }
-                return true
             }
         }
     }
@@ -237,7 +214,7 @@ struct RunCommandTests {
             try core.addSecret("FOO", value: "x", inScope: "proj")
 
             // Explicit --scope keeps the marker walk away from the test process's
-            // real cwd; --dry-run returns from run() before Foundation.exit.
+            // real cwd; --dry-run returns from run() before any exec.
             try await CLITestSupport.runCommand([
                 "run", "--vault", vault.path, "--scope", "proj", "--dry-run",
             ])
@@ -257,12 +234,10 @@ struct RunCommandTests {
                 )
                 let cmd = try parseRun([
                     "run", "--vault", vault.path, "--age-key", key.path,
-                    "--", "sh", "-c", "printf %s \"$FOO\" > out.txt",
+                    "--", "sh", "-c", "true",
                 ])
-                let outcome = try cmd._run(cwd: proj, forwardSignals: false)
-                #expect(outcome == .ran(exitCode: 0))
-                let out = try String(contentsOf: proj.appendingPathComponent("out.txt"), encoding: .utf8)
-                #expect(out == "from-marker")
+                let env = try readyEnvironment(cmd._run(cwd: proj))
+                #expect(env["FOO"] == "from-marker")
             }
         }
     }
