@@ -10,12 +10,43 @@ import SharibakoCore
 struct CleanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "clean",
-        abstract: "Remove owned secrets from the target .env file."
+        abstract: "Remove owned secrets from the target .env file.",
+        discussion: """
+            Removes the sharibako-owned lines from a scope's materialized .env, \
+            leaving every non-owned line (comments, blanks, config like \
+            DEBUG=true) intact. If the file would be left empty or contain only \
+            whitespace and comments, it is deleted; otherwise your remaining \
+            content stays. 'clean' is the hygiene counterpart to 'materialize': \
+            run it when the plaintext values written to disk should no longer \
+            persist - after a work session, or before committing if a .env \
+            accidentally got staged.
+
+            No age key is required: 'clean' reads only filenames from the vault to \
+            know which keys it owns; it never decrypts. The scope is resolved from \
+            the argument, or - when omitted - from the nearest .sharibako marker \
+            walking up from the current directory (the same discovery git uses for \
+            .git). It asks for confirmation first unless --yes is given; when \
+            stdin is not a terminal there is nobody to answer, so --yes is \
+            required and its absence is a hard error rather than a silent skip.
+
+            EXAMPLES
+
+            Clean the scope for the current project directory, with a prompt:
+              sharibako clean
+
+            Clean a named scope non-interactively (in a script):
+              sharibako clean paperless-on-jodo --yes
+
+            EXIT CODES
+
+            Exits 130 when a human declines the confirmation, 2 when confirmation \
+            is required but stdin is not a terminal and --yes was not passed.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
-    @Argument(help: "Scope to clean (resolved from cwd when omitted).")
+    @Argument(help: "Scope to clean (resolved from the cwd marker when omitted).")
     var scope: String?
 
     @Flag(name: .long, help: "Skip the confirmation prompt (required when stdin is not a terminal).")

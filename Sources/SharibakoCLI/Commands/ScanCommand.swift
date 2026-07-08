@@ -34,7 +34,27 @@ struct ScanJSONResult: Codable, Sendable {
 struct ScanCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "scan",
-        abstract: "Find .sharibako markers below a directory."
+        abstract: "Find .sharibako markers below a directory.",
+        discussion: """
+            Walks a directory tree and reports every .sharibako marker it finds, \
+            printing the scope, marker path, and materialize target for each - a \
+            map of which project directories on disk are bound to which scopes. \
+            Defaults to the current directory when no root is given. Markers that \
+            fail to load or validate are surfaced as warnings on stderr (or in the \
+            'failures' array under --json) so stdout stays a clean, pipeable table.
+
+            'scan' is discovery across many directories; 'status' inventories the \
+            vault itself; 'list' just names scopes. No age key is required - 'scan' \
+            reads marker files only and never decrypts.
+
+            EXAMPLES
+
+            Map every marked project under a code tree:
+              sharibako scan ~/Projects
+
+            Scan the current directory, machine-readable:
+              sharibako scan --json
+            """
     )
 
     @OptionGroup var global: GlobalOptions

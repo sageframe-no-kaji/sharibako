@@ -9,13 +9,33 @@ import SharibakoCore
 struct ListCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List scope or shared-entry IDs."
+        abstract: "List scope or shared-entry IDs.",
+        discussion: """
+            Prints the IDs in the vault, one per line: every scope by default, or \
+            every shared-pool entry with --shared. It is the quick "what's in \
+            here" verb - a bare inventory of names. For per-scope detail (secret \
+            counts, key kinds, drift), use 'sharibako status'.
+
+            No age key is required; 'list' reads directory names only and never \
+            decrypts. --json emits a plain array of IDs.
+
+            EXAMPLES
+
+            List every scope:
+              sharibako list
+
+            List the shared pool (targets for 'link'):
+              sharibako list --shared
+
+            Machine-readable:
+              sharibako list --json
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
     /// Switch output to shared entries instead of scopes.
-    @Flag(help: "List shared entries instead of scopes.")
+    @Flag(help: "List shared-pool entries instead of scopes.")
     var shared: Bool = false
 
     func run() async throws {

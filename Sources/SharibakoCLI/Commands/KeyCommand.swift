@@ -7,6 +7,28 @@ struct KeyCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "key",
         abstract: "Manage the age identity key.",
+        discussion: """
+            Manages the single age identity that encrypts and decrypts every \
+            secret in the vault. The subcommands are 'generate' (create a fresh \
+            key pair - and, on first use, the vault it protects), 'import' (adopt \
+            an existing age private-key file), and 'export' (print the public \
+            recipient key, or the raw private key with an explicit acknowledgement).
+
+            WHERE THE KEY LIVES
+
+            Without --age-key, on macOS the private key is stored in the Keychain \
+            with Touch ID gating; on Linux it is written to \
+            ~/.config/sharibako/age-key as a 0600 plaintext file. With --age-key \
+            <path> (or SHARIBAKO_AGE_KEY) the key is a file at that path on either \
+            platform, and Touch ID is not involved.
+
+            The age key is the only thing that decrypts the vault. It is never \
+            escrowed and cannot be recovered if lost - back up the recipient key \
+            somewhere durable off the machine that holds the vault. Losing the key \
+            means rotating every secret at its provider and starting a new vault.
+
+            Run 'sharibako key <subcommand> --help' for the specifics of each.
+            """,
         subcommands: [
             GenerateCommand.self,
             ImportCommand.self,
@@ -24,17 +46,51 @@ struct KeyCommand: AsyncParsableCommand {
 struct GenerateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "generate",
-        abstract: "Generate a new age key pair."
+        abstract: "Generate a new age key pair.",
+        discussion: """
+            Generates a fresh age key pair and stores the private key: in the \
+            macOS Keychain (Touch ID gated) by default, or to a file when \
+            --age-key <path> is given (or on Linux). The public recipient key is \
+            printed - save it somewhere durable off the machine, because it is \
+            the string you back up and the vault cannot be recovered without the \
+            private key. This is also the bootstrap command on a fresh install: \
+            it creates the vault directory alongside the key.
+
+            'generate' refuses to clobber an existing key unless --force is given, \
+            and even then confirms interactively unless --yes is also passed - \
+            replacing the key that decrypts your vault makes every existing \
+            secret unreadable, so the two-flag gate is deliberate. Generation is \
+            staged and swapped into place atomically: if key creation fails, the \
+            existing key (the only thing that decrypts the vault) survives \
+            untouched.
+
+            EXAMPLES
+
+            First-time bootstrap (Keychain on macOS):
+              sharibako key generate
+
+            Generate a file-based key for Linux or CI:
+              sharibako key generate --age-key ~/.config/sharibako/age-key
+
+            Deliberately replace an existing key, no prompt:
+              sharibako key generate --force --yes
+
+            EXIT CODES
+
+            Exits 2 when a key already exists and --force was not given.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
     /// Overwrite an existing key when present.
-    @Flag(help: "Replace an existing age key (generate otherwise refuses).")
+    @Flag(
+        help: "Replace an existing age key (refuses without it, exit 2). Destroys access to the current vault."
+    )
     var force: Bool = false
 
     /// Skip the interactive confirmation prompt when `--force` is used.
-    @Flag(help: "Skip the replacement confirmation prompt.")
+    @Flag(help: "Skip the replacement confirmation prompt (used with --force).")
     var yes: Bool = false
 
     func run() async throws {
@@ -140,7 +196,33 @@ struct GenerateCommand: AsyncParsableCommand {
 struct ImportCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "import",
-        abstract: "Import an existing age key file."
+        abstract: "Import an existing age key file.",
+        discussion: """
+            Adopts an existing age private-key file as this vault's identity: on \
+            macOS (without --age-key) it is stored in the Keychain; otherwise it \
+            is written to the file location (mode 0600). The source file is \
+            validated to look like an age identity before anything is stored. Use \
+            this to move a vault to a new machine (clone the vault, import the \
+            key), or to switch from a file-based key to the Keychain.
+
+            After importing, Sharibako asks whether to delete the source file - \
+            leaving a second copy of your private key lying around is a leak. \
+            --delete-source removes it without asking; --keep-source keeps it \
+            without asking. Give at most one.
+
+            EXAMPLES
+
+            Import a key and be prompted about the source file:
+              sharibako key import ~/backup/age-key
+
+            Import and delete the source in one step:
+              sharibako key import /Volumes/USB/age-key --delete-source
+
+            EXIT CODES
+
+            Exits 3 when the source file does not exist, 2 when it is not a valid \
+            age identity.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
@@ -148,10 +230,10 @@ struct ImportCommand: AsyncParsableCommand {
     @Argument(help: "Path to the age private-key file to import.")
     var sourcePath: String
 
-    @Flag(name: .customLong("delete-source"), help: "Delete the source file after import.")
+    @Flag(name: .customLong("delete-source"), help: "Delete the source file after import (no prompt).")
     var deleteSource: Bool = false
 
-    @Flag(name: .customLong("keep-source"), help: "Keep the source file (skip deletion prompt).")
+    @Flag(name: .customLong("keep-source"), help: "Keep the source file (skip the deletion prompt).")
     var keepSource: Bool = false
 
     func run() async throws {
@@ -241,7 +323,35 @@ struct ImportCommand: AsyncParsableCommand {
 struct ExportCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "export",
-        abstract: "Export the age public (or private) key."
+        abstract: "Export the age public (or private) key.",
+        discussion: """
+            Prints the vault's age public recipient key (the age1... string) by \
+            default - safe to share, it is what encrypts secrets and appears in \
+            git history. This is the string to save as your durable off-machine \
+            backup reference.
+
+            With --private, 'export' prints the RAW PRIVATE KEY to stdout in \
+            plaintext. Because that is the one secret that decrypts your entire \
+            vault, it requires the explicit --i-know-this-is-plaintext \
+            acknowledgement; without it the command refuses. On macOS, reading \
+            the private key triggers Touch ID. Redirect --private output only to \
+            a destination you trust and intend to protect (an encrypted USB, a \
+            password manager) - never to a file in a synced or git-tracked \
+            directory.
+
+            EXAMPLES
+
+            Print the public recipient key to back up:
+              sharibako key export
+
+            Export the private key to an encrypted volume (acknowledged):
+              sharibako key export --private --i-know-this-is-plaintext > /Volumes/CRYPT/age-key
+
+            EXIT CODES
+
+            Exits 2 when --private is given without --i-know-this-is-plaintext, or \
+            when both --public and --private are given.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
@@ -249,12 +359,12 @@ struct ExportCommand: AsyncParsableCommand {
     @Flag(help: "Export the public recipient key (default).")
     var `public`: Bool = false
 
-    @Flag(help: "Export the raw private key (requires --i-know-this-is-plaintext).")
+    @Flag(help: "Export the raw private key in plaintext (requires --i-know-this-is-plaintext).")
     var `private`: Bool = false
 
     @Flag(
         name: .customLong("i-know-this-is-plaintext"),
-        help: "Acknowledge that the private key will be printed in plaintext.")
+        help: "Acknowledge that the private key will be printed in plaintext (required with --private).")
     var iKnowThisIsPlaintext: Bool = false
 
     func validate() throws {

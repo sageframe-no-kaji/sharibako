@@ -27,7 +27,60 @@ enum RunOutcome: Equatable {
 struct RunCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "run",
-        abstract: "Run a command with a scope's secrets in its environment (nothing written to disk)."
+        abstract: "Run a command with a scope's secrets in its environment (nothing written to disk).",
+        discussion: """
+            Decrypts a scope's owned secrets into memory, composes them into the \
+            environment (the scope's values overlay the inherited environment; \
+            the scope wins on a collision), and runs your command with them set. \
+            Nothing is written to disk. This is the peer of 'materialize' and the \
+            right verb for anything you launch interactively - npm run dev, python \
+            app.py, docker-compose up, cargo run. Put the command after a literal \
+            '--' so its own flags are not parsed by sharibako. Touch ID fires \
+            once, before the command starts. The scope comes from --scope, or is \
+            resolved from the nearest .sharibako marker walking up from the \
+            current directory.
+
+            EXEC-REPLACE - no wrapper parent
+
+            Once the environment is composed and the age key released, 'run' \
+            REPLACES ITS OWN PROCESS IMAGE with the command (via execve). There is \
+            no sharibako parent process for the command's lifetime, so signals, \
+            stdin, terminal control, and the exit code are all native: Ctrl-C \
+            reaches your command directly, an interactive REPL reads the terminal \
+            without stopping, and the command's PID is the one your shell \
+            launched. There is no signal-forwarding layer to get in the way.
+
+            EXIT CODES
+
+            Because 'run' becomes the command, its exit status IS the command's: \
+            'run' propagates the child's exit code unchanged, and a command that \
+            dies on a signal exits 128+signum (e.g. 130 for SIGINT/Ctrl-C, 143 \
+            for SIGTERM) - the standard shell convention. A missing command \
+            surfaces as 127 from /usr/bin/env. (These are the command's codes, not \
+            sharibako's taxonomy in sharibako(1).)
+
+            SECURITY
+
+            For the command's lifetime the secret values live in its process \
+            environment in plaintext - inherent to the environment-variable \
+            pattern 'run' targets. The security boundary is a Mac at rest: the \
+            injected environment is protected only by process isolation while the \
+            machine is unlocked. 'run' does not redact secrets a command prints to \
+            its own stdout/stderr. Use --dry-run to preview which names would be \
+            set without decrypting anything - safe to hand to an AI agent that \
+            needs to know what secrets exist but must not see their values.
+
+            EXAMPLES
+
+            Run a dev server with the current project's secrets, nothing on disk:
+              sharibako run -- npm run dev
+
+            Run under an explicit scope:
+              sharibako run --scope kanyo-dev -- docker-compose up
+
+            Preview the injected names without decrypting (no Touch ID):
+              sharibako run --dry-run -- npm run dev
+            """
     )
 
     @OptionGroup var global: GlobalOptions
@@ -35,10 +88,13 @@ struct RunCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Scope to run under (resolved from the cwd marker when omitted).")
     var scope: String?
 
-    @Flag(name: .long, help: "Print the names of secrets that would be injected, then exit. No values, no Touch ID.")
+    @Flag(
+        name: .long,
+        help: "Print the names of secrets that would be injected, then exit. No values, no decryption, no Touch ID."
+    )
     var dryRun: Bool = false
 
-    @Argument(parsing: .captureForPassthrough, help: "The command and its arguments (after `--`).")
+    @Argument(parsing: .captureForPassthrough, help: "The command and its arguments, after a literal `--`.")
     var command: [String] = []
 
     /// Production entry point.

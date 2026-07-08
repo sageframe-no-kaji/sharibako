@@ -9,15 +9,42 @@ import SharibakoCore
 struct SyncCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "sync",
-        abstract: "Commit, push, and pull the vault git repository."
+        abstract: "Commit, push, and pull the vault git repository.",
+        discussion: """
+            Commits any pending vault changes, pushes to the remote, and pulls \
+            incoming commits - the vault is a git repository of encrypted files, \
+            and 'sync' is its one-command git cycle. The remote only ever receives \
+            ciphertext .age files and plaintext .link pointers; the age private \
+            key never leaves the machine. Use --no-push or --no-pull to run half \
+            the cycle, and -m to set the commit message.
+
+            No age key is required - 'sync' operates at the git level and decrypts \
+            nothing. If a push is rejected or a pull hits a conflict, 'sync' \
+            leaves the vault clean, reports the conflicting files with their SHAs, \
+            and asks you to resolve remotely before running it again. A vault with \
+            no configured remote commits locally and reports zero pushed/pulled.
+
+            EXAMPLES
+
+            Full commit/push/pull cycle:
+              sharibako sync
+
+            Commit and push only, with a message:
+              sharibako sync --no-pull -m "rotate cloudflare key"
+
+            EXIT CODES
+
+            Exits 5 when a push is rejected or a pull conflicts (resolve remotely, \
+            then rerun).
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
-    @Flag(name: .customLong("no-push"), help: "Skip the push step.")
+    @Flag(name: .customLong("no-push"), help: "Skip the push step (commit and pull only).")
     var noPush: Bool = false
 
-    @Flag(name: .customLong("no-pull"), help: "Skip the pull step.")
+    @Flag(name: .customLong("no-pull"), help: "Skip the pull step (commit and push only).")
     var noPull: Bool = false
 
     @Option(name: .shortAndLong, help: "Commit message (default: \"sharibako auto-commit\").")
@@ -82,7 +109,7 @@ struct SyncCommand: AsyncParsableCommand {
         case .upToDate: return 0
         case .noRemote: return 0
         case .abortedConflict(let conflicts):
-            fputs("Pull conflict (merge aborted — vault is clean):\n", stderr)
+            fputs("Pull conflict (merge aborted - vault is clean):\n", stderr)
             for conflict in conflicts {
                 fputs("  \(conflict.path.lastPathComponent)\n", stderr)
                 if !conflict.localSHA.isEmpty {

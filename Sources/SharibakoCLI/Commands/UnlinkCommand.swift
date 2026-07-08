@@ -9,7 +9,27 @@ import SharibakoCore
 struct UnlinkCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "unlink",
-        abstract: "Convert a linked key back into a scope-local secret."
+        abstract: "Convert a linked key back into a scope-local secret.",
+        discussion: """
+            Dissolves a link, giving the scope its own copy of the value. It \
+            decrypts the shared entry the key currently points at and re-encrypts \
+            that value as a scope-local secret (<KEY>.age), replacing the .link \
+            pointer - so the key keeps its current value but stops tracking the \
+            shared entry. After this, rotating the shared entry no longer affects \
+            this scope. It is the inverse of 'sharibako link'. Touch ID fires once \
+            (the value must be decrypted and re-encrypted). The shared entry \
+            itself is left in place for other scopes.
+
+            EXAMPLES
+
+            Detach a project's key from the shared pool, keeping the value:
+              sharibako unlink kanyo-dev OPENAI_API_KEY
+
+            EXIT CODES
+
+            Exits 2 when the scope or key does not exist or the key is not linked, \
+            4/6 on decrypt/Keychain failures.
+            """
     )
 
     @OptionGroup var global: GlobalOptions

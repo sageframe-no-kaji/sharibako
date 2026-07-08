@@ -9,15 +9,53 @@ import SharibakoCore
 struct MaterializeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "materialize",
-        abstract: "Write vault secrets into the target .env file."
+        abstract: "Write vault secrets into the target .env file.",
+        discussion: """
+            Merges a scope's owned secrets into the .env at the marker's target \
+            path, decrypting each owned value and writing its KEY=value line while \
+            preserving every non-owned line - comments, blanks, and config like \
+            DEBUG=true - byte for byte. Touch ID fires once for all owned keys. \
+            The scope is taken from the argument, or resolved from the nearest \
+            .sharibako marker walking up from the current directory when omitted.
+
+            SECURITY - plaintext at rest
+
+            'materialize' is the one verb that puts decrypted values on disk. Any \
+            process that can read the file can read the secrets - including AI \
+            coding agents, IDE indexers, backups, and cloud-sync clients. Use it \
+            ONLY for consumers that cannot be wrapped: docker-compose services, \
+            systemd units, cron jobs - anything that starts on boot or a schedule \
+            with no interactive process to attach to. For anything you launch \
+            interactively, use 'sharibako run', which keeps values off disk \
+            entirely. The file is written mode 0600 (owner-only) on every \
+            materialize; clean it up afterward with 'sharibako clean'.
+
+            If the file already contains owned lines whose values differ from the \
+            vault, 'materialize' stops and reports the drift rather than \
+            silently clobbering hand-edits; rerun with --force to overwrite, or \
+            use 'update' to pull those edits into the vault instead.
+
+            EXAMPLES
+
+            Materialize the current project's .env:
+              sharibako materialize
+
+            Materialize a homelab service scope, overwriting drift:
+              sharibako materialize paperless-on-jodo --force
+
+            EXIT CODES
+
+            Exits 2 when drift is detected without --force, 2 for an unknown scope \
+            or missing marker, 4/6 on decrypt/Keychain failures.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
-    @Argument(help: "Scope to materialize (resolved from cwd when omitted).")
+    @Argument(help: "Scope to materialize (resolved from the cwd marker when omitted).")
     var scope: String?
 
-    @Flag(name: .long, help: "Overwrite differing owned lines (materialize otherwise stops at the diff).")
+    @Flag(name: .long, help: "Overwrite differing owned lines (materialize otherwise stops at the diff, exit 2).")
     var force: Bool = false
 
     func run() async throws {
