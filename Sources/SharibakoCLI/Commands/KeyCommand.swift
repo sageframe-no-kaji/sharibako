@@ -46,6 +46,13 @@ struct GenerateCommand: AsyncParsableCommand {
     // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name
     func _run() throws {
+        // Scaffold the vault directory first. `key generate` is the command the
+        // "vault not found" hint names as the way to create a vault, and every
+        // other verb requires the vault to already exist — without this, a fresh
+        // install is a catch-22 (ho-04.14). Idempotent: a no-op on an existing vault.
+        let vaultURL = VaultLocator.intendedVaultURL(globalFlag: global.vaultURL)
+        try VaultCore.createVault(at: vaultURL)
+
         let destPath = VaultLocator.resolveAgeKey(globalFlag: global.ageKeyURL)
 
         if let path = destPath {

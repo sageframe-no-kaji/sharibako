@@ -107,6 +107,34 @@ struct VaultLocatorTests {
         #expect(path.path.hasSuffix(".sharibako/vault"))
     }
 
+    // MARK: - intendedVaultURL (creation path — no existence check)
+
+    @Test("intendedVaultURL returns the --vault flag path without checking existence")
+    func intendedFlagNoExistenceCheck() {
+        let ghost = URL(fileURLWithPath: "/nonexistent/sharibako-\(UUID().uuidString)")
+        let url = VaultLocator.intendedVaultURL(globalFlag: ghost, environment: [:])
+        #expect(url.path == ghost.path)
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
+    @Test("intendedVaultURL falls back to SHARIBAKO_VAULT without checking existence")
+    func intendedEnvNoExistenceCheck() {
+        let ghost = "/nonexistent/sharibako-env-\(UUID().uuidString)"
+        let url = VaultLocator.intendedVaultURL(
+            globalFlag: nil, environment: ["SHARIBAKO_VAULT": ghost])
+        #expect(url.path == ghost)
+    }
+
+    @Test("intendedVaultURL falls back to ~/.sharibako/vault without requiring it to exist")
+    func intendedDefaultNoExistenceCheck() throws {
+        let home = try makeEmptyHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let url = VaultLocator.intendedVaultURL(globalFlag: nil, environment: [:], home: home)
+        #expect(url.path.hasSuffix(".sharibako/vault"))
+        // The fresh-install case: the default path does not exist yet, and no throw.
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+
     // MARK: - resolveAgeKey
 
     @Test("resolveAgeKey prefers the --age-key flag")

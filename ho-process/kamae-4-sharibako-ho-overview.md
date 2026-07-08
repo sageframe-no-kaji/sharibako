@@ -605,8 +605,8 @@ Candidates surfaced during the overview, by pattern:
 
 **Owed from Phase 3 dogfooding (bugs awaiting their own hos):**
 
-- **`createVaultLayout` never called on the production `init` path** (the shared/-scaffold bug). The vault-layout scaffolding that tests exercise isn't wired into production `init`; surfaced twice (the 2026-07-03 smoke and again during ho-04.13 dogfood setup). Fresh-install correctness — **check severity before opening Phase 4**; if a clean production `init` doesn't build the vault, fix it as a ho-04.14-shaped insert first.
-- **Non-atomic `ingest`** — an interrupted ingest can leave a zombie scope (partial vault-side write, no clean rollback). Robustness, not correctness-blocking; can defer past the GUI.
+- ~~**`createVaultLayout` never called on the production path**~~ — **FIXED in ho-04.14.** Root cause was an access level: the scaffolding was `internal`, reachable only by `@testable` tests, never by the CLI module. Fixed by exposing `VaultCore.createVault(at:)` (public) and wiring it into `key generate` (the command the "vault not found" hint names), which now scaffolds `scopes/`+`shared/` before writing the key. Fresh-install bootstrap verified end to end. Followup surfaced: `init` is interactive-only (no scriptable `--scope-id/--type`), so the `init` half of a bootstrap can't be unattended/tested — a small scriptable-init ho would close that.
+- **Non-atomic `ingest`** — an interrupted ingest can leave a zombie scope (partial vault-side write, no clean rollback). Robustness, not correctness-blocking; can defer past the GUI. **Still owed.**
 
 ---
 
@@ -646,8 +646,9 @@ Phase 3 — The Tool  (complete; hardened post-Checkpoint-1 through ho-04.13)
 │       ◆ Replan Checkpoint 1 — FIRED: proceed to Phase 4
 ├── ho-04.8–04.11 (Fable cleanup sweep — Tier B security/robustness)
 ├── ho-04.12 (run-signal semantics + Keychain modernization)
-└── ho-04.13 (run signal ownership → exec-replace) ──────────── v0.3
-        · owed hos: createVaultLayout-on-init (gate?), non-atomic ingest
+├── ho-04.13 (run signal ownership → exec-replace)
+└── ho-04.14 (fresh-install vault scaffold — createVaultLayout fix) ── v0.3
+        · owed ho: non-atomic ingest (deferrable); scriptable-init (followup)
 
 Phase 4 — The Workshop
 ├── ho-05 (SwiftUI shell)
@@ -690,6 +691,6 @@ When in doubt about a ho's scope: the overview's job is the spine (heading, narr
 
 The next *planned* dandori session is **ho-05 — The Workshop: SwiftUI shell** (Phase 4) — the GUI. Phases 0–3 are complete and hardened through ho-04.13; ho-05's first work is scaffolding `xcode/Sharibako.xcodeproj` against the Swift package (deferred to exactly this point).
 
-**One call to make before opening ho-05.** Two Phase-3 bugs are owed their own hos (see "Anticipated splits and insertions"). The **`createVaultLayout`-on-`init`** bug touches fresh-install correctness — decide whether it gates the GUI (fix it as a ho-04.14 insert first) or ships as a tracked followup. **Non-atomic ingest** is robustness and can defer. If neither gates, proceed to ho-05.
+**Gate status before ho-05.** The fresh-install correctness bug (**`createVaultLayout`**) is **fixed in ho-04.14** — a clean bootstrap now works, so it no longer gates Phase 4. **Non-atomic ingest** remains owed but is robustness, not correctness-blocking, and can defer past the GUI. A **scriptable-`init`** followup (surfaced in ho-04.14) would let a full bootstrap be tested/unattended — nice-to-have, non-gating. Nothing now blocks ho-05.
 
 _Phases 0–3 dandori specs live under `agent-tasks/` and their per-ho documents under `hos/`; the closed ones are the historical record and do not get reopened. Phase 4 begins fresh at ho-05 once the gate call above is made._

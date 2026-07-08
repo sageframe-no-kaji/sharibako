@@ -3,49 +3,54 @@ import SharibakoCore
 
 /// Resolves vault and age key paths from flags, environment variables, or defaults.
 enum VaultLocator {
-    /// Determines the vault directory to use for a command invocation.
+    /// Determines the vault directory a command *would* use, without checking that
+    /// it exists.
     ///
     /// Priority: `--vault` flag → `SHARIBAKO_VAULT` env → `~/.sharibako/vault/`.
-    /// Throws `VaultError.vaultNotFound(path:)` if the resolved path does not exist.
+    /// Use this for vault CREATION (`key generate`), where the whole point is that
+    /// the directory doesn't exist yet; use ``resolve(globalFlag:environment:home:)``
+    /// for operations that require an existing vault.
     ///
     /// `environment` and `home` default to the live process values; tests inject
     /// both to exercise every branch without mutating process state.
+    static func intendedVaultURL(
+        globalFlag: URL?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        if let flag = globalFlag {
+            return flag
+        }
+        if let env = environment["SHARIBAKO_VAULT"] {
+            return URL(fileURLWithPath: env)
+        }
+        return
+            home
+            .appendingPathComponent(".sharibako")
+            .appendingPathComponent("vault")
+    }
+
+    /// Determines the vault directory to use for a command invocation, requiring it
+    /// to exist.
+    ///
+    /// Same priority as ``intendedVaultURL(globalFlag:environment:home:)``, plus an
+    /// existence check: throws `VaultError.vaultNotFound(path:)` if the resolved path
+    /// is not an existing directory. The check is a safety net — a typo'd `--vault`
+    /// must error rather than silently create a vault at the wrong place — so it stays
+    /// on every read/write path.
     static func resolve(
         globalFlag: URL?,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) throws -> URL {
-        if let flag = globalFlag {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: flag.path, isDirectory: &isDirectory),
-                isDirectory.boolValue
-            else {
-                throw VaultError.vaultNotFound(path: flag)
-            }
-            return flag
-        }
-        if let env = environment["SHARIBAKO_VAULT"] {
-            let url = URL(fileURLWithPath: env)
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
-                isDirectory.boolValue
-            else {
-                throw VaultError.vaultNotFound(path: url)
-            }
-            return url
-        }
-        let defaultURL =
-            home
-            .appendingPathComponent(".sharibako")
-            .appendingPathComponent("vault")
+        let url = intendedVaultURL(globalFlag: globalFlag, environment: environment, home: home)
         var isDirectory: ObjCBool = false
-        guard
-            FileManager.default.fileExists(atPath: defaultURL.path, isDirectory: &isDirectory),
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
             isDirectory.boolValue
         else {
-            throw VaultError.vaultNotFound(path: defaultURL)
+            throw VaultError.vaultNotFound(path: url)
         }
-        return defaultURL
+        return url
     }
 
     /// Determines the age key file to use, or `nil` when the Keychain should be used on macOS.
