@@ -10,7 +10,38 @@ import SharibakoCore
 struct GetCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "get",
-        abstract: "Decrypt and print a secret value to stdout."
+        abstract: "Decrypt and print a secret value to stdout.",
+        discussion: """
+            Decrypts one secret and prints its value to stdout, followed by a \
+            trailing newline (so shell command substitution strips it cleanly). \
+            Touch ID fires once per invocation. If the key is a link, the value \
+            of the shared entry it points at is printed.
+
+            SECURITY
+
+            'get' emits a plaintext secret to stdout. If stdout is a terminal, the \
+            value is visible on screen and captured in scrollback; if it is \
+            redirected or piped, the value goes wherever the pipe goes. The value \
+            does NOT enter shell history (it is never on your command line). Use \
+            'get' when you need to paste a value somewhere Sharibako does not \
+            integrate - a web form, a partner's chat. For feeding secrets to a \
+            command you launch, prefer 'sharibako run', which never renders the \
+            value at all. Clear terminal scrollback after use, and do not pipe \
+            'get' into files you will not clean up.
+
+            EXAMPLES
+
+            Capture a value into a shell variable (newline stripped):
+              TOKEN="$(sharibako get kanyo-dev DEPLOY_TOKEN)"
+
+            Print a value to paste elsewhere:
+              sharibako get kanyo-dev OPENAI_API_KEY
+
+            EXIT CODES
+
+            Exits 2 when the scope or key does not exist, 4 on a decryption \
+            failure, 6 on a Keychain/Touch ID failure.
+            """
     )
 
     @OptionGroup var global: GlobalOptions

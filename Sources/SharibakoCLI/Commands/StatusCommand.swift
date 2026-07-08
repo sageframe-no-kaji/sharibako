@@ -21,7 +21,32 @@ struct ScopeStatusEntry: Codable, Sendable {
 struct StatusCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "status",
-        abstract: "Show vault and scope state."
+        abstract: "Show vault and scope state.",
+        discussion: """
+            Shows the state of the vault without decrypting anything. With no \
+            argument it lists every scope with its type and secret count. With a \
+            scope argument it drills in: every key in that scope and its kind - \
+            'local' for a scope-owned value, or an arrow to the shared entry a \
+            linked key points at. Touch ID is never involved; 'status' reads \
+            filenames and scope metadata only.
+
+            'status' is the vault inventory; 'list' is a bare name dump; 'heal' is \
+            the deeper check that decrypts to compare vault values against a \
+            materialized .env. --json emits a structured array (same shape \
+            filtered when a scope is given).
+
+            EXAMPLES
+
+            Overview of every scope:
+              sharibako status
+
+            Keys and kinds for one scope:
+              sharibako status kanyo-dev
+
+            EXIT CODES
+
+            Exits 2 when the named scope does not exist.
+            """
     )
 
     @OptionGroup var global: GlobalOptions

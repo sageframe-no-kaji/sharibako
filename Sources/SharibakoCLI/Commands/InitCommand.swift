@@ -20,7 +20,41 @@ struct InitCommand: AsyncParsableCommand {
     /// Command configuration.
     static let configuration = CommandConfiguration(
         commandName: "init",
-        abstract: "Initialize a project directory as a sharibako scope."
+        abstract: "Initialize a project directory as a sharibako scope.",
+        discussion: """
+            Reads the .env (and .env.local) in a project directory and walks each \
+            detected secret through an interactive per-key decision: import as \
+            scope-local, link to an existing shared entry, move to shared, leave \
+            alone, or skip. The chosen secrets are encrypted into the vault and a \
+            .sharibako marker is dropped in the directory, binding it to its \
+            scope and recording the materialize target. The source .env is left \
+            byte-for-byte untouched - it is the runtime artifact, not a duplicate \
+            to clean up.
+
+            'init' is interactive by design and requires a terminal. If no age key \
+            exists yet it offers to generate one inline (suppress with \
+            --no-generate). Re-running 'init' in an already-initialized directory \
+            reconciles: it presents only keys the scope does not already own, and \
+            never silently rebinds the directory to a different scope. A directory \
+            with no importable secrets is rejected rather than creating an empty \
+            scope.
+
+            'init' is the front door for an existing project; to add a single key \
+            to a scope later, use 'sharibako add'.
+
+            EXAMPLES
+
+            Initialize the current project, deciding each secret interactively:
+              sharibako init
+
+            Initialize a specific directory without offering key generation:
+              sharibako init ~/Projects/momiji --no-generate
+
+            EXIT CODES
+
+            Exits 2 when the directory has no secrets to import or when a prompt \
+            is declined; needs an interactive terminal.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
@@ -28,7 +62,7 @@ struct InitCommand: AsyncParsableCommand {
     @Argument(help: "Project directory to initialize (defaults to the current directory).")
     var directory: String?
 
-    @Flag(name: .customLong("no-generate"), help: "Do not offer to generate an age key if none exists.")
+    @Flag(name: .customLong("no-generate"), help: "Do not offer to generate an age key if none exists (fail instead).")
     var noGenerate: Bool = false
 
     // MARK: - AsyncParsableCommand
@@ -247,7 +281,7 @@ struct InitCommand: AsyncParsableCommand {
                 break
             }
             fputs(
-                "Invalid scope ID \"\(candidate)\" — use letters, digits, and ._- "
+                "Invalid scope ID \"\(candidate)\" - use letters, digits, and ._- "
                     + "(no path separators).\nScope ID [\(proposal.suggestedScopeID)]: ",
                 stderr
             )
@@ -256,7 +290,7 @@ struct InitCommand: AsyncParsableCommand {
         // Collision check: idempotent reuse with explicit confirmation (Decision 3).
         let existingScopes = Set(try vault.listScopes().map(\.identity))
         if existingScopes.contains(scopeID) {
-            fputs("Scope '\(scopeID)' already exists — its keys will be added to. Continue? [y/N] ", stderr)
+            fputs("Scope '\(scopeID)' already exists - its keys will be added to. Continue? [y/N] ", stderr)
             let confirm = (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard confirm.hasPrefix("y") else {
                 fputs("Aborted.\n", stderr)
@@ -278,7 +312,7 @@ struct InitCommand: AsyncParsableCommand {
                 break
             }
             fputs(
-                "Unrecognized scope type \"\(rawType)\" — choose one of "
+                "Unrecognized scope type \"\(rawType)\" - choose one of "
                     + "project-dev/project-prod/service/machine/other.\nScope type [project-dev]: ",
                 stderr
             )

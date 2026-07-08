@@ -31,7 +31,37 @@ struct HealResult: Codable, Sendable {
 struct HealCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "heal",
-        abstract: "Report drift between the vault and materialized .env."
+        abstract: "Report drift between the vault and materialized .env.",
+        discussion: """
+            Compares each owned key's vault value against the value in the \
+            materialized .env and reports the difference, per key: a match, a key \
+            missing from the file, a value that differs (shown as truncated \
+            SHA-256 digests of each side, never the plaintext), or a malformed \
+            line. It is a read-only diagnostic - despite the name it changes \
+            nothing. To actually reconcile drift, use 'materialize --force' to \
+            push the vault's values to the file, or 'update' to pull the file's \
+            hand-edits into the vault.
+
+            'heal' requires the age key, because it must decrypt the vault values \
+            to compare them; Touch ID fires once. The scope is resolved from the \
+            argument, or from the nearest .sharibako marker walking up from the \
+            current directory when omitted. --json emits a structured report \
+            (status plus digests per key) for scripting.
+
+            EXAMPLES
+
+            Check the current project for drift:
+              sharibako heal
+
+            Check a named scope, machine-readable:
+              sharibako heal kanyo-dev --json
+
+            EXIT CODES
+
+            Reporting drift is not itself a failure - 'heal' exits 0 whether or \
+            not it finds drift. Exits 2 for an unknown scope or a missing marker, \
+            4/6 on decrypt/Keychain failures.
+            """
     )
 
     @OptionGroup var global: GlobalOptions

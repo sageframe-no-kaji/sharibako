@@ -10,12 +10,41 @@ import SharibakoCore
 struct UpdateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "update",
-        abstract: "Push hand-edited .env values back into the vault."
+        abstract: "Push hand-edited .env values back into the vault.",
+        discussion: """
+            Reads the .env at the marker's target, extracts the values for keys \
+            the scope owns, and rewrites the corresponding vault secrets when they \
+            differ - the file-to-vault direction, closing the loop that \
+            'materialize' opens (vault to file). Non-owned lines are ignored \
+            entirely: if you hand-edit DEBUG=false and the scope does not own \
+            DEBUG, 'update' sees nothing about it. Touch ID fires once, to decrypt \
+            existing vault values for the comparison. The scope comes from the \
+            argument or the nearest .sharibako marker.
+
+            Use 'update' after editing .env by hand in your editor, or as the \
+            close of a "git-track the whole .env" workflow where the scope owns \
+            every key and .env is the working surface. To go the other way - push \
+            the vault's values onto the file - use 'materialize'; to see what \
+            differs without changing anything, use 'heal'.
+
+            EXAMPLES
+
+            Pull hand-edits from the current project's .env into the vault:
+              sharibako update
+
+            Update a named scope:
+              sharibako update kanyo-dev
+
+            EXIT CODES
+
+            Exits 2 when there is no .env at the target to read (run 'materialize' \
+            first), 4/6 on decrypt/Keychain failures.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
-    @Argument(help: "Scope to update (resolved from cwd when omitted).")
+    @Argument(help: "Scope to update (resolved from the cwd marker when omitted).")
     var scope: String?
 
     func run() async throws {

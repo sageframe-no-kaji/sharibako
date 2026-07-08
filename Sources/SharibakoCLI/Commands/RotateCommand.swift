@@ -11,24 +11,55 @@ import SharibakoCore
 struct RotateCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rotate",
-        abstract: "Rotate an existing secret to a new value."
+        abstract: "Rotate an existing secret to a new value.",
+        discussion: """
+            Re-encrypts an existing secret with a new value. Given a scope and \
+            key, 'rotate' detects whether that key is a link: if it links to a \
+            shared entry, the SHARED entry is rotated (so every scope linked to it \
+            picks up the new value on next materialize or run - the link graph is \
+            resolved at read time, no propagation delay); if the key holds its own \
+            value, that value is rotated in place. --shared <id> rotates a shared \
+            entry directly by ID, which is the only way to rotate an entry that no \
+            scope links yet. Touch ID fires once. Use 'rotate' to change an \
+            existing value; use 'sharibako add' for a brand-new key.
+
+            The new value enters exactly as 'add' takes it: a hidden prompt by \
+            default (hygienic), --from-stdin from a pipe, or --value <v> on the \
+            command line (exposed in shell history and 'ps' - scripts only).
+
+            EXAMPLES
+
+            Rotate a project key (rotates the shared entry if it is linked):
+              sharibako rotate momiji OPENAI_API_KEY
+
+            Rotate a shared entry directly, from a pipe:
+              op read "op://Personal/OpenAI/key" | sharibako rotate --shared openai-personal --from-stdin
+
+            EXIT CODES
+
+            Exits 2 for an unknown scope, key, or shared entry, or when scope/key \
+            and --shared are combined; 4/6 on encrypt/Keychain failures.
+            """
     )
 
     @OptionGroup var global: GlobalOptions
 
-    @Argument(help: "Scope that owns the secret.")
+    @Argument(help: "Scope that owns the secret (omit when using --shared).")
     var scope: String?
 
-    @Argument(help: "Secret key to rotate.")
+    @Argument(help: "Secret key to rotate (omit when using --shared).")
     var key: String?
 
-    @Option(name: .long, help: "Rotate a shared entry directly by ID (instead of scope/key).")
+    @Option(name: .long, help: "Rotate a shared entry directly by ID, instead of scope/key.")
     var shared: String?
 
-    @Option(name: .long, help: "New plaintext value.")
+    @Option(
+        name: .long,
+        help: "New plaintext value. Prefer the hidden prompt or --from-stdin; --value leaks into shell history/'ps'."
+    )
     var value: String?
 
-    @Flag(name: .customLong("from-stdin"), help: "Read new value from stdin.")
+    @Flag(name: .customLong("from-stdin"), help: "Read the new value from stdin (e.g. piped from another tool).")
     var fromStdin: Bool = false
 
     func validate() throws {
