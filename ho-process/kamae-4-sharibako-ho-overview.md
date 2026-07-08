@@ -1,6 +1,6 @@
 ---
 created: 2026-06-30
-updated: 2026-07-03
+updated: 2026-07-08
 status: draft
 type: ho-overview
 project: sharibako
@@ -17,6 +17,8 @@ Seven phases (v1.0 target). Phase 0 sets up the project. Phases 1–2 build the 
 _Revision 2026-07-01: ho-04.5 inserted after the injection decision (kamae-2.1). Ho-03 entry updated to reflect the ownership decision (kamae-2.2) — per-key ownership, `.env` merge-not-overwrite, `update` verb, four-way ingest matrix. This is a build-phase document; ship/commercial concerns sit in ho-09 as they always did — not elevated to Kamae content._
 
 _Revision 2026-07-03: Phase 3 closed. The CLI phase grew four inserts beyond ho-04/ho-04.5 as dogfooding surfaced work — ho-04.2 (interactive `init`), ho-04.4 (ingest dashboard, later superseded), ho-04.6 (plain-prompt `init` replacing the dashboard), and ho-04.7 (`run` feedback) — all complete, alongside ho-04.3 (sign the binary; unblock Keychain biometry) and ho-04.5 (`sharibako run`). Two as-built notes worth carrying forward: signing shipped via a signed `.app` bundle with `keychain-access-groups` + an embedded provisioning profile (not the raw-binary/empty-entitlements approach ho-04.3 first drafted — that entitlement is restricted, honoured only inside a bundle), and ho-04.5 shipped without `memset_s` scrubbing of decrypted values (kamae-2.1 Decision 7; SECURITY.md reconciled to match). Replan Checkpoint 1 fired — outcome recorded below. The per-ho documents under `hos/` hold the detail; those inserts are not back-filled as full overview entries. No phase restructure; no ship/commercial elevation._
+
+_Revision 2026-07-08: Phase 3 grew a second hardening arc after Checkpoint 1 — a security/robustness sweep plus the Keychain and signal work — before Phase 4 opens. **ho-04.8–04.11** (the "Fable" cleanup sweep, Tier B: encrypt-path hygiene, coverage exclusions, identifier/path validation, EnvParser contract, ingest/link collision, CLI trust-boundary + scan resilience; Linux scoped out, macOS only), **ho-04.12** (`run`-signal semantics + Keychain modernization + `-warnings-as-errors`; the signed-install dogfood reverted its D2 and fixed a key-clobber bug D5), and **ho-04.13** (run signal ownership → **exec-replace**: `run` now execs into the child, the whole `SignalForwarder` subsystem deleted; the broker/handler + output-redaction model parked to a post-ship Kamae-2 pivot, GitHub issue #7, code pinned at tag `parked/run-signal-forwarder`). All complete; per-ho docs under `hos/` hold the detail — not back-filled as full overview entries, per the established pattern. **Two Phase-3 bugs remain owed their own hos** (dogfood-surfaced; tracked under "Anticipated splits and insertions"): a non-atomic `ingest` leaving a zombie scope on interruption, and `createVaultLayout` never being called on the production `init` path. No phase restructure._
 
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
@@ -39,7 +41,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 0. Foundation | ho-00 | Swift package, GitHub repo, signing reused from M4Bookmaker, CI, baseline tests |
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
-| 3. The Tool **(complete)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7 | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback |
+| 3. The Tool **(complete; hardened through ho-04.13)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7, **ho-04.8–04.13** | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback. Post-Checkpoint-1 hardening: ho-04.8–04.11 (Fable security/robustness sweep), ho-04.12 (Keychain + signal semantics), ho-04.13 (run → exec-replace). Two bugs owed hos (see below) |
 | 4. The Workshop | ho-05, ho-06 | SwiftUI app with three-state UI, first-run wizard, ingest decision matrix |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
@@ -601,6 +603,11 @@ Candidates surfaced during the overview, by pattern:
 
 - **A small benchmarking or perf ho** if the vault grows large enough during dogfooding that scan / list / status operations feel slow. Inserts wherever the friction surfaces.
 
+**Owed from Phase 3 dogfooding (bugs awaiting their own hos):**
+
+- **`createVaultLayout` never called on the production `init` path** (the shared/-scaffold bug). The vault-layout scaffolding that tests exercise isn't wired into production `init`; surfaced twice (the 2026-07-03 smoke and again during ho-04.13 dogfood setup). Fresh-install correctness — **check severity before opening Phase 4**; if a clean production `init` doesn't build the vault, fix it as a ho-04.14-shaped insert first.
+- **Non-atomic `ingest`** — an interrupted ingest can leave a zombie scope (partial vault-side write, no clean rollback). Robustness, not correctness-blocking; can defer past the GUI.
+
 ---
 
 ## Other deferred decisions
@@ -628,16 +635,19 @@ Phase 1 — The vault substrate
 Phase 2 — The bridge
 └── ho-03 (Materializer) ────────────────────────────── v0.2
 
-Phase 3 — The Tool  (complete)
+Phase 3 — The Tool  (complete; hardened post-Checkpoint-1 through ho-04.13)
 ├── ho-04   (CLI MVP)
 ├── ho-04.2 (interactive init)
 ├── ho-04.3 (sign binary; Keychain biometry)
 ├── ho-04.4 (ingest dashboard — superseded)
 ├── ho-04.5 (sharibako run, clean, SECURITY.md draft)
 ├── ho-04.6 (plain-prompt init — replaces the dashboard)
-└── ho-04.7 (run feedback)
-        ▲
-        │  ◆ Replan Checkpoint 1 — FIRED: proceed to Phase 4 ── v0.3
+├── ho-04.7 (run feedback)
+│       ◆ Replan Checkpoint 1 — FIRED: proceed to Phase 4
+├── ho-04.8–04.11 (Fable cleanup sweep — Tier B security/robustness)
+├── ho-04.12 (run-signal semantics + Keychain modernization)
+└── ho-04.13 (run signal ownership → exec-replace) ──────────── v0.3
+        · owed hos: createVaultLayout-on-init (gate?), non-atomic ingest
 
 Phase 4 — The Workshop
 ├── ho-05 (SwiftUI shell)
@@ -678,6 +688,8 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
-The next dandori session is **ho-05 — The Workshop: SwiftUI shell** (Phase 4). Phases 0–3 are complete. Open ho-05 via the Kamae 5 collaborator when ready; its first work is scaffolding `xcode/Sharibako.xcodeproj` against the Swift package (deferred to exactly this point).
+The next *planned* dandori session is **ho-05 — The Workshop: SwiftUI shell** (Phase 4) — the GUI. Phases 0–3 are complete and hardened through ho-04.13; ho-05's first work is scaffolding `xcode/Sharibako.xcodeproj` against the Swift package (deferred to exactly this point).
 
-_Phases 0–3 dandori specs live under `agent-tasks/` and their per-ho documents under `hos/`; the closed ones are the historical record and do not get reopened. Phase 4 begins fresh at ho-05._
+**One call to make before opening ho-05.** Two Phase-3 bugs are owed their own hos (see "Anticipated splits and insertions"). The **`createVaultLayout`-on-`init`** bug touches fresh-install correctness — decide whether it gates the GUI (fix it as a ho-04.14 insert first) or ships as a tracked followup. **Non-atomic ingest** is robustness and can defer. If neither gates, proceed to ho-05.
+
+_Phases 0–3 dandori specs live under `agent-tasks/` and their per-ho documents under `hos/`; the closed ones are the historical record and do not get reopened. Phase 4 begins fresh at ho-05 once the gate call above is made._
