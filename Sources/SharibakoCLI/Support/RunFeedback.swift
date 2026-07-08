@@ -1,13 +1,11 @@
 import Foundation
 
-/// Stderr-only feedback for `sharibako run` — the startup status line and the
-/// signal-shutdown countdown.
+/// Stderr-only feedback for `sharibako run` — the startup status line.
 ///
-/// A `Sendable` sink wrapping a line emitter, plus the pure formatters and the
-/// TTY/flag gate. `run` prints nothing to stdout (that belongs to the child); every
-/// line here goes to stderr, and only when the gate says so. The formatters are pure
-/// so they test without a sink; the sink crosses into `SignalForwarder`'s dispatch
-/// handlers, which is why it must be `Sendable`.
+/// A `Sendable` sink wrapping a line emitter, plus the pure startup-line formatter
+/// and the TTY/flag gate. `run` prints nothing to stdout (that belongs to the
+/// child); every line here goes to stderr, and only when the gate says so. The
+/// formatter is pure, so it tests without a sink.
 struct RunFeedback: Sendable {
     private let emitter: @Sendable (String) -> Void
 
@@ -63,30 +61,5 @@ struct RunFeedback: Sendable {
         }
         let noun = secretCount == 1 ? "secret" : "secrets"
         return "sharibako: scope '\(scope)' — \(secretCount) \(noun) → \(cmd)"
-    }
-
-    /// Human name for a forwarded signal.
-    static func signalName(_ signal: Int32) -> String {
-        switch signal {
-        case SIGINT: return "SIGINT"
-        case SIGTERM: return "SIGTERM"
-        case SIGHUP: return "SIGHUP"
-        default: return "signal \(signal)"
-        }
-    }
-
-    /// Emitted immediately when a signal is forwarded to the child.
-    static func forwardingLine(signal: Int32) -> String {
-        "sharibako: forwarding \(signalName(signal)) to child…"
-    }
-
-    /// One countdown tick — the seconds remaining before SIGKILL.
-    static func countdownLine(secondsRemaining: Int) -> String {
-        "sharibako: waiting for child to exit… \(secondsRemaining)"
-    }
-
-    /// Emitted just before escalating to SIGKILL.
-    static func sigkillLine() -> String {
-        "sharibako: child unresponsive — sending SIGKILL"
     }
 }

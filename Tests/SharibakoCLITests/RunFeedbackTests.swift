@@ -3,11 +3,10 @@ import Testing
 
 @testable import SharibakoCLI
 
-/// Tests for the `run` feedback formatters and the TTY/flag gate.
+/// Tests for the `run` feedback formatter and the TTY/flag gate.
 ///
-/// The formatters are pure and the gate is a pure `Bool`, so this suite covers the
-/// feedback logic without a live process or a real terminal. The live signal plumbing
-/// in `SignalForwarder` that calls these formatters stays coverage-excluded.
+/// The startup-line formatter is pure and the gate is a pure `Bool`, so this suite
+/// covers the feedback logic without a live process or a real terminal.
 @Suite("RunFeedback")
 struct RunFeedbackTests {
     // MARK: - Gate
@@ -71,32 +70,6 @@ struct RunFeedbackTests {
         #expect(!line.contains("sk-"))  // no API-key-shaped value
         #expect(line.contains("3 secrets"))
         #expect(line.contains("'proj'"))
-    }
-
-    // MARK: - Shutdown lines
-
-    @Test("Signal names map for the forwarded set")
-    func signalNames() {
-        #expect(RunFeedback.signalName(SIGINT) == "SIGINT")
-        #expect(RunFeedback.signalName(SIGTERM) == "SIGTERM")
-        #expect(RunFeedback.signalName(SIGHUP) == "SIGHUP")
-        #expect(RunFeedback.signalName(SIGKILL) == "signal 9")
-    }
-
-    @Test("Forwarding line announces the signal")
-    func forwardingLine() {
-        #expect(RunFeedback.forwardingLine(signal: SIGINT) == "sharibako: forwarding SIGINT to child…")
-    }
-
-    @Test("Countdown line renders plain integers")
-    func countdownLine() {
-        #expect(RunFeedback.countdownLine(secondsRemaining: 4) == "sharibako: waiting for child to exit… 4")
-        #expect(RunFeedback.countdownLine(secondsRemaining: 1) == "sharibako: waiting for child to exit… 1")
-    }
-
-    @Test("SIGKILL line announces the escalation")
-    func sigkillLine() {
-        #expect(RunFeedback.sigkillLine() == "sharibako: child unresponsive — sending SIGKILL")
     }
 
     // MARK: - Sinks

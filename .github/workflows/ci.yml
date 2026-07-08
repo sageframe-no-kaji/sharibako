@@ -84,15 +84,16 @@ jobs:
           #     Touch ID entitlement, which only the signed app-bundle install
           #     has; a bare CI test binary cannot reach it (see CLAUDE.md,
           #     "Keychain dogfood gate").
-          #   SignalForwarder — its per-signal POLICY (which signals forward,
-          #     what a second signal does) is now seam-testable and covered in
-          #     SignalForwarderTests via an injected ChildController, but the
-          #     file stays excluded because install()/teardown() and the
-          #     real-time countdown timer only run when a live child receives
-          #     real signals; sending SIGINT to the test runner kills the run
-          #     itself (ho-04.12 D1–D4). ProcessChildController lives here too —
-          #     it wraps a live Process the test binary never spawns. The
-          #     testable seam TempKeySignalGuard is deliberately NOT excluded.
+          #   ExecReplace — execve() on success replaces the process image and
+          #     never returns, so the success path cannot run in a test without
+          #     nuking the test runner; the chdir/execve failure branches only
+          #     surface on the dogfood gate (a real terminal). The tested
+          #     decision logic (scope resolution, decrypt, env composition) lives
+          #     in RunCommand._run, which returns RunOutcome.ready instead of
+          #     exec-ing and is NOT excluded (ho-04.13, superseding the ho-04.12
+          #     SignalForwarder parent, now pinned at tag
+          #     parked/run-signal-forwarder). The testable seam TempKeySignalGuard
+          #     is deliberately NOT excluded.
           #   TerminalDetector — isatty() answers for CI's pipes are constant,
           #     so the interactive branch can never execute.
           #   SecureValuePrompt — echo-off entry requires a controlling
@@ -101,7 +102,7 @@ jobs:
           #     (ho-04.11, same class as TerminalDetector).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|SignalForwarder|TerminalDetector|SecureValuePrompt"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \
