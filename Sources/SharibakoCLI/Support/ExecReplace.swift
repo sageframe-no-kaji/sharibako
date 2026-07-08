@@ -45,6 +45,8 @@ enum ExecReplace {
             )
         }
 
+        resetSignalState()
+
         // /usr/bin/env resolves bare command names (npm, python) on PATH and execs
         // with the composed environment. argv[0] is the env path by convention.
         let argv = ["/usr/bin/env"] + command
@@ -63,6 +65,29 @@ enum ExecReplace {
         throw CLIError.runSpawnFailed(
             command: command.first ?? "", underlying: "execve(/usr/bin/env): \(errnoMessage())"
         )
+    }
+
+    /// Restores a pristine signal state so the exec'd command starts exactly as a
+    /// command launched directly from the shell would.
+    ///
+    /// `execve` preserves the caller's signal mask and any `SIG_IGN` dispositions
+    /// across the image swap — it only resets *caught* signals to `SIG_DFL` (the ho-04.13
+    /// gotcha). Swift's `libdispatch` blocks signals process-wide to observe them via
+    /// kqueue (the age-key `DispatchSourceSignal` guards), so at exec time the main
+    /// thread carries a mask with `SIGINT`/`SIGTERM`/`SIGHUP`/`SIGTSTP`/… all blocked.
+    /// Left unreset, the child would inherit that mask and a terminal Ctrl-C would do
+    /// nothing — defeating the entire point of exec-replace (caught by the dogfood gate).
+    ///
+    /// So: unblock every signal, and reset the terminating/job-control dispositions to
+    /// `SIG_DFL` in case any was left ignored. `pthread_sigmask` (not `sigprocmask`)
+    /// because `libdispatch` has already made the process multithreaded.
+    private static func resetSignalState() {
+        var empty = sigset_t()
+        sigemptyset(&empty)
+        pthread_sigmask(SIG_SETMASK, &empty, nil)
+        for sig in [SIGHUP, SIGINT, SIGQUIT, SIGTERM, SIGTSTP, SIGTTIN, SIGTTOU] {
+            signal(sig, SIG_DFL)
+        }
     }
 
     /// The current `errno` as a human string.
