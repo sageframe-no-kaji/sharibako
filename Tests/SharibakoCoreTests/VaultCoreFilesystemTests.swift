@@ -27,6 +27,44 @@ struct VaultCoreFilesystemTests {
         }
     }
 
+    // MARK: - createVault (fresh-install scaffold, ho-04.14)
+
+    @Test("createVault scaffolds scopes/ and shared/ for a fresh vault, then init succeeds")
+    func createVaultScaffolds() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-createvault-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let fresh = parent.appendingPathComponent("vault")
+        #expect(!FileManager.default.fileExists(atPath: fresh.path))
+
+        try VaultCore.createVault(at: fresh)
+
+        var isDir: ObjCBool = false
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fresh.appendingPathComponent("scopes").path, isDirectory: &isDir)
+                && isDir.boolValue)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: fresh.appendingPathComponent("shared").path, isDirectory: &isDir)
+                && isDir.boolValue)
+        // The whole point of the fix: binding to the freshly-created vault now works.
+        _ = try VaultCore(vaultURL: fresh)
+    }
+
+    @Test("createVault is idempotent on an already-scaffolded vault")
+    func createVaultIdempotent() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            // A second scaffolding of an existing layout must not throw.
+            try VaultCore.createVault(at: vault)
+            var isDir: ObjCBool = false
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: vault.appendingPathComponent("scopes").path, isDirectory: &isDir)
+                    && isDir.boolValue)
+        }
+    }
+
     // MARK: - listScopes
 
     @Test("listScopes returns empty array for a vault with no scopes")

@@ -19,12 +19,26 @@ public struct VaultCore: Sendable {
     /// Cached recipient public key extracted from the age key file at init time.
     internal let publicKey: String?
 
+    /// Creates a fresh vault's directory structure (`scopes/` and `shared/`) at `vaultURL`.
+    ///
+    /// The public bootstrap entry point: both initializers require an existing vault
+    /// directory, so a fresh install must scaffold one first. `key generate` calls
+    /// this. Idempotent — succeeds if the directories already exist. Wraps filesystem
+    /// failures as `VaultError.fileSystemError`.
+    ///
+    /// - Parameter vaultURL: Absolute URL of the vault root to scaffold.
+    /// - Throws: `VaultError.fileSystemError` if the `scopes/` or `shared/` directory
+    ///   cannot be created.
+    public static func createVault(at vaultURL: URL) throws {
+        try VaultLayout.createVaultLayout(at: vaultURL)
+    }
+
     /// Binds to an existing vault directory (no encryption operations available).
     ///
     /// - Parameter vaultURL: Absolute URL of the vault root.
     /// - Throws: `VaultError.vaultNotFound(path:)` if the directory does not exist.
-    ///   Does not create the vault; call `VaultLayout.createVaultLayout(at:)` first
-    ///   when initializing a fresh vault.
+    ///   Does not create the vault; call ``createVault(at:)`` first when
+    ///   initializing a fresh vault.
     public init(vaultURL: URL) throws {
         try Self.assertVaultDirectoryExists(vaultURL)
         self.vaultURL = vaultURL

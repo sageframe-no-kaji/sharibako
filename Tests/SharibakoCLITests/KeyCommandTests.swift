@@ -25,6 +25,35 @@ struct KeyCommandTests {
         #expect(contents.contains("# public key:"))
     }
 
+    @Test("generate scaffolds a fresh vault directory (ho-04.14 fresh-install fix)")
+    func generateScaffoldsVault() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-keygen-vault-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        // The vault directory does NOT exist yet — the fresh-install scenario.
+        let vaultDir = tmpDir.appendingPathComponent("vault")
+        let keyPath = tmpDir.appendingPathComponent("age-key.txt")
+        #expect(!FileManager.default.fileExists(atPath: vaultDir.path))
+
+        // `--age-key` keeps this off the Keychain; `_run` drives the full command path.
+        let cmd = try GenerateCommand.parse(["--vault", vaultDir.path, "--age-key", keyPath.path])
+        try cmd._run()
+
+        // Regression guard: generate must leave a usable vault, not just a key.
+        var isDir: ObjCBool = false
+        #expect(
+            FileManager.default.fileExists(
+                atPath: vaultDir.appendingPathComponent("scopes").path, isDirectory: &isDir)
+                && isDir.boolValue)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: vaultDir.appendingPathComponent("shared").path, isDirectory: &isDir)
+                && isDir.boolValue)
+        #expect(FileManager.default.fileExists(atPath: keyPath.path))
+    }
+
     @Test("generate refuses to overwrite an existing key without --force")
     func generateRefusesExistingWithoutForce() throws {
         let tmpDir = FileManager.default.temporaryDirectory
