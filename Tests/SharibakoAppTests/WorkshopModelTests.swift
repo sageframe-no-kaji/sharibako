@@ -22,13 +22,43 @@ enum WorkshopTestSupport {
     /// `shared/`) and calls `body` with the vault URL.
     static func withTempVault(_ body: (URL) throws -> Void) throws {
         try withTempDirectory { tempDir in
-            for sub in ["scopes", "shared"] {
-                try FileManager.default.createDirectory(
-                    at: tempDir.appendingPathComponent(sub),
-                    withIntermediateDirectories: true
-                )
-            }
+            try makeVaultLayout(at: tempDir)
             try body(tempDir)
+        }
+    }
+
+    /// Async overload of ``withTempDirectory(_:)`` for tests that `await` async
+    /// intents (ho-06.1: `rescan`/`materializeSelectedScope`/`sync` are async).
+    ///
+    /// The compiler selects this overload in an async context and the
+    /// synchronous one otherwise, so existing synchronous tests are untouched.
+    static func withTempDirectory(
+        _ body: @MainActor (URL) async throws -> Void
+    ) async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sharibako-workshop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try await body(tempDir)
+    }
+
+    /// Async overload of ``withTempVault(_:)`` (see ``withTempDirectory(_:)``).
+    static func withTempVault(
+        _ body: @MainActor (URL) async throws -> Void
+    ) async throws {
+        try await withTempDirectory { tempDir in
+            try makeVaultLayout(at: tempDir)
+            try await body(tempDir)
+        }
+    }
+
+    /// Creates the `scopes/` + `shared/` vault layout under `dir`.
+    private static func makeVaultLayout(at dir: URL) throws {
+        for sub in ["scopes", "shared"] {
+            try FileManager.default.createDirectory(
+                at: dir.appendingPathComponent(sub),
+                withIntermediateDirectories: true
+            )
         }
     }
 

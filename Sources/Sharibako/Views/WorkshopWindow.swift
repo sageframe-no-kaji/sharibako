@@ -55,24 +55,15 @@ struct WorkshopWindow: View {
             .toolbar {
                 toolbarContent
             }
+            // Warm the scan cache without blocking window render (ho-06.1
+            // Decision 2): the window paints immediately; the launch scan runs
+            // through the worker behind it. A no-op when no roots are configured
+            // or the vault is not open.
+            .task {
+                await model.performLaunchScan()
+            }
             .safeAreaInset(edge: .bottom) {
-                if let message = model.errorMessage {
-                    Text(message)
-                        .font(.callout)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .background(.bar)
-                } else if let status = model.statusMessage {
-                    // Informational result line (e.g. rescan summary) — same
-                    // surface as errors so actions always visibly conclude.
-                    Text(status)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(8)
-                        .background(.bar)
-                }
+                statusSurface
             }
             // Drift confirmation dialog: surfaces when materialize detects owned
             // lines that differ from vault values. Requires explicit confirmation
@@ -86,7 +77,7 @@ struct WorkshopWindow: View {
                 titleVisibility: .visible
             ) {
                 Button("Overwrite Drift", role: .destructive) {
-                    model.materializeSelectedScope(force: true)
+                    Task { await model.materializeSelectedScope(force: true) }
                 }
                 Button("Cancel", role: .cancel) {
                     model.dismissPendingDiff()
@@ -107,6 +98,45 @@ struct WorkshopWindow: View {
             .sheet(isPresented: $showingAddShared) {
                 AddSharedEntrySheet()
             }
+        }
+    }
+
+    // MARK: - Status surface
+
+    /// The bottom status surface: a progress row while a long operation is in
+    /// flight (ho-06.1 Decision 1), else the error line, else the status line.
+    ///
+    /// Precedence: an active operation shows its progress indicator and label;
+    /// when idle, errors win over status (both share the surface so every
+    /// action visibly concludes, ho-05 Decision 4 / dogfood-gate finding).
+    @ViewBuilder private var statusSurface: some View {
+        if let activity = model.activity {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(activity.label)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(.bar)
+        } else if let message = model.errorMessage {
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(.bar)
+        } else if let status = model.statusMessage {
+            // Informational result line (e.g. rescan summary) — same surface as
+            // errors so actions always visibly conclude.
+            Text(status)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(.bar)
         }
     }
 
@@ -147,11 +177,14 @@ struct WorkshopWindow: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
-                model.materializeSelectedScope()
+                Task { await model.materializeSelectedScope() }
             } label: {
                 Label("Materialize", systemImage: "arrow.down.doc")
             }
-            .disabled(model.selectedScopeID == nil)
+            // Disabled while any long operation is in flight — the intents also
+            // guard re-entry, but the disabled button keeps the UI honest
+            // (ho-06.1 Decision 1).
+            .disabled(model.selectedScopeID == nil || model.activity != nil)
             .help(
                 model.selectedScopeID == nil
                     ? "Select a scope to materialize its secrets"
@@ -161,28 +194,32 @@ struct WorkshopWindow: View {
 
         ToolbarItem(placement: .secondaryAction) {
             Button {
-                model.sync()
+                Task { await model.sync() }
             } label: {
                 Label("Sync", systemImage: "arrow.triangle.2.circlepath")
             }
+            .disabled(model.activity != nil)
             .help("Commit pending vault changes and push to the remote")
         }
 
         ToolbarItem(placement: .secondaryAction) {
             Button {
-                model.rescan {
-                    // Open an NSOpenPanel directory picker for the scan root.
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.allowsMultipleSelection = false
-                    panel.message = "Choose a directory to scan for .sharibako markers"
-                    panel.prompt = "Choose"
-                    return panel.runModal() == .OK ? panel.url : nil
+                Task {
+                    await model.rescan {
+                        // Open an NSOpenPanel directory picker for the scan root.
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Choose a directory to scan for .sharibako markers"
+                        panel.prompt = "Choose"
+                        return panel.runModal() == .OK ? panel.url : nil
+                    }
                 }
             } label: {
                 Label("Rescan", systemImage: "magnifyingglass")
             }
+            .disabled(model.activity != nil)
             .help("Scan configured directories for .sharibako markers")
         }
     }

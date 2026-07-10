@@ -9,11 +9,61 @@ import SharibakoCore
 /// operation; views read published state and call intent methods — no view
 /// touches vault logic directly beyond displaying results.
 ///
-/// All methods run synchronously on the main actor: vault operations are
-/// local, fast filesystem work (Decision 2 keeps v1 synchronous).
+/// Fast single-file operations (reveal, add, rotate, notes) run synchronously
+/// on the main actor. The long operations — `rescan`, `materializeSelectedScope`,
+/// `sync` — are `async` intents (ho-06.1 Decision 1, amending ho-05 Decision 2's
+/// synchronous posture for tree-walking and network work): they set ``activity``,
+/// hand the blocking Core work to ``worker`` (a ``VaultWorker`` actor), and
+/// publish results back here on the main actor. The model stays
+/// `@Observable @MainActor` and owns all published state; only the blocking work
+/// hops off-main.
 @Observable
 @MainActor
 final class WorkshopModel {
+    /// A long-running vault operation currently in flight, or `nil` when idle.
+    ///
+    /// Non-nil ``activity`` drives the responsiveness UI (ho-06.1 Decision 1):
+    /// the toolbar's vault-action buttons disable and the status surface shows
+    /// a progress indicator with ``Activity/label``. The async intents guard
+    /// re-entry against it — an intent called while it is non-nil returns
+    /// without work — so the UI stays honest even though ``worker`` already
+    /// serializes execution.
+    enum Activity: Equatable {
+        /// A scan (launch scan or Rescan) is walking the scan roots.
+        case scanning
+        /// A materialize is decrypting and writing a scope's `.env` target.
+        case materializing
+        /// A sync is committing and pushing to the remote.
+        case syncing
+
+        /// Progress text shown beside the indicator in the status surface.
+        var label: String {
+            switch self {
+            case .scanning: return "Scanning…"
+            case .materializing: return "Materializing…"
+            case .syncing: return "Syncing…"
+            }
+        }
+    }
+
+    /// The long-running operation in flight, or `nil` when idle.
+    private(set) var activity: Activity?
+
+    /// Serial off-main execution domain for blocking Core work (Decision 1).
+    ///
+    /// One instance per model. Every long operation's tree-walk / shell-out
+    /// runs through it, so two operations submitted here cannot interleave.
+    let worker = VaultWorker()
+
+    /// The latest scan report, held in memory for the session (Decision 2).
+    ///
+    /// Populated by ``performLaunchScan()`` at window open and refreshed by
+    /// ``rescan(openPanel:)``. ``materializeSelectedScope(force:)`` resolves its
+    /// marker from here instead of re-walking the scan root per action, and
+    /// AT-02's jump-to-directory button plus ho-06.2's glyphs read it through
+    /// ``cachedMarker(forScope:)``. Never persisted — markers change externally,
+    /// and a persisted cache would lie across sessions.
+    private(set) var scanReport: ScanReport?
     /// Whether the resolved vault path holds an openable vault.
     enum VaultState: Equatable {
         /// No vault at the resolved path; the window shows the empty state
@@ -424,18 +474,63 @@ extension WorkshopModel {
 // MARK: - Action intents (AT-03, Decision 5)
 
 extension WorkshopModel {
+    /// The cached marker for `scopeID`, or `nil` when the cache holds none.
+    ///
+    /// Reads the session scan cache (Decision 2) populated by
+    /// ``performLaunchScan()`` / ``rescan(openPanel:)``. AT-02's
+    /// jump-to-directory button and ho-06.2's sidebar glyphs read this — a
+    /// cache hit means the marker's target directory is known without a fresh
+    /// walk. Returns `nil` when no scan has run yet or no marker matches.
+    func cachedMarker(forScope scopeID: String) -> ScopeMarker? {
+        scanReport?.markers.first { $0.scope == scopeID }
+    }
+
+    /// Runs one non-blocking scan at window open to warm the scan cache
+    /// (Decision 2).
+    ///
+    /// Called from the window's `.task` modifier so the window renders
+    /// immediately and the cache fills in behind it. A no-op when ``scanRoots``
+    /// is empty or the vault is not open (nothing to scan). Quiet on success —
+    /// the user did not trigger it, so it sets no ``statusMessage``; failures
+    /// still land in ``errorMessage``. Guards re-entry against ``activity`` like
+    /// every long intent. Runs the walk through ``worker``.
+    func performLaunchScan() async {
+        guard activity == nil else { return }
+        guard case .open(let vaultURL) = vaultState, !scanRoots.isEmpty else { return }
+        activity = .scanning
+        defer { activity = nil }
+        let roots = scanRoots
+        do {
+            let report = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL)
+                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            }
+            scanReport = report
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
     /// Materializes the selected scope's secrets into its marker's `.env` target.
     ///
-    /// Requires the age key for decryption. Resolves the scope's marker by
-    /// scanning ``scanRoots``. On drift, stores the diff in ``pendingDiff`` and
-    /// returns without writing — the view presents a confirmation dialog and
-    /// calls ``materializeSelectedScope(force:)`` with `force: true` on approval
+    /// Async (Decision 1): decryption + file write run through ``worker`` off the
+    /// main thread; the age key is acquired on the main actor first (it is user
+    /// interaction, not CPU work) and only its `Sendable` handle URL crosses.
+    /// Resolves the scope's marker from the scan cache (Decision 2); on a cache
+    /// miss it runs one fresh scan through the worker, retries the lookup, and
+    /// only then surfaces the marker-not-found error. On drift, stores the diff
+    /// in ``pendingDiff`` and returns without writing — the view presents a
+    /// confirmation dialog and calls this again with `force: true` on approval
     /// (Decision 5: never overwrite drift silently, mirror the CLI's `--force` gate).
-    func materializeSelectedScope(force: Bool = false) {
+    func materializeSelectedScope(force: Bool = false) async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState,
             let scopeID = selectedScopeID
         else { return }
         statusMessage = nil
+        activity = .materializing
+        defer { activity = nil }
         let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
         do {
@@ -444,31 +539,69 @@ extension WorkshopModel {
             errorMessage = "Could not load age key: \(error)"
             return
         }
-        defer { handle.release() }
         do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-            let marker = try materializer.resolveMarker(forScope: scopeID, scanRoots: scanRoots)
-            let result = try materializer.materialize(marker: marker, overwriteDrift: force)
-            switch result {
-            case .diffPending(let diff):
-                // Surface the diff; require explicit confirmation before re-running with force.
-                pendingDiff = diff
-            case .wrote(let path, let keysWritten):
-                // Every outcome visibly concludes (dogfood-gate finding: a
-                // silent success reads as a broken button).
-                pendingDiff = nil
-                let count = keysWritten.count
-                statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
-                errorMessage = nil
-            case .unchanged(let path):
-                // CLI parity: `sharibako materialize` says "already up to date".
-                pendingDiff = nil
-                statusMessage = "Already up to date: \(path.path)"
-                errorMessage = nil
+            let marker = try await resolveMarkerFromCache(forScope: scopeID, vaultURL: vaultURL)
+            let keyURL = handle.url
+            let result = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+                let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+                return try materializer.materialize(marker: marker, overwriteDrift: force)
             }
+            handle.release()
+            applyMaterializeResult(result)
         } catch {
+            handle.release()
             errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Resolves the scope's marker from the cache, falling back to one fresh
+    /// scan on a miss (Decision 2).
+    ///
+    /// A cache hit avoids re-walking the scan root per materialize. A miss —
+    /// the marker moved or was deleted since the last scan, or the cache is
+    /// cold — runs exactly one fresh scan through ``worker``, updates the cache,
+    /// and retries the lookup before letting the marker-not-found error surface.
+    private func resolveMarkerFromCache(
+        forScope scopeID: String,
+        vaultURL: URL
+    ) async throws -> ScopeMarker {
+        if let cached = cachedMarker(forScope: scopeID) {
+            return cached
+        }
+        let roots = scanRoots
+        let report = try await worker.run {
+            let core = try VaultCore(vaultURL: vaultURL)
+            return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+        }
+        scanReport = report
+        if let refreshed = cachedMarker(forScope: scopeID) {
+            return refreshed
+        }
+        let hint = roots.first ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        throw VaultError.markerNotFound(startingFrom: hint)
+    }
+
+    /// Applies a materialize outcome to published state (main-actor).
+    ///
+    /// Split from ``materializeSelectedScope(force:)`` so the awaited worker
+    /// call stays a single expression. Every outcome visibly concludes
+    /// (dogfood-gate finding: a silent success reads as a broken button).
+    private func applyMaterializeResult(_ result: MaterializeResult) {
+        switch result {
+        case .diffPending(let diff):
+            // Surface the diff; require explicit confirmation before re-running with force.
+            pendingDiff = diff
+        case .wrote(let path, let keysWritten):
+            pendingDiff = nil
+            let count = keysWritten.count
+            statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
+            errorMessage = nil
+        case .unchanged(let path):
+            // CLI parity: `sharibako materialize` says "already up to date".
+            pendingDiff = nil
+            statusMessage = "Already up to date: \(path.path)"
+            errorMessage = nil
         }
     }
 
@@ -479,18 +612,26 @@ extension WorkshopModel {
 
     /// Commits pending vault changes and pushes to the remote.
     ///
+    /// Async (Decision 1): `git commit`/`push` is network I/O that beach-balls
+    /// exactly like a scan, so it runs through ``worker`` off the main thread.
     /// A vault with no configured remote commits locally and no-ops the push
     /// (clean no-op, not an error — mirrors the CLI's SyncCommand posture).
     /// Push rejections and conflicts map to ``errorMessage``; every other
     /// outcome reports through ``statusMessage`` so the button visibly
     /// concludes even on a no-op (dogfood-gate finding).
-    func sync() {
+    func sync() async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
+        activity = .syncing
+        defer { activity = nil }
         do {
-            let conduit = try Conduit(vaultURL: vaultURL)
-            let commitResult = try conduit.commit(message: "sharibako auto-commit")
-            let pushResult = try conduit.push()
+            let (commitResult, pushResult) = try await worker.run {
+                let conduit = try Conduit(vaultURL: vaultURL)
+                let commit = try conduit.commit(message: "sharibako auto-commit")
+                let push = try conduit.push()
+                return (commit, push)
+            }
             if case .rejected(let reason) = pushResult {
                 errorMessage = "Push rejected: \(reason). Resolve remotely, then sync again."
                 return
@@ -539,7 +680,13 @@ extension WorkshopModel {
     /// already configured, runs `Materializer.scan(roots:)` and reports the
     /// result through ``statusMessage`` so the button visibly did something
     /// (Decision 3).
-    func rescan(openPanel: (() -> URL?)? = nil) {
+    ///
+    /// Async (Decision 1): the directory picker runs on the main actor (user
+    /// interaction), then the tree walk hops to ``worker``. The report is stored
+    /// in the ``scanReport`` cache (Decision 2) so materialize and the
+    /// jump-to-directory button read fresh markers after a Rescan.
+    func rescan(openPanel: (() -> URL?)? = nil) async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
         if scanRoots.isEmpty {
@@ -554,12 +701,17 @@ extension WorkshopModel {
                 return
             }
         }
+        activity = .scanning
+        defer { activity = nil }
+        let roots = scanRoots
         do {
-            let core = try VaultCore(vaultURL: vaultURL)
-            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-            let report = try materializer.scan(roots: scanRoots)
+            let report = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL)
+                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            }
+            scanReport = report
             let markerCount = report.markers.count
-            let rootCount = scanRoots.count
+            let rootCount = roots.count
             statusMessage =
                 "Scan found \(markerCount) marker\(markerCount == 1 ? "" : "s") "
                 + "in \(rootCount) root\(rootCount == 1 ? "" : "s")."

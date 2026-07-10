@@ -45,6 +45,19 @@ enum AppAgeKeyFixture {
         defer { try? FileManager.default.removeItem(at: fixture.privateKeyURL.deletingLastPathComponent()) }
         try body(fixture)
     }
+
+    /// Async overload for tests that `await` async intents (ho-06.1).
+    ///
+    /// The compiler selects this in an async context and the synchronous one
+    /// otherwise, so existing synchronous tests are untouched.
+    static func withEphemeralKey(_ body: @MainActor (Fixture) async throws -> Void) async throws {
+        let fixture = try generate()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.privateKeyURL.deletingLastPathComponent())
+        }
+        try await body(fixture)
+    }
 }
 
 // MARK: - Vault+Git helper for sync tests
@@ -53,8 +66,8 @@ enum AppAgeKeyFixture {
 ///
 /// Returns the vault URL and the bare remote path so sync tests can verify push no-ops.
 func withGitVaultAndBareRemote(
-    _ body: (URL, URL) throws -> Void
-) throws {
+    _ body: @MainActor (URL, URL) async throws -> Void
+) async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("sharibako-synctest-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -86,5 +99,5 @@ func withGitVaultAndBareRemote(
     try "".write(to: placeholder, atomically: true, encoding: .utf8)
     _ = try conduit.commit(message: "Initial vault setup")
 
-    try body(vaultURL, remoteURL)
+    try await body(vaultURL, remoteURL)
 }

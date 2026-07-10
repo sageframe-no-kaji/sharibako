@@ -197,9 +197,9 @@ struct WorkshopModelMutationTests {
 @Suite("WorkshopModel Actions")
 struct WorkshopModelActionTests {
     @Test("materializeSelectedScope writes the .env and diffPending on drift")
-    func materializeWritesEnvAndDiffPendsOnDrift() throws {
-        try AppAgeKeyFixture.withEphemeralKey { fixture in
-            try WorkshopTestSupport.withTempVault { vault in
+    func materializeWritesEnvAndDiffPendsOnDrift() async throws {
+        try await AppAgeKeyFixture.withEphemeralKey { fixture in
+            try await WorkshopTestSupport.withTempVault { vault in
                 // Vault layout: scope + marker + project directory.
                 try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
                 let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
@@ -245,14 +245,14 @@ struct WorkshopModelActionTests {
 
                 // First materialize: no .env yet, should write and say so
                 // (dogfood-gate finding: silent success reads as broken).
-                model.materializeSelectedScope()
+                await model.materializeSelectedScope()
                 #expect(model.pendingDiff == nil)
                 #expect(model.errorMessage == nil)
                 #expect(FileManager.default.fileExists(atPath: envURL.path))
                 #expect(model.statusMessage?.hasPrefix("Wrote 1 secret") == true)
 
                 // Unchanged re-run: reports CLI-parity "already up to date".
-                model.materializeSelectedScope()
+                await model.materializeSelectedScope()
                 #expect(model.statusMessage?.hasPrefix("Already up to date") == true)
 
                 // Inject drift: write a different value for DB in the .env.
@@ -260,11 +260,11 @@ struct WorkshopModelActionTests {
 
                 // Second materialize without force: should detect drift and
                 // clear the status line (the dialog is the visible outcome).
-                model.materializeSelectedScope(force: false)
+                await model.materializeSelectedScope(force: false)
                 #expect(model.pendingDiff != nil)
                 #expect(model.statusMessage == nil)
                 // Overwrite drift with force: should write and clear pendingDiff.
-                model.materializeSelectedScope(force: true)
+                await model.materializeSelectedScope(force: true)
                 #expect(model.pendingDiff == nil)
                 #expect(model.errorMessage == nil)
                 #expect(model.statusMessage?.hasPrefix("Wrote 1 secret") == true)
@@ -273,8 +273,8 @@ struct WorkshopModelActionTests {
     }
 
     @Test("sync commits and no-ops without a remote")
-    func syncNoopsWithoutRemote() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func syncNoopsWithoutRemote() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let conduit = try Conduit(vaultURL: vault)
             try conduit.initializeRepository()
             let git = try Shell.findExecutable("git")
@@ -286,7 +286,7 @@ struct WorkshopModelActionTests {
                 environment: ["SHARIBAKO_VAULT": vault.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
             )
-            model.sync()
+            await model.sync()
             // No remote → push no-ops → no error, and the outcome is named.
             #expect(model.errorMessage == nil)
             #expect(model.statusMessage?.contains("no remote configured") == true)
@@ -294,30 +294,30 @@ struct WorkshopModelActionTests {
     }
 
     @Test("sync commits and pushes to a bare remote without error")
-    func syncCommitsAndPushesToRemote() throws {
-        try withGitVaultAndBareRemote { vaultURL, _ in
+    func syncCommitsAndPushesToRemote() async throws {
+        try await withGitVaultAndBareRemote { vaultURL, _ in
             // Add a scope so there's something to commit.
             try WorkshopTestSupport.writeScope("test-scope", type: .other, in: vaultURL)
             let model = WorkshopModel(
                 environment: ["SHARIBAKO_VAULT": vaultURL.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
             )
-            model.sync()
+            await model.sync()
             #expect(model.errorMessage == nil)
             // Commit happened and the push transferred commits; both named.
             #expect(model.statusMessage?.hasPrefix("Committed") == true)
             #expect(model.statusMessage?.contains("pushed") == true)
 
             // A second sync with nothing new: "Nothing to commit" + up to date.
-            model.sync()
+            await model.sync()
             #expect(model.errorMessage == nil)
             #expect(model.statusMessage?.hasPrefix("Nothing to commit") == true)
         }
     }
 
     @Test("rescan with pre-configured roots scans without opening a panel")
-    func rescanWithConfiguredRoots() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func rescanWithConfiguredRoots() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let model = WorkshopModel(
                 environment: ["SHARIBAKO_VAULT": vault.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
@@ -326,7 +326,7 @@ struct WorkshopModelActionTests {
             model.scanRoots = [FileManager.default.temporaryDirectory]
             // rescan with pre-configured roots must never invoke the panel.
             var panelCalled = false
-            model.rescan {
+            await model.rescan {
                 panelCalled = true
                 return nil
             }
@@ -338,8 +338,8 @@ struct WorkshopModelActionTests {
     }
 
     @Test("rescan with no roots calls the panel and persists the chosen root")
-    func rescanWithNoPanelCallsPanelAndPersists() throws {
-        try WorkshopTestSupport.withTempDirectory { tempDir in
+    func rescanWithNoPanelCallsPanelAndPersists() async throws {
+        try await WorkshopTestSupport.withTempDirectory { tempDir in
             // Create a temp home so persistScanRoot doesn't touch the real one.
             let fakeHome = tempDir.appendingPathComponent("home")
             try FileManager.default.createDirectory(
@@ -363,7 +363,7 @@ struct WorkshopModelActionTests {
                 at: chosenRoot, withIntermediateDirectories: true)
 
             var panelCalled = false
-            model.rescan {
+            await model.rescan {
                 panelCalled = true
                 return chosenRoot
             }
