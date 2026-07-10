@@ -50,9 +50,24 @@ extension VaultCore {
     ///   shared entry that no longer exists; `VaultError.ageInvocationFailed` for
     ///   decryption failures; `VaultError.yamlDecodeError` for a corrupt payload.
     public func getValue(_ key: String, inScope scopeID: String) throws -> String {
+        try getSecretContent(key, inScope: scopeID).value
+    }
+
+    /// Decrypts and returns the full content (value, notes, rotation date) for a secret key.
+    ///
+    /// The whole-payload sibling of ``getValue(_:inScope:)`` — same target
+    /// resolution (links resolve to their shared entries), same error surface.
+    /// The GUI's reveal uses this so notes are displayed alongside the value
+    /// instead of being decrypted and discarded.
+    ///
+    /// - Parameters:
+    ///   - key: Secret key (filename stem).
+    ///   - scopeID: Owning scope identifier.
+    /// - Returns: The decrypted `SecretContent`.
+    /// - Throws: The same errors as ``getValue(_:inScope:)``.
+    public func getSecretContent(_ key: String, inScope scopeID: String) throws -> SecretContent {
         let target = try resolveSecretTarget(key, inScope: scopeID)
-        let content = try decryptSecretContent(at: target)
-        return content.value
+        return try decryptSecretContent(at: target)
     }
 
     /// Decrypts every owned secret in a scope, resolving links, into a key→value dict.
@@ -77,6 +92,36 @@ extension VaultCore {
             result[info.key] = try getValue(info.key, inScope: scopeID)
         }
         return result
+    }
+
+    /// Updates the notes for a scope-local secret without changing its value or
+    /// rotation date.
+    ///
+    /// Reads the existing `<KEY>.age`, re-encrypts a `SecretContent` with the
+    /// **same `value`** and **same `rotatedAt`**, and only the new `notes`. A
+    /// notes-only edit is not a rotation and must not bump `rotated_at`; use
+    /// ``rotate(_:inScope:newValue:)`` when the value itself changes.
+    ///
+    /// Only valid for `.value` secrets (i.e., a `<KEY>.age` file exists). A
+    /// `.link` file has no local ciphertext; the corresponding `.age` is absent,
+    /// so this method throws ``VaultError/secretNotFound(scope:key:)`` for links
+    /// and for absent keys alike, mirroring ``rotate(_:inScope:newValue:)``.
+    ///
+    /// - Parameters:
+    ///   - key: Secret key (filename stem).
+    ///   - scopeID: Owning scope identifier.
+    ///   - notes: New notes string, or `nil` to clear notes.
+    /// - Throws: `VaultError.secretNotFound(scope:key:)` if the `.age` is absent;
+    ///   `VaultError.ageInvocationFailed` for encrypt/decrypt failures.
+    public func updateNotes(_ key: String, inScope scopeID: String, notes: String?) throws {
+        let target = try VaultLayout.secretURL(key, inScope: scopeID, in: vaultURL)
+        guard FileManager.default.fileExists(atPath: target.path) else {
+            throw VaultError.secretNotFound(scope: scopeID, key: key)
+        }
+        let existing = try decryptSecretContent(at: target)
+        // Preserve value and rotatedAt; only notes changes.
+        let updated = SecretContent(value: existing.value, notes: notes, rotatedAt: existing.rotatedAt)
+        try encryptAndWrite(updated, to: target)
     }
 
     /// Rotates a scope-local secret to a new value, preserving notes.

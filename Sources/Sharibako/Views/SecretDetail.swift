@@ -1,8 +1,12 @@
 import SharibakoCore
 import SwiftUI
 
-/// Detail column of the Workshop: shows a selected secret's value (masked or
-/// revealed), notes, link target, and rotation history.
+/// Detail column of the Workshop.
+///
+/// Shows a selected secret's value (masked or revealed), notes, link target,
+/// and rotation history. Adds edit affordances for value (routes through
+/// `rotate`) and notes (routes through `updateNotes`) as distinct submits —
+/// a notes edit never rotates the value (Decision 6).
 ///
 /// **Reveal idiom (Decision 4):** value renders as `••••••••` until the user
 /// taps Reveal, which calls `model.reveal(key:inScope:)` (the file-key dev path
@@ -10,9 +14,8 @@ import SwiftUI
 /// this secret is selected; changing selection re-masks via the model's
 /// `selectedSecretKey` setter.
 ///
-/// Read-only in AT-02 — no edit, rotate, or notes-edit controls (AT-03).
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
-/// (ho-05 Decision 8).
+/// (ho-05 Decision 8). Edit/rotate/notes logic lives in WorkshopModel (tested).
 struct SecretDetail: View {
     @Environment(WorkshopModel.self)
     private var model
@@ -58,10 +61,13 @@ struct SecretDetail: View {
 
                 Divider()
 
-                // Value section
-                valueSection(key: key, scopeID: scopeID)
+                // Value section (reveal + edit for .value kind)
+                if case .value = info.kind {
+                    valueSection(key: key, scopeID: scopeID)
+                    notesSection(key: key, scopeID: scopeID)
+                }
 
-                // Link target (only for .link kind)
+                // Link target (only for .link kind — no local notes to edit)
                 if case .link(let sharedID) = info.kind {
                     linkSection(sharedID: sharedID)
                 }
@@ -81,12 +87,120 @@ struct SecretDetail: View {
 
     @ViewBuilder
     private func valueSection(key: String, scopeID: String) -> some View {
+        ValueEditSection(key: key, scopeID: scopeID)
+    }
+
+    // MARK: - Notes section
+
+    @ViewBuilder
+    private func notesSection(key: String, scopeID: String) -> some View {
+        NotesEditSection(key: key, scopeID: scopeID)
+    }
+
+    // MARK: - Link target section
+
+    @ViewBuilder
+    private func linkSection(sharedID: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Value", systemImage: "lock.rectangle")
+            Label("Linked to shared entry", systemImage: "link")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            if let revealed = model.revealedValue {
+            Text(sharedID)
+                .font(.system(.body, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
+    }
+
+    // MARK: - History section
+
+    @ViewBuilder
+    private func historySection() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Rotation History", systemImage: "clock.arrow.circlepath")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            if model.history.isEmpty {
+                Text("No history — file is untracked or the vault has no git repository.")
+                    .foregroundStyle(.tertiary)
+                    .font(.callout)
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.history, id: \.shortSHA) { entry in
+                        HistoryRow(entry: entry)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Value edit section
+
+/// Reveal-and-rotate widget for a `.value` secret.
+///
+/// Shows the masked/revealed value with Hide and Copy affordances.
+/// "Edit Value" opens an inline edit that submits via `model.editValue` (rotate)
+/// and re-masks the field afterward. Editing value and notes are distinct submits
+/// so a notes edit never bumps `rotated_at` (Decision 6).
+///
+/// Coverage-excluded as a private View struct inside the detail pane (ho-05 Decision 8).
+private struct ValueEditSection: View {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    let key: String
+    let scopeID: String
+
+    @State private var isEditing = false
+    @State private var editValue = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Value", systemImage: "lock.rectangle")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !isEditing {
+                    Button("Edit") {
+                        isEditing = true
+                        editValue = ""
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.callout)
+                }
+            }
+
+            if isEditing {
+                // Distinct edit path for value — submits via rotate (editValue intent).
+                VStack(alignment: .leading, spacing: 6) {
+                    SecureField("New value", text: $editValue)
+                        .font(.system(.body, design: .monospaced))
+                        .textFieldStyle(.roundedBorder)
+
+                    HStack {
+                        Button("Cancel") {
+                            isEditing = false
+                            editValue = ""
+                        }
+                        .buttonStyle(.borderless)
+                        Spacer()
+                        Button("Rotate Value") {
+                            model.editValue(key: key, inScope: scopeID, newValue: editValue)
+                            isEditing = false
+                            editValue = ""
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(editValue.isEmpty)
+                    }
+                }
+                .padding(10)
+                .background(.quaternary)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if let revealed = model.revealedValue {
                 HStack(alignment: .top, spacing: 8) {
                     Text(revealed)
                         .font(.system(.body, design: .monospaced))
@@ -135,46 +249,98 @@ struct SecretDetail: View {
             }
         }
     }
+}
 
-    // MARK: - Link target section
+// MARK: - Notes edit section
 
-    @ViewBuilder
-    private func linkSection(sharedID: String) -> some View {
+/// Notes display-and-edit widget for a `.value` secret.
+///
+/// Notes edits submit via `model.editNotes` → `VaultCore.updateNotes`, which
+/// preserves `value` and `rotated_at`. A notes edit is categorically distinct
+/// from a value edit (Decision 6) — they must not share a submit button.
+///
+/// Coverage-excluded as a private View struct inside the detail pane (ho-05 Decision 8).
+private struct NotesEditSection: View {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    let key: String
+    let scopeID: String
+
+    @State private var isEditing = false
+    @State private var editNotes = ""
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Linked to shared entry", systemImage: "link")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            Text(sharedID)
-                .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-    }
-
-    // MARK: - History section
-
-    @ViewBuilder
-    private func historySection() -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Rotation History", systemImage: "clock.arrow.circlepath")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-
-            if model.history.isEmpty {
-                Text("No history — file is untracked or the vault has no git repository.")
-                    .foregroundStyle(.tertiary)
+            HStack {
+                Label("Notes", systemImage: "note.text")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !isEditing {
+                    Button("Edit Notes") {
+                        isEditing = true
+                        editNotes = ""
+                    }
+                    .buttonStyle(.borderless)
                     .font(.callout)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(model.history, id: \.shortSHA) { entry in
-                        HistoryRow(entry: entry)
+                }
+            }
+
+            if isEditing {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextField(
+                        "Notes (leave blank to clear)",
+                        text: $editNotes,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
+                    .textFieldStyle(.roundedBorder)
+
+                    HStack {
+                        Button("Cancel") {
+                            isEditing = false
+                            editNotes = ""
+                        }
+                        .buttonStyle(.borderless)
+                        Spacer()
+                        Button("Save Notes") {
+                            // Distinct submit path — routes through updateNotes, not rotate.
+                            let normalized: String? = editNotes.isEmpty ? nil : editNotes
+                            model.editNotes(key: key, inScope: scopeID, notes: normalized)
+                            isEditing = false
+                            editNotes = ""
+                        }
+                        .buttonStyle(.bordered)
                     }
                 }
+                .padding(10)
+                .background(.quaternary)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if let notes = model.revealedNotes {
+                // Notes decrypt alongside the value on reveal; show them.
+                Text(notes)
+                    .font(.callout)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(.quaternary)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else if model.revealedValue != nil {
+                // Revealed, but the payload carries no notes.
+                Text("No notes.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text("(reveal to see notes, or edit to update)")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
 }
+
+// MARK: - History row
 
 /// One row in the rotation history list.
 private struct HistoryRow: View {

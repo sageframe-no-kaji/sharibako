@@ -363,3 +363,68 @@ struct WorkshopModelRevealTests {
         }
     }
 }
+
+/// Notes-reveal tests, split from `WorkshopModelRevealTests` for suite size.
+///
+/// Notes travel inside the same encrypted payload as the value, so the reveal
+/// path must surface them together (dogfood-gate finding: notes were decrypted
+/// and discarded, never displayed).
+@MainActor
+@Suite("WorkshopModel notes reveal")
+struct WorkshopModelNotesRevealTests {
+    @Test("reveal populates revealedNotes alongside the value")
+    func revealPopulatesNotes() throws {
+        try withEphemeralAgeKey { keyURL in
+            try WorkshopTestSupport.withTempVault { vault in
+                try WorkshopTestSupport.writeScope("notes-scope", type: .other, in: vault)
+                let core = try VaultCore(vaultURL: vault, ageKeyURL: keyURL)
+                try core.addSecret(
+                    "TOKEN", value: "hunter2", inScope: "notes-scope", notes: "issued by ops")
+
+                let model = WorkshopModel(
+                    environment: [
+                        "SHARIBAKO_VAULT": vault.path,
+                        "SHARIBAKO_AGE_KEY": keyURL.path,
+                    ],
+                    home: URL(fileURLWithPath: "/Users/nobody")
+                )
+                model.selectedScopeID = "notes-scope"
+                model.selectedSecretKey = "TOKEN"
+                model.reveal(key: "TOKEN", inScope: "notes-scope")
+
+                #expect(model.revealedValue == "hunter2")
+                #expect(model.revealedNotes == "issued by ops")
+
+                // Selection change clears notes through the same cascade as the value.
+                model.selectedSecretKey = nil
+                #expect(model.revealedValue == nil)
+                #expect(model.revealedNotes == nil)
+            }
+        }
+    }
+
+    @Test("reveal of a secret without notes leaves revealedNotes nil")
+    func revealWithoutNotesLeavesNotesNil() throws {
+        try withEphemeralAgeKey { keyURL in
+            try WorkshopTestSupport.withTempVault { vault in
+                try WorkshopTestSupport.writeScope("plain-scope", type: .other, in: vault)
+                let core = try VaultCore(vaultURL: vault, ageKeyURL: keyURL)
+                try core.addSecret("TOKEN", value: "no-notes-here", inScope: "plain-scope")
+
+                let model = WorkshopModel(
+                    environment: [
+                        "SHARIBAKO_VAULT": vault.path,
+                        "SHARIBAKO_AGE_KEY": keyURL.path,
+                    ],
+                    home: URL(fileURLWithPath: "/Users/nobody")
+                )
+                model.selectedScopeID = "plain-scope"
+                model.selectedSecretKey = "TOKEN"
+                model.reveal(key: "TOKEN", inScope: "plain-scope")
+
+                #expect(model.revealedValue == "no-notes-here")
+                #expect(model.revealedNotes == nil)
+            }
+        }
+    }
+}

@@ -385,7 +385,7 @@ struct WorkshopModelTests {
             .contains("/tmp/somewhere"))
         #expect(
             WorkshopModel.message(for: VaultError.scopeNotFound(id: "x"))
-                .hasPrefix("Vault error:"))
+                .contains("'x'"))
         #expect(
             WorkshopModel.message(for: CocoaError(.fileNoSuchFile))
                 .hasPrefix("Unexpected error:"))
