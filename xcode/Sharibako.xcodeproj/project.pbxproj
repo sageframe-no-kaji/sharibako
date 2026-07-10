@@ -1,0 +1,281 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5A0001012E100001005A0001 /* SharibakoCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0001022E100002005A0001 /* SharibakoCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		5A0001042E100004005A0001 /* Sharibako.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sharibako.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5A0001052E100005005A0001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5A0001062E100006005A0001 /* Sharibako.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Sharibako.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5A0001032E100003005A0001 /* SharibakoSources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			name = SharibakoSources;
+			path = ../Sources/Sharibako;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5A0001072E100007005A0001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A0001012E100001005A0001 /* SharibakoCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5A0001082E100008005A0001 = {
+			isa = PBXGroup;
+			children = (
+				5A0001032E100003005A0001 /* SharibakoSources */,
+				5A0001092E100009005A0001 /* Sharibako */,
+				5A00010A2E10000A005A0001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5A0001092E100009005A0001 /* Sharibako */ = {
+			isa = PBXGroup;
+			children = (
+				5A0001052E100005005A0001 /* Info.plist */,
+				5A0001062E100006005A0001 /* Sharibako.entitlements */,
+			);
+			path = Sharibako;
+			sourceTree = "<group>";
+		};
+		5A00010A2E10000A005A0001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5A0001042E100004005A0001 /* Sharibako.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5A00010B2E10000B005A0001 /* Sharibako */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5A00010C2E10000C005A0001 /* Build configuration list for PBXNativeTarget "Sharibako" */;
+			buildPhases = (
+				5A00010D2E10000D005A0001 /* Sources */,
+				5A0001072E100007005A0001 /* Frameworks */,
+				5A00010E2E10000E005A0001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5A0001032E100003005A0001 /* SharibakoSources */,
+			);
+			name = Sharibako;
+			packageProductDependencies = (
+				5A0001022E100002005A0001 /* SharibakoCore */,
+			);
+			productName = Sharibako;
+			productReference = 5A0001042E100004005A0001 /* Sharibako.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5A0001102E100010005A0001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					5A00010B2E10000B005A0001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = 5A0001112E100011005A0001 /* Build configuration list for PBXProject "Sharibako" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5A0001082E100008005A0001;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				5A0001122E100012005A0001 /* XCLocalSwiftPackageReference ".." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5A00010A2E10000A005A0001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5A00010B2E10000B005A0001 /* Sharibako */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5A00010E2E10000E005A0001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5A00010D2E10000D005A0001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5A0001132E100013005A0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		5A0001142E100014005A0001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5A0001152E100015005A0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Sharibako/Sharibako.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: ANDREW TODD MARCUS (3N8F759K8D)";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 3N8F759K8D;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sharibako/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.sageframe.sharibako;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Sharibako Developer ID";
+			};
+			name = Debug;
+		};
+		5A0001162E100016005A0001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Sharibako/Sharibako.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: ANDREW TODD MARCUS (3N8F759K8D)";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = 3N8F759K8D;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Sharibako/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = net.sageframe.sharibako;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Sharibako Developer ID";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5A0001112E100011005A0001 /* Build configuration list for PBXProject "Sharibako" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A0001132E100013005A0001 /* Debug */,
+				5A0001142E100014005A0001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5A00010C2E10000C005A0001 /* Build configuration list for PBXNativeTarget "Sharibako" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A0001152E100015005A0001 /* Debug */,
+				5A0001162E100016005A0001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		5A0001122E100012005A0001 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5A0001022E100002005A0001 /* SharibakoCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SharibakoCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5A0001102E100010005A0001 /* Project object */;
+}

@@ -100,9 +100,19 @@ jobs:
           #     terminal (termios against a real TTY); under CI's pipes the
           #     default prompt is nil and no path in the file can run
           #     (ho-04.11, same class as TerminalDetector).
+          #   GUIAgeKeyProvider — the Workshop's own Keychain adapter (ho-05
+          #     Decision 1; mirrors KeychainAgeKeyProvider and shares its
+          #     justification: the Keychain path needs the signed app bundle +
+          #     Touch ID, unreachable from a bare CI test binary).
+          #     Dogfood-verified at the ho-05 signed-install gate.
+          #   WorkshopWindow, ScopeSidebar, Sources/Sharibako/App.swift —
+          #     SwiftUI View/App declarative bodies, which only execute inside
+          #     a launched app; not headlessly drivable (ho-05 Decision 8).
+          #     All branching they render lives in WorkshopModel and
+          #     WorkshopConfig, which are NOT excluded and carry real coverage.
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \
