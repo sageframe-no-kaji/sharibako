@@ -5,11 +5,14 @@ import SwiftUI
 /// the "no vault" empty state when the resolved path holds none (Decision 3).
 ///
 /// The toolbar carries Add Scope, Add Shared Secret, Materialize (enabled
-/// when a scope is selected), Sync, Rescan, and — its own block, left of Sync
-/// (ho-06.1 AT-02 Decision 3) — Jump to Directory. The drift confirmation
-/// dialog surfaces when `model.pendingDiff` is set; the user must confirm
-/// before the overwrite runs. All branching logic lives in `WorkshopModel`
-/// (tested); this view is declarative presentation only (Decision 8).
+/// when a scope is selected), Preview .env, Sync, Rescan, and — its own
+/// block, left of Sync (ho-06.1 AT-02 Decision 3) — Jump to Directory. The
+/// three Add actions open auxiliary `Window` scenes via `openWindow`
+/// (ho-06.1 AT-03 Decision 6) — movable, non-modal, this window stays
+/// interactive while one is open. The drift confirmation dialog surfaces
+/// when `model.pendingDiff` is set; the user must confirm before the
+/// overwrite runs. All branching logic lives in `WorkshopModel` (tested);
+/// this view is declarative presentation only (Decision 8).
 ///
 /// The status surface pulses green on a `statusMessage` change and red on an
 /// `errorMessage` change (AT-02 Decision 4) — the text persists (no
@@ -24,9 +27,8 @@ struct WorkshopWindow: View {
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
 
-    @State private var showingAddScope = false
-    @State private var showingAddSecret = false
-    @State private var showingAddShared = false
+    @Environment(\.openWindow)
+    private var openWindow
 
     /// Leading inset shared by the status surface and the sidebar footer's
     /// own horizontal padding (`ScopeSidebar`), so the status line's leading
@@ -120,16 +122,17 @@ struct WorkshopWindow: View {
                     Text(driftMessage(for: diff))
                 }
             }
-            .sheet(isPresented: $showingAddScope) {
-                AddScopeSheet()
-            }
-            .sheet(isPresented: $showingAddSecret) {
-                if let scopeID = model.selectedScopeID {
-                    AddSecretSheet(scopeID: scopeID)
+            // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
+            // `envPreview` is non-nil; dismissing (either affordance) clears it.
+            .sheet(
+                isPresented: .init(
+                    get: { model.envPreview != nil },
+                    set: { if !$0 { model.dismissEnvPreview() } }
+                )
+            ) {
+                if let preview = model.envPreview {
+                    EnvPreviewSheet(preview: preview)
                 }
-            }
-            .sheet(isPresented: $showingAddShared) {
-                AddSharedEntrySheet()
             }
         }
     }
@@ -237,9 +240,12 @@ struct WorkshopWindow: View {
     /// (AT-02 Decision 4 — hover tooltips failed the operator at the ho-05
     /// gate).
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
+        // Add Scope/Secret/Shared open auxiliary windows (ho-06.1 AT-03
+        // Decision 6) rather than modal sheets — the main window stays
+        // interactive while one is up.
         ToolbarItem(placement: .primaryAction) {
             Button {
-                showingAddScope = true
+                openWindow(id: SharibakoApp.addScopeWindowID)
             } label: {
                 Label("Add Scope", systemImage: "folder.badge.plus")
             }
@@ -249,7 +255,14 @@ struct WorkshopWindow: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
-                showingAddSecret = true
+                // The scope ID is read once, here, and travels as the
+                // window's `value` — not re-read from `model.selectedScopeID`
+                // while the Add Secret window is open, so a selection change
+                // in the main window afterward cannot retarget an in-progress
+                // add (Decision 6).
+                if let scopeID = model.selectedScopeID {
+                    openWindow(id: SharibakoApp.addSecretWindowID, value: scopeID)
+                }
             } label: {
                 Label("Add Secret", systemImage: "plus.circle")
             }
@@ -264,7 +277,7 @@ struct WorkshopWindow: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
-                showingAddShared = true
+                openWindow(id: SharibakoApp.addSharedEntryWindowID)
             } label: {
                 Label("Add Shared Secret", systemImage: "link.badge.plus")
             }
@@ -288,6 +301,21 @@ struct WorkshopWindow: View {
                     ? "Select a scope to materialize its secrets"
                     : "Write this scope's secrets into its .env target"
             )
+        }
+
+        // Preview .env: adjacent to Materialize (ho-06.1 AT-03 Decision 5) —
+        // one Touch ID renders exactly what Materialize would write, without
+        // writing. Disabled without a selected scope + cached marker, same
+        // gate as Jump to Directory.
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                Task { await model.previewEnv() }
+            } label: {
+                Label("Preview .env", systemImage: "doc.text.magnifyingglass")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(model.previewDisabledReason != nil || model.activity != nil)
+            .help(model.previewDisabledReason ?? "Preview this scope's .env composition")
         }
 
         // Jump to Directory: its own block, left of Sync (operator-specified

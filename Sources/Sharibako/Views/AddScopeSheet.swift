@@ -1,12 +1,19 @@
 import SharibakoCore
 import SwiftUI
 
-/// Sheet for creating a new scope in the Workshop.
+/// Form for creating a new scope in the Workshop.
 ///
 /// Validates the scope ID against the vault identifier grammar
 /// (`VaultCore.isValidIdentifier`) and disables submit on invalid input —
 /// the same validation the CLI enforces at the path-building chokepoint.
 /// A display name is optional.
+///
+/// Hosted in its own auxiliary `Window` scene, opened via `openWindow`
+/// (ho-06.1 AT-03 Decision 6) rather than a modal `.sheet` — movable,
+/// non-modal, the main window stays interactive while this is open.
+/// `dismiss()` closes the window on Cancel or successful submit; the
+/// creation announce (`WorkshopModel.addScope`) surfaces in the main
+/// window's status surface, not here.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8). All submitted work routes through `WorkshopModel.addScope`.

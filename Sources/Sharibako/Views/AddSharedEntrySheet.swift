@@ -1,15 +1,25 @@
 import SharibakoCore
 import SwiftUI
 
-/// Sheet for adding a new shared entry to `shared/`.
+/// Form for adding a new shared entry to `shared/`.
 ///
 /// Validates the shared entry ID against the vault identifier grammar
-/// (`VaultCore.isValidIdentifier`) and disables submit on invalid input.
-/// The value field is a `SecureField`. Notes are optional.
+/// (`VaultCore.isValidIdentifier`) and disables submit on invalid input. The
+/// value field is a ``RevealableSecureField`` — masked by default, with a
+/// show-while-typing eye toggle (ho-06.1 AT-03 Decision 5). Notes are
+/// optional.
 ///
 /// Note: the link *picker* (binding a scope key to this shared entry from the
-/// UI) is ho-07. This sheet creates the shared entry; linking is a future
-/// surface (Decision 5).
+/// UI) is ho-07. This form creates the shared entry; linking is a future
+/// surface.
+///
+/// Hosted in its own auxiliary `Window` scene, opened via `openWindow`
+/// (ho-06.1 AT-03 Decision 6) rather than a modal `.sheet` — movable,
+/// non-modal, the main window stays interactive while this is open.
+/// `dismiss()` closes the window on Cancel or successful submit; the
+/// creation announce (`WorkshopModel.addSharedEntry`) surfaces in the main
+/// window's status surface, not here — shared entries especially have no
+/// visible home of their own until ho-07's browser.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8). All submitted work routes through
@@ -55,8 +65,10 @@ struct AddSharedEntrySheet: View {
                 }
 
                 Section {
-                    SecureField("Value", text: $entryValue)
-                        .font(.system(.body, design: .monospaced))
+                    // Masked by default; the eye toggle lets the operator
+                    // confirm what they typed before submitting (ho-06.1
+                    // AT-03 Decision 5).
+                    RevealableSecureField(placeholder: "Value", text: $entryValue)
                 } header: {
                     Text("Value")
                 }

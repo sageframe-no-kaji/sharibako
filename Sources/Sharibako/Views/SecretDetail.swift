@@ -217,7 +217,14 @@ private struct ValueEditSection: View {
                 if !isEditing {
                     Button("Edit") {
                         isEditing = true
-                        editValue = ""
+                        // Prefill ONLY when the value is already revealed for
+                        // this key (ho-06.1 AT-03 Decision 5) — an unrevealed
+                        // value must never be decrypted just to prefill the
+                        // edit field. `model.revealedValue` is only ever the
+                        // plaintext for `key` (WorkshopModel's invariant: a
+                        // selection change clears it first), so this check is
+                        // sufficient without re-checking `selectedSecretKey`.
+                        editValue = model.revealedValue ?? ""
                     }
                     .buttonStyle(.borderless)
                     .font(.callout)
@@ -227,8 +234,7 @@ private struct ValueEditSection: View {
             if isEditing {
                 // Distinct edit path for value — submits via rotate (editValue intent).
                 VStack(alignment: .leading, spacing: 6) {
-                    SecureField("New value", text: $editValue)
-                        .font(.system(.body, design: .monospaced))
+                    RevealableSecureField(placeholder: "New value", text: $editValue)
                         .textFieldStyle(.roundedBorder)
 
                     HStack {

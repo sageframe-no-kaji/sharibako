@@ -52,10 +52,17 @@ struct AgeKeyHandle: Sendable {
 protocol GUIAgeKeyProvider: Sendable {
     /// Returns a handle whose `url` points at an age identity file.
     ///
+    /// `@MainActor`-isolated: every caller is a `WorkshopModel` intent, which
+    /// is itself `@MainActor` (ho-06.1 Decision 1 — key acquisition is user
+    /// interaction, not CPU work, so it never hops to ``VaultWorker``). The
+    /// Keychain implementation's shared `LAContext` cache (Decision 5) relies
+    /// on this confinement to stay `Sendable`-correct without locking.
+    ///
     /// - Parameter reason: Human-readable description surfaced as the Touch ID
     ///   prompt string; ignored by `GUIFileAgeKeyProvider`.
     /// - Returns: An `AgeKeyHandle` whose `release()` must be called after use.
     /// - Throws: `AgeKeyAccessError` when the key cannot be produced.
+    @MainActor
     func loadIdentity(reason: String) throws -> AgeKeyHandle
 }
 
@@ -86,6 +93,60 @@ struct GUIFileAgeKeyProvider: GUIAgeKeyProvider {
 }
 
 #if os(macOS)
+    /// Holds the one `LAContext` shared across Keychain key loads, so a
+    /// successful Touch ID evaluation rides the system's reuse window instead
+    /// of re-prompting on every operation (ho-06.1 Decision 5).
+    ///
+    /// `@MainActor`-isolated rather than `Sendable`-safe by locking: every
+    /// call site (`WorkshopModel`'s reveal/add/rotate/materialize intents)
+    /// acquires the age key synchronously on the main actor before any
+    /// `worker` hop (ho-06.1 Decision 1 — key acquisition is user
+    /// interaction, not CPU work), so the cache never needs cross-actor
+    /// protection. `LAContext` itself is a mutable Foundation/Obj-C class and
+    /// not `Sendable`; confining it to one actor is the correct fix, not a
+    /// workaround.
+    @MainActor
+    private final class GUIKeychainContextCache {
+        static let shared = GUIKeychainContextCache()
+
+        private var context: LAContext?
+
+        private init() {}
+
+        /// Returns the shared context, creating one (with the reuse window
+        /// configured) if none exists yet or the previous one was
+        /// invalidated by a cancelled/failed evaluation.
+        ///
+        /// `LAContext.touchIDAuthenticationAllowableReuseDuration` set to the
+        /// system maximum (`LATouchIDAuthenticationMaximumAllowableReuseDuration`,
+        /// 5 minutes) is what lets a second `SecItemCopyMatching` inside the
+        /// window skip the biometric prompt — the OS honors the reuse window
+        /// per-context, so the context itself must persist across calls
+        /// rather than being constructed fresh per operation.
+        func currentContext() -> LAContext {
+            if let context {
+                return context
+            }
+            let fresh = LAContext()
+            fresh.touchIDAuthenticationAllowableReuseDuration =
+                LATouchIDAuthenticationMaximumAllowableReuseDuration
+            context = fresh
+            return fresh
+        }
+
+        /// Discards the cached context so the next ``currentContext()`` call
+        /// builds a fresh one.
+        ///
+        /// A cancelled or failed Touch ID evaluation can leave an `LAContext`
+        /// unable to evaluate again (invalidated by the system); recreating
+        /// on the next load — rather than surfacing a permanent failure —
+        /// keeps a single Touch ID cancellation from bricking every
+        /// subsequent key load for the rest of the session.
+        func invalidate() {
+            context = nil
+        }
+    }
+
     /// Retrieves the age private key from the macOS Keychain behind Touch ID.
     ///
     /// Mirrors the CLI's `KeychainAgeKeyProvider.loadIdentity`: a
@@ -94,10 +155,19 @@ struct GUIFileAgeKeyProvider: GUIAgeKeyProvider {
     /// retrieved key is written to a `0600` temp file; `release()` best-effort
     /// scrubs and deletes it. Read-only — the CLI owns key storage
     /// (`sharibako key generate`/`import`).
+    ///
+    /// The `LAContext` is shared across every `GUIKeychainAgeKeyProvider`
+    /// instance via ``GUIKeychainContextCache`` (ho-06.1 Decision 5): repeated
+    /// key loads inside the 5-minute reuse window ride one Touch ID
+    /// authentication instead of re-prompting per operation. The Keychain
+    /// query itself — service, account, access group, `kSecReturnData` — is
+    /// unchanged; only the authentication context is cached.
     struct GUIKeychainAgeKeyProvider: GUIAgeKeyProvider {
-        /// Loads the shared age key item, triggering Touch ID (or password).
+        /// Loads the shared age key item, triggering Touch ID (or password)
+        /// unless a prior evaluation is still within the reuse window.
+        @MainActor
         func loadIdentity(reason: String) throws -> AgeKeyHandle {
-            let context = LAContext()
+            let context = GUIKeychainContextCache.shared.currentContext()
             context.localizedReason = reason
 
             let query: [String: Any] = [
@@ -111,6 +181,10 @@ struct GUIFileAgeKeyProvider: GUIAgeKeyProvider {
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)
             guard status == errSecSuccess, let data = result as? Data else {
+                // A cancelled/failed evaluation can invalidate the context for
+                // future use — drop it so the next load builds a fresh one
+                // instead of failing permanently for the rest of the session.
+                GUIKeychainContextCache.shared.invalidate()
                 throw AgeKeyAccessError.keychainLoadFailed(osStatus: status)
             }
 

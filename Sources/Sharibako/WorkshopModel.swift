@@ -47,7 +47,14 @@ final class WorkshopModel {
     }
 
     /// The long-running operation in flight, or `nil` when idle.
-    private(set) var activity: Activity?
+    ///
+    /// `internal` (not `private(set)`): ``previewEnv()``
+    /// (`WorkshopModel+Preview.swift`, AT-03) is a long operation of its own
+    /// — it decrypts every scope secret through ``worker``, the same weight
+    /// as materialize — and sets this the same way every other async intent
+    /// does. Cross-file-extension access follows the `Conduit`/
+    /// `Conduit+Remote.swift` precedent; views still only ever read it.
+    var activity: Activity?
 
     /// Serial off-main execution domain for blocking Core work (Decision 1).
     ///
@@ -177,6 +184,17 @@ final class WorkshopModel {
 
     /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
     private(set) var pendingDiff: MaterializeDiff?
+
+    /// The result of the last "Preview .env" action, or `nil` before one has
+    /// run (ho-06.1 AT-03, Decision 5).
+    ///
+    /// Set by ``previewEnv()`` (`WorkshopModel+Preview.swift`); presenting the
+    /// sheet is driven by this becoming non-nil, dismissing it by setting this
+    /// back to `nil`. `internal` (not `private(set)`) for the same
+    /// cross-file-extension reason as ``statusMessage`` — the preview intent
+    /// lives in its own extension file, following the `Conduit` +
+    /// `Conduit+Remote.swift` precedent.
+    var envPreview: EnvPreviewResult?
 
     /// The resolved scan roots (from the GUI config file).
     ///
@@ -495,7 +513,13 @@ extension WorkshopModel {
     /// the marker moved or was deleted since the last scan, or the cache is
     /// cold — runs exactly one fresh scan through ``worker``, updates the cache,
     /// and retries the lookup before letting the marker-not-found error surface.
-    private func resolveMarkerFromCache(
+    ///
+    /// `internal` (not `private`): ``previewEnv()`` (`WorkshopModel+Preview.swift`,
+    /// AT-03) resolves markers the same way materialize does, so "Preview
+    /// .env" and "Materialize" always agree on which marker they're
+    /// targeting — the `Conduit`/`Conduit+Remote.swift` cross-file-extension
+    /// precedent.
+    func resolveMarkerFromCache(
         forScope scopeID: String,
         vaultURL: URL
     ) async throws -> ScopeMarker {
