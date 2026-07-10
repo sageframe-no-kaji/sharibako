@@ -123,9 +123,9 @@ Full architecture extract in [`docs/architecture.md`](docs/architecture.md).
 
 | | |
 |---|---|
-| **Now** | The Tool (CLI) is complete and in daily dogfooding — every verb below works against a real vault, including `run` (runtime injection) and interactive `init`. |
-| **Next** | The Workshop (GUI, ho-05). |
-| **Later** | Linking UX across both surfaces. Bundling, signing, installer. Website. v1.0 release. |
+| **Now** | The Tool (CLI) is complete and in daily dogfooding. The Workshop (GUI) shell is landed and dogfooded — the app opens the vault, reveals behind Touch ID, edits, materializes, and syncs. |
+| **Next** | Workshop polish (ho-06): async scanning, first-run wizard, three-state glyphs, ingest flow. |
+| **Later** | Linking UX across both surfaces (ho-07). Bundling, signing, installer. Website. v1.0 release. |
 
 ## What's Ahead
 
@@ -147,7 +147,7 @@ Items the architecture is prepared for but the v1 build does not include:
 
 ## Usage
 
-**The Workshop (GUI).** Lands with ho-05 — the app target is currently a placeholder window. The intended shape: open the app, pick or create a vault, Touch ID, browse scopes in the sidebar, edit secrets in the center pane, *Materialize* to write a scope's `.env`, *Sync* to push and pull.
+**The Workshop (GUI).** Landed with ho-05. A three-pane window over the same engine the CLI drives: scopes grouped by type in the sidebar, a scope's secrets in the center, and a detail pane where a value reveals behind Touch ID (re-masking when selection changes) with notes and per-secret rotation history from git. Add scopes, secrets, and shared entries; edit a value (a rotation) or its notes (not a rotation) as distinct acts; *Materialize* writes a scope's `.env` and refuses to overwrite drift without showing the diff; *Sync* commits and pushes; *Rescan* finds project markers. First-run setup, the three-state glyphs, and the ingest flow are ho-06; the linking picker is ho-07. Build it from `xcode/Sharibako.xcodeproj` — the signed bundle is what makes Touch ID work.
 
 **The Tool (CLI).**
 
@@ -223,7 +223,7 @@ cd sharibako
 swift build -c release
 ```
 
-The CLI binary lands at `.build/release/sharibako`. On macOS, `scripts/install.sh` builds, signs, and installs it wrapped in a thin app bundle — the signed bundle is what lets the Keychain entitlement (Touch ID) work. The Workshop's Xcode project lands with ho-05; until then the app target is a placeholder built by `swift build`.
+The CLI binary lands at `.build/release/sharibako`. On macOS, `scripts/install.sh` builds, signs, and installs it wrapped in a thin app bundle — the signed bundle is what lets the Keychain entitlement (Touch ID) work. The Workshop builds from `xcode/Sharibako.xcodeproj` (a committed, hand-authored project over the same Swift package); `swift build` still type-checks the app sources headlessly for CI. Both surfaces read the same Keychain item — a vault set up from the CLI opens in the Workshop with no re-keying.
 
 ## License
 
