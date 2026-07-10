@@ -27,11 +27,19 @@ struct WorkshopWindow: View {
                 ScopeSidebar()
                     .navigationSplitViewColumnWidth(min: 180, ideal: 240)
             } content: {
-                Text("Select a scope")
-                    .foregroundStyle(.secondary)
+                SecretList()
+                    .onAppear {
+                        if let scopeID = model.selectedScopeID {
+                            model.loadSecrets(for: scopeID)
+                        }
+                    }
+                    .onChange(of: model.selectedScopeID) { _, newScopeID in
+                        if let scopeID = newScopeID {
+                            model.loadSecrets(for: scopeID)
+                        }
+                    }
             } detail: {
-                Text("No selection")
-                    .foregroundStyle(.secondary)
+                SecretDetail()
             }
             .safeAreaInset(edge: .bottom) {
                 if let message = model.errorMessage {

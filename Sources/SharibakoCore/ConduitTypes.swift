@@ -72,6 +72,29 @@ public struct StatusResult: Sendable, Equatable {
     }
 }
 
+/// A single entry in a secret file's git history.
+///
+/// Returned newest-first by ``Conduit/log(fileURL:)``. The `date` field
+/// carries the ISO 8601 short date that git prints with `--date=short`
+/// (`YYYY-MM-DD`); `subject` is the commit's first-line message.
+public struct CommitInfo: Sendable, Equatable {
+    /// The short (7-character) commit SHA.
+    public let shortSHA: String
+
+    /// Commit date in ISO 8601 short form (`YYYY-MM-DD`), as git prints it.
+    public let date: String
+
+    /// First-line commit message subject.
+    public let subject: String
+
+    /// Memberwise initializer.
+    public init(shortSHA: String, date: String, subject: String) {
+        self.shortSHA = shortSHA
+        self.date = date
+        self.subject = subject
+    }
+}
+
 /// A file involved in a merge conflict, carrying both sides' git object SHAs.
 ///
 /// Surfaces can retrieve each version with `git show <sha>` and decrypt with

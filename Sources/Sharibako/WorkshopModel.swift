@@ -30,7 +30,46 @@ final class WorkshopModel {
     private(set) var scopes: [ScopeMetadata] = []
 
     /// Identity of the sidebar-selected scope, if any.
-    var selectedScopeID: String?
+    ///
+    /// Setting this clears ``selectedSecretKey`` and ``revealedValue`` —
+    /// changing scope re-masks any revealed value (Decision 4).
+    var selectedScopeID: String? {
+        didSet {
+            if selectedScopeID != oldValue {
+                selectedSecretKey = nil
+                revealedValue = nil
+                cachedSecrets = []
+                cachedHistory = []
+            }
+        }
+    }
+
+    /// Secrets in the selected scope, populated by ``loadSecrets()``.
+    private(set) var cachedSecrets: [SecretInfo] = []
+
+    /// The key of the currently selected secret in the center column.
+    ///
+    /// Setting this clears ``revealedValue`` and ``cachedHistory`` —
+    /// changing selection re-masks the previous secret (Decision 4).
+    var selectedSecretKey: String? {
+        didSet {
+            if selectedSecretKey != oldValue {
+                revealedValue = nil
+                cachedHistory = []
+            }
+        }
+    }
+
+    /// The decrypted plaintext for the selected secret while it is revealed.
+    ///
+    /// `nil` when no secret is selected, when the key mismatch guard fires,
+    /// or after selection changes re-masks it. Only ever the value for
+    /// ``selectedSecretKey`` — staleness is impossible because setting
+    /// `selectedSecretKey` unconditionally clears this field first.
+    private(set) var revealedValue: String?
+
+    /// Rotation-history entries for the selected secret.
+    private(set) var cachedHistory: [CommitInfo] = []
 
     /// Human-readable description of the most recent failure, for the window
     /// to surface; `nil` when the last operation succeeded.
@@ -74,6 +113,122 @@ final class WorkshopModel {
             errorMessage = Self.message(for: error)
         }
     }
+
+    // MARK: - Secret listing (AT-02)
+
+    /// The secrets cached for the currently selected scope.
+    ///
+    /// Empty when no scope is selected or after a listing error.
+    var secrets: [SecretInfo] { cachedSecrets }
+
+    /// Loads the secrets for the given scope and stores them in ``secrets``.
+    ///
+    /// Uses the no-encryption ``VaultCore/init(vaultURL:)`` seam — listing
+    /// never decrypts. Failures land in ``errorMessage``.
+    func loadSecrets(for scopeID: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        do {
+            guard let core = try? VaultCore(vaultURL: vaultURL) else { return }
+            cachedSecrets = try core.inspect(scopeID)
+            errorMessage = nil
+        } catch {
+            cachedSecrets = []
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    // MARK: - Reveal (AT-02, Decision 4)
+
+    /// Decrypts the selected secret and stores the plaintext in ``revealedValue``.
+    ///
+    /// Mirrors the CLI's `GetCommand.fetchValue` flow (read only):
+    /// 1. Build the age key provider (file-key when dev bypass is set; Keychain otherwise).
+    /// 2. Load the identity, obtaining an `AgeKeyHandle`.
+    /// 3. Construct `VaultCore(vaultURL:ageKeyURL:)` with the temp key file.
+    /// 4. Call `getValue(_:inScope:)`.
+    /// 5. `defer { handle.release() }` — runs on every exit path.
+    ///
+    /// A Touch ID cancellation or Keychain failure sets ``errorMessage`` and leaves
+    /// the value masked (revealedValue stays `nil`). No auto-hide timer — the value
+    /// stays revealed until ``selectedSecretKey`` or ``selectedScopeID`` changes
+    /// (Decision 4).
+    func reveal(key: String, inScope scopeID: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Reveal \(key) from \(scopeID)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let plaintext = try core.getValue(key, inScope: scopeID)
+            revealedValue = plaintext
+            errorMessage = nil
+        } catch {
+            revealedValue = nil
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Masks the current revealed value without changing selection.
+    ///
+    /// Used by the detail pane's "Hide" control. Selection-change re-masking
+    /// is handled automatically by the `selectedSecretKey` setter.
+    func maskValue() {
+        revealedValue = nil
+    }
+
+    // MARK: - History (AT-02, Decision 6)
+
+    /// The history entries cached for the currently selected secret.
+    var history: [CommitInfo] { cachedHistory }
+
+    /// Loads the git history for a secret file and stores it in ``history``.
+    ///
+    /// Calls ``Conduit/log(fileURL:)`` on the secret's on-disk path. Returns
+    /// silently when the vault has no git repository; failures land in
+    /// ``errorMessage``.
+    func loadHistory(for key: String, inScope scopeID: String, kind: SecretInfo.Kind) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let fileURL: URL
+        // Compute the file URL directly from the vault layout without going
+        // through VaultLayout (internal to SharibakoCore). The layout is
+        // documented as the stable public contract: scopes/<scopeID>/<key>.age
+        // for direct values, scopes/<scopeID>/<key>.link for links.
+        let fileExtension: String
+        switch kind {
+        case .value:
+            fileExtension = "age"
+        case .link:
+            fileExtension = "link"
+        }
+        fileURL =
+            vaultURL
+            .appendingPathComponent("scopes", isDirectory: true)
+            .appendingPathComponent(scopeID, isDirectory: true)
+            .appendingPathComponent("\(key).\(fileExtension)", isDirectory: false)
+        do {
+            let conduit = try Conduit(vaultURL: vaultURL)
+            cachedHistory = try conduit.log(fileURL: fileURL)
+            errorMessage = nil
+        } catch let vaultError as VaultError {
+            // Non-git vaults (no .git/) surface as gitInvocationFailed.
+            // Degrade gracefully — no history is not a fatal state.
+            if case .gitInvocationFailed = vaultError {
+                cachedHistory = []
+            } else {
+                errorMessage = Self.message(for: vaultError)
+            }
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    // MARK: - Sidebar sections
 
     /// The sidebar's sections: one per `ScopeType` holding scopes, in fixed
     /// display order, with empty sections omitted.

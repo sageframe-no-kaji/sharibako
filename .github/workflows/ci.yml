@@ -110,9 +110,15 @@ jobs:
           #     a launched app; not headlessly drivable (ho-05 Decision 8).
           #     All branching they render lives in WorkshopModel and
           #     WorkshopConfig, which are NOT excluded and carry real coverage.
+          #   SecretList — SwiftUI declarative body; center-column secret list,
+          #     driven by WorkshopModel.secrets (not excluded); not headlessly
+          #     drivable (ho-05 Decision 8).
+          #   SecretDetail — SwiftUI declarative body; detail-pane reveal UI,
+          #     driven by WorkshopModel.revealedValue/history (not excluded);
+          #     not headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

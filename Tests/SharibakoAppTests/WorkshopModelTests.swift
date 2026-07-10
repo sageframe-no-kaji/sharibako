@@ -1,12 +1,12 @@
 import Foundation
-import SharibakoCore
 import Testing
 
 @testable import Sharibako
+@testable import SharibakoCore
 
 /// Fixture helpers for Workshop tests: ephemeral temp directories, vault
 /// layouts, and `scope.yaml` seeds — no Keychain, no signing, no real home.
-private enum WorkshopTestSupport {
+enum WorkshopTestSupport {
     /// Materializes an ephemeral empty temp directory and calls `body` with its URL.
     ///
     /// Removed on scope exit, even when `body` throws.
