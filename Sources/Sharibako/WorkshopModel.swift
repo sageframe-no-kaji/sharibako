@@ -64,6 +64,25 @@ final class WorkshopModel {
     /// ``cachedMarker(forScope:)``. Never persisted — markers change externally,
     /// and a persisted cache would lie across sessions.
     private(set) var scanReport: ScanReport?
+
+    /// The vault's git remote, resolved once at launch (AT-02 Decision 3).
+    ///
+    /// `nil` while unresolved (the sidebar footer omits the remote line until
+    /// this is set, rather than guessing "no remote" before the fast local
+    /// git call returns). Resolved alongside ``performLaunchScan()`` — not
+    /// per-render — via ``Conduit/remoteURL()``. A vault with no `.git/` or no
+    /// configured `origin` resolves to ``RemoteDescription/none``, which the
+    /// footer states plainly rather than treating as an error.
+    private(set) var remoteDescription: RemoteDescription?
+
+    /// The vault's git remote, as read at launch.
+    enum RemoteDescription: Equatable {
+        /// `origin` is configured; carries the full URL string.
+        case configured(url: String)
+        /// The vault has no configured `origin` (or no `.git/` at all).
+        case none
+    }
+
     /// Whether the resolved vault path holds an openable vault.
     enum VaultState: Equatable {
         /// No vault at the resolved path; the window shows the empty state
@@ -118,20 +137,30 @@ final class WorkshopModel {
     /// or after selection changes re-masks it. Only ever the value for
     /// ``selectedSecretKey`` — staleness is impossible because setting
     /// `selectedSecretKey` unconditionally clears this field first.
-    private(set) var revealedValue: String?
+    ///
+    /// `internal` (not `private(set)`): the mutation intents that clear it on
+    /// rotate/edit live in `WorkshopModel+Mutations.swift`, a separate file in
+    /// the same module (the `Conduit`/`Conduit+Remote.swift` split precedent —
+    /// Swift's `private` is file-scoped even within one type).
+    var revealedValue: String?
 
     /// The decrypted notes for the selected secret while it is revealed.
     ///
     /// Set alongside ``revealedValue`` by ``reveal(key:inScope:)`` and cleared
     /// by the same selection-change cascade — notes live in the encrypted
-    /// payload and follow the same masking discipline (Decision 4).
-    private(set) var revealedNotes: String?
+    /// payload and follow the same masking discipline (Decision 4). `internal`
+    /// for the same cross-file reason as ``revealedValue``.
+    var revealedNotes: String?
 
     /// Informational result of the last action (e.g. a rescan summary).
     ///
     /// Distinct from ``errorMessage``: this is a success line, not a failure.
-    /// The window renders it in the same bottom status surface.
-    private(set) var statusMessage: String?
+    /// The window renders it in the same bottom status surface. `internal`
+    /// (not `private(set)`): the creation announces
+    /// (`WorkshopModel+Mutations.swift`) and the jump announce
+    /// (`WorkshopModel+Waymarking.swift`) both set it from their own files —
+    /// the `Conduit`/`Conduit+Remote.swift` split precedent.
+    var statusMessage: String?
 
     /// Rotation-history entries for the selected secret.
     private(set) var cachedHistory: [CommitInfo] = []
@@ -163,6 +192,14 @@ final class WorkshopModel {
     /// touch the live user config.
     let configURL: URL
 
+    /// The injected (or live) home directory, retained for
+    /// `vaultDirectoryShortDescription` (`WorkshopModel+Waymarking.swift`) —
+    /// the sidebar footer abbreviates the vault path against this, not the
+    /// live `NSHomeDirectory()`, so injected-home tests never resolve against
+    /// the real user's home (AT-02 Decision 3). `internal` (not `private`) so
+    /// the waymarking extension file can read it.
+    let home: URL
+
     /// Resolves the vault per `WorkshopConfig` precedence and loads its scopes.
     ///
     /// `environment` and `home` default to live process values; tests inject
@@ -174,6 +211,7 @@ final class WorkshopModel {
         let resolved = WorkshopConfig.resolveVaultURL(environment: environment, home: home)
         devAgeKeyPath = WorkshopConfig.resolveDevAgeKeyURL(environment: environment)
         configURL = WorkshopConfig.defaultConfigURL(home: home)
+        self.home = home
         scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
         if WorkshopConfig.isVaultDirectory(resolved) {
             vaultState = .open(vaultURL: resolved)
@@ -339,138 +377,6 @@ extension WorkshopModel {
     }
 }
 
-// MARK: - Mutation intents (AT-03, Decision 5)
-
-extension WorkshopModel {
-    /// Creates a new scope and refreshes the sidebar, selecting the new scope.
-    ///
-    /// Maps thrown `VaultError` to ``errorMessage``; never crashes the window.
-    func addScope(id: String, type: ScopeType, displayName: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL)
-            let name = displayName.flatMap { $0.isEmpty ? nil : $0 }
-            try core.createScope(id, type: type, displayName: name)
-            loadScopes()
-            selectedScopeID = id
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Adds a secret to the given scope and refreshes the secret list.
-    ///
-    /// Requires the age key because `addSecret` encrypts. Uses the current age
-    /// key provider (file bypass in dev; Keychain in the signed app).
-    func addSecret(key: String, value: String, notes: String?, inScope scopeID: String) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Encrypt new secret \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.addSecret(key, value: value, inScope: scopeID, notes: normalizedNotes)
-            if selectedScopeID == scopeID {
-                loadSecrets(for: scopeID)
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Adds a new shared entry to `shared/`.
-    ///
-    /// Requires the age key for encryption. Maps errors to ``errorMessage``.
-    func addSharedEntry(id: String, value: String, notes: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Encrypt new shared entry \(id)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.addSharedEntry(id, value: value, notes: normalizedNotes)
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Rotates a scope-local secret to a new value.
-    ///
-    /// Clears any stale revealed value for that key so the caller must
-    /// re-reveal the new ciphertext via Touch ID (Decision 4).
-    func editValue(key: String, inScope scopeID: String, newValue: String) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Rotate \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            try core.rotate(key, inScope: scopeID, newValue: newValue)
-            // Clear stale reveal so the new value must be explicitly re-revealed.
-            if selectedSecretKey == key {
-                revealedValue = nil
-                revealedNotes = nil
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Updates a secret's notes without changing its value or rotation date.
-    ///
-    /// A notes-only edit is not a rotation and must not bump `rotated_at`;
-    /// this routes through `VaultCore.updateNotes`, not `rotate` (Decision 6).
-    func editNotes(key: String, inScope scopeID: String, notes: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Edit notes for \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalized = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.updateNotes(key, inScope: scopeID, notes: normalized)
-            // Keep the displayed notes current when this secret is revealed —
-            // the value stays revealed (no rotation happened, Decision 6).
-            if selectedSecretKey == key, revealedValue != nil {
-                revealedNotes = normalized
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-}
-
 // MARK: - Action intents (AT-03, Decision 5)
 
 extension WorkshopModel {
@@ -486,17 +392,26 @@ extension WorkshopModel {
     }
 
     /// Runs one non-blocking scan at window open to warm the scan cache
-    /// (Decision 2).
+    /// (Decision 2), and resolves the sidebar footer's remote description
+    /// (Decision 3).
     ///
     /// Called from the window's `.task` modifier so the window renders
-    /// immediately and the cache fills in behind it. A no-op when ``scanRoots``
-    /// is empty or the vault is not open (nothing to scan). Quiet on success —
-    /// the user did not trigger it, so it sets no ``statusMessage``; failures
-    /// still land in ``errorMessage``. Guards re-entry against ``activity`` like
-    /// every long intent. Runs the walk through ``worker``.
+    /// immediately and both fill in behind it. The remote resolution is a
+    /// fast local git call and runs even when ``scanRoots`` is empty — it has
+    /// nothing to do with scan roots — but still only when the vault is open
+    /// and only once (skipped on a re-entrant call while ``remoteDescription``
+    /// is already set, so Rescan does not re-shell for a value that cannot
+    /// have changed mid-session). Quiet on success for both — the user did not
+    /// trigger this, so it sets no ``statusMessage``; failures still land in
+    /// ``errorMessage``. Guards re-entry against ``activity`` like every long
+    /// intent. The scan walk runs through ``worker``.
     func performLaunchScan() async {
         guard activity == nil else { return }
-        guard case .open(let vaultURL) = vaultState, !scanRoots.isEmpty else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        if remoteDescription == nil {
+            resolveRemoteDescription(vaultURL: vaultURL)
+        }
+        guard !scanRoots.isEmpty else { return }
         activity = .scanning
         defer { activity = nil }
         let roots = scanRoots
@@ -510,6 +425,24 @@ extension WorkshopModel {
         } catch {
             errorMessage = Self.message(for: error)
         }
+    }
+
+    /// Resolves ``remoteDescription`` via ``Conduit/remoteURL()``.
+    ///
+    /// A synchronous, fast local git call (no network) — it does not warrant
+    /// the ``worker``/``activity`` machinery the tree-walk and network intents
+    /// use. A vault with no `.git/` or no `origin` and any `Conduit`
+    /// construction failure both resolve to ``RemoteDescription/none`` rather
+    /// than surfacing an error — the footer's job is to state the fact
+    /// plainly, not to treat "no remote" as a failure.
+    private func resolveRemoteDescription(vaultURL: URL) {
+        guard let conduit = try? Conduit(vaultURL: vaultURL),
+            let url = try? conduit.remoteURL()
+        else {
+            remoteDescription = RemoteDescription.none
+            return
+        }
+        remoteDescription = .configured(url: url)
     }
 
     /// Materializes the selected scope's secrets into its marker's `.env` target.

@@ -4,11 +4,16 @@ import SwiftUI
 /// The Workshop's main window: a three-pane `NavigationSplitView` shell, or
 /// the "no vault" empty state when the resolved path holds none (Decision 3).
 ///
-/// AT-03 adds the toolbar: Add Scope, Add Shared Secret, Materialize (enabled
-/// when a scope is selected), Sync, and Rescan. The drift confirmation dialog
-/// surfaces when `model.pendingDiff` is set; the user must confirm before the
-/// overwrite runs. All branching logic lives in `WorkshopModel` (tested);
-/// this view is declarative presentation only (Decision 8).
+/// The toolbar carries Add Scope, Add Shared Secret, Materialize (enabled
+/// when a scope is selected), Sync, Rescan, and — its own block, left of Sync
+/// (ho-06.1 AT-02 Decision 3) — Jump to Directory. The drift confirmation
+/// dialog surfaces when `model.pendingDiff` is set; the user must confirm
+/// before the overwrite runs. All branching logic lives in `WorkshopModel`
+/// (tested); this view is declarative presentation only (Decision 8).
+///
+/// The status surface pulses green on a `statusMessage` change and red on an
+/// `errorMessage` change (AT-02 Decision 4) — the text persists (no
+/// auto-clear); Reduce Motion swaps the animated tint for a static one.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8).
@@ -16,9 +21,25 @@ struct WorkshopWindow: View {
     @Environment(WorkshopModel.self)
     private var model
 
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+
     @State private var showingAddScope = false
     @State private var showingAddSecret = false
     @State private var showingAddShared = false
+
+    /// Leading inset shared by the status surface and the sidebar footer's
+    /// own horizontal padding (`ScopeSidebar`), so the status line's leading
+    /// edge reads as continuous with the sidebar column's section labels
+    /// (AT-02 Decision 4) instead of spanning the full window edge-to-edge.
+    private static let sidebarAlignedInset: CGFloat = 10
+
+    /// `true` for one brief window after `statusMessage` changes — drives the
+    /// status surface's green pulse.
+    @State private var statusPulseActive = false
+    /// `true` for one brief window after `errorMessage` changes — drives the
+    /// status surface's red pulse.
+    @State private var errorPulseActive = false
 
     var body: some View {
         switch model.vaultState {
@@ -65,6 +86,18 @@ struct WorkshopWindow: View {
             .safeAreaInset(edge: .bottom) {
                 statusSurface
             }
+            // Status pulse (Decision 4): a brief background tint on change,
+            // never a timer that clears the text — the message stays until the
+            // next action replaces it. Reduce Motion swaps the animated flash
+            // for an immediate static tint of the same duration-independent shape.
+            .onChange(of: model.statusMessage) { _, newValue in
+                guard newValue != nil else { return }
+                pulse($statusPulseActive)
+            }
+            .onChange(of: model.errorMessage) { _, newValue in
+                guard newValue != nil else { return }
+                pulse($errorPulseActive)
+            }
             // Drift confirmation dialog: surfaces when materialize detects owned
             // lines that differ from vault values. Requires explicit confirmation
             // before overwriting (Decision 5 — never silently overwrite drift).
@@ -108,7 +141,10 @@ struct WorkshopWindow: View {
     ///
     /// Precedence: an active operation shows its progress indicator and label;
     /// when idle, errors win over status (both share the surface so every
-    /// action visibly concludes, ho-05 Decision 4 / dogfood-gate finding).
+    /// action visibly concludes, ho-05 Decision 4 / dogfood-gate finding). The
+    /// leading edge is inset by ``sidebarAlignedInset`` to read as continuous
+    /// with the sidebar column's section labels rather than the window edge
+    /// (AT-02 Decision 4).
     @ViewBuilder private var statusSurface: some View {
         if let activity = model.activity {
             HStack(spacing: 8) {
@@ -119,15 +155,19 @@ struct WorkshopWindow: View {
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
+            .padding(.vertical, 8)
+            .padding(.leading, Self.sidebarAlignedInset)
+            .padding(.trailing, 8)
             .background(.bar)
         } else if let message = model.errorMessage {
             Text(message)
                 .font(.callout)
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(.bar)
+                .padding(.vertical, 8)
+                .padding(.leading, Self.sidebarAlignedInset)
+                .padding(.trailing, 8)
+                .background(errorPulseBackground)
         } else if let status = model.statusMessage {
             // Informational result line (e.g. rescan summary) — same surface as
             // errors so actions always visibly conclude.
@@ -135,13 +175,67 @@ struct WorkshopWindow: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(.bar)
+                .padding(.vertical, 8)
+                .padding(.leading, Self.sidebarAlignedInset)
+                .padding(.trailing, 8)
+                .background(statusPulseBackground)
+        }
+    }
+
+    /// The status line's background: the standard `.bar` material, tinted
+    /// green while ``statusPulseActive`` — the announce (AT-02 Decision 4).
+    ///
+    /// Under Reduce Motion the tint still appears and fades, just without an
+    /// eased animation curve driving it (a static emphasis, not a flash).
+    private var statusPulseBackground: some View {
+        ZStack {
+            Rectangle().fill(.bar)
+            if statusPulseActive {
+                Rectangle().fill(Color.green.opacity(0.25))
+            }
+        }
+    }
+
+    /// The error line's background: red tint while ``errorPulseActive``,
+    /// mirroring ``statusPulseBackground``.
+    private var errorPulseBackground: some View {
+        ZStack {
+            Rectangle().fill(.bar)
+            if errorPulseActive {
+                Rectangle().fill(Color.red.opacity(0.25))
+            }
+        }
+    }
+
+    /// Flips `flag` on, animated unless Reduce Motion is active, then off
+    /// after a brief window — the announce (Decision 4).
+    ///
+    /// The message itself is untouched: no auto-clear timer, ever.
+    private func pulse(_ flag: Binding<Bool>) {
+        if reduceMotion {
+            flag.wrappedValue = true
+        } else {
+            withAnimation(.easeIn(duration: 0.15)) {
+                flag.wrappedValue = true
+            }
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(600))
+            if reduceMotion {
+                flag.wrappedValue = false
+            } else {
+                withAnimation(.easeOut(duration: 0.3)) {
+                    flag.wrappedValue = false
+                }
+            }
         }
     }
 
     // MARK: - Toolbar
 
+    /// Every action button carries an always-visible title alongside its icon
+    /// (AT-02 Decision 4 — hover tooltips failed the operator at the ho-05
+    /// gate).
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Button {
@@ -149,6 +243,7 @@ struct WorkshopWindow: View {
             } label: {
                 Label("Add Scope", systemImage: "folder.badge.plus")
             }
+            .labelStyle(.titleAndIcon)
             .help("Add a new scope to the vault")
         }
 
@@ -158,6 +253,7 @@ struct WorkshopWindow: View {
             } label: {
                 Label("Add Secret", systemImage: "plus.circle")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(model.selectedScopeID == nil)
             .help(
                 model.selectedScopeID == nil
@@ -172,6 +268,7 @@ struct WorkshopWindow: View {
             } label: {
                 Label("Add Shared Secret", systemImage: "link.badge.plus")
             }
+            .labelStyle(.titleAndIcon)
             .help("Add a new shared secret entry to the vault")
         }
 
@@ -181,6 +278,7 @@ struct WorkshopWindow: View {
             } label: {
                 Label("Materialize", systemImage: "arrow.down.doc")
             }
+            .labelStyle(.titleAndIcon)
             // Disabled while any long operation is in flight — the intents also
             // guard re-entry, but the disabled button keeps the UI honest
             // (ho-06.1 Decision 1).
@@ -192,12 +290,28 @@ struct WorkshopWindow: View {
             )
         }
 
+        // Jump to Directory: its own block, left of Sync (operator-specified
+        // placement at the ho-05 gate). Reads the AT-01 scan cache only —
+        // never re-scans for display; the disabled reason names why it can't
+        // (AT-02 Decision 3).
+        ToolbarItem(placement: .secondaryAction) {
+            Button {
+                jumpToSelectedScopeDirectory()
+            } label: {
+                Label("Jump to Directory", systemImage: "arrow.up.forward.square")
+            }
+            .labelStyle(.titleAndIcon)
+            .disabled(model.jumpDisabledReason != nil)
+            .help(model.jumpDisabledReason ?? "Open this scope's marker directory in Finder")
+        }
+
         ToolbarItem(placement: .secondaryAction) {
             Button {
                 Task { await model.sync() }
             } label: {
                 Label("Sync", systemImage: "arrow.triangle.2.circlepath")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(model.activity != nil)
             .help("Commit pending vault changes and push to the remote")
         }
@@ -217,11 +331,30 @@ struct WorkshopWindow: View {
                     }
                 }
             } label: {
-                Label("Rescan", systemImage: "magnifyingglass")
+                // Rotate-form, not a magnifying glass (AT-02 Decision 4) — Rescan
+                // re-walks known roots, it doesn't search for new ones.
+                Label("Rescan", systemImage: "arrow.clockwise")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(model.activity != nil)
             .help("Scan configured directories for .sharibako markers")
         }
+    }
+
+    // MARK: - Jump to Directory
+
+    /// Opens the selected scope's cached marker directory in Finder and
+    /// announces it (AT-02 Decision 3).
+    ///
+    /// A no-op when nothing is selected or the cache holds no marker — the
+    /// toolbar button is already disabled in that state, so this is a
+    /// defensive guard, not the primary gate.
+    private func jumpToSelectedScopeDirectory() {
+        guard let scopeID = model.selectedScopeID,
+            let directory = model.jumpTargetDirectory(forScope: scopeID)
+        else { return }
+        NSWorkspace.shared.open(directory)
+        model.announceJump(to: directory)
     }
 
     // MARK: - Drift dialog helpers

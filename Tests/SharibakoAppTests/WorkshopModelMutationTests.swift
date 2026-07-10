@@ -315,6 +315,64 @@ struct WorkshopModelActionTests {
         }
     }
 
+    @Test("sync surfaces errorMessage when the remote rejects a non-fast-forward push")
+    func syncPushRejected() async throws {
+        try await withGitVaultAndBareRemote { vaultURL, remoteURL in
+            // A second clone pushes first, putting the bare remote ahead of the
+            // model's vault. The model's sync commits locally without pulling,
+            // so its push is rejected (non-fast-forward) — the `.rejected`
+            // branch of `PushResult` that `syncStatusMessage` never reaches.
+            let git = try Shell.findExecutable("git")
+            let cloneDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("sharibako-sync-rejected-clone-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: cloneDir) }
+            let cloneResult = try Shell.run(git, ["clone", remoteURL.path, cloneDir.path])
+            #expect(cloneResult.exitCode == 0)
+            let cloneConduit = try Conduit(vaultURL: cloneDir)
+            try cloneConduit.setIdentity(name: "Sync Rejector", email: "rejector@test.invalid")
+            try WorkshopTestSupport.writeScope("from-clone", type: .other, in: cloneDir)
+            _ = try cloneConduit.commit(message: "Clone commits and pushes first")
+            guard case .success = try cloneConduit.push() else {
+                Issue.record("Expected the clone's push to succeed")
+                return
+            }
+
+            // The vault commits its own change without pulling — its push must
+            // be rejected as non-fast-forward.
+            try WorkshopTestSupport.writeScope("from-vault", type: .other, in: vaultURL)
+            let model = WorkshopModel(
+                environment: ["SHARIBAKO_VAULT": vaultURL.path],
+                home: URL(fileURLWithPath: "/Users/nobody")
+            )
+            await model.sync()
+            #expect(model.errorMessage?.hasPrefix("Push rejected:") == true)
+            #expect(model.statusMessage == nil)
+        }
+    }
+
+    @Test("rescan with no roots and a cancelled panel does nothing")
+    func rescanWithCancelledPanelDoesNothing() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
+            let model = WorkshopModel(
+                environment: ["SHARIBAKO_VAULT": vault.path],
+                home: URL(fileURLWithPath: "/Users/nobody")
+            )
+            #expect(model.scanRoots.isEmpty)
+            var panelCalled = false
+            await model.rescan {
+                panelCalled = true
+                return nil
+            }
+            // A cancelled panel (nil return) leaves roots empty and the action
+            // silent — no error, no status, nothing scanned.
+            #expect(panelCalled)
+            #expect(model.scanRoots.isEmpty)
+            #expect(model.scanReport == nil)
+            #expect(model.errorMessage == nil)
+            #expect(model.statusMessage == nil)
+        }
+    }
+
     @Test("rescan with pre-configured roots scans without opening a panel")
     func rescanWithConfiguredRoots() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
