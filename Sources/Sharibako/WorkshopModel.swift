@@ -1,0 +1,658 @@
+import Foundation
+import Observation
+import SharibakoCore
+
+/// The Workshop's root observable model (ho-05 Decision 2).
+///
+/// One instance is constructed at app launch and injected via `.environment`.
+/// It owns the resolved configuration and constructs `SharibakoCore` types per
+/// operation; views read published state and call intent methods — no view
+/// touches vault logic directly beyond displaying results.
+///
+/// All methods run synchronously on the main actor: vault operations are
+/// local, fast filesystem work (Decision 2 keeps v1 synchronous).
+@Observable
+@MainActor
+final class WorkshopModel {
+    /// Whether the resolved vault path holds an openable vault.
+    enum VaultState: Equatable {
+        /// No vault at the resolved path; the window shows the empty state
+        /// naming `expectedPath` — never silent creation (Decision 3).
+        case noVault(expectedPath: URL)
+        /// An existing vault the Workshop has bound to.
+        case open(vaultURL: URL)
+    }
+
+    /// The resolved vault binding, fixed at init for v1 (re-resolution is ho-06).
+    private(set) var vaultState: VaultState
+
+    /// Every scope in the open vault, sorted by identity (as `listScopes` returns).
+    private(set) var scopes: [ScopeMetadata] = []
+
+    /// Identity of the sidebar-selected scope, if any.
+    ///
+    /// Setting this clears ``selectedSecretKey`` and ``revealedValue`` —
+    /// changing scope re-masks any revealed value (Decision 4).
+    var selectedScopeID: String? {
+        didSet {
+            if selectedScopeID != oldValue {
+                selectedSecretKey = nil
+                revealedValue = nil
+                revealedNotes = nil
+                cachedSecrets = []
+                cachedHistory = []
+            }
+        }
+    }
+
+    /// Secrets in the selected scope, populated by ``loadSecrets()``.
+    private(set) var cachedSecrets: [SecretInfo] = []
+
+    /// The key of the currently selected secret in the center column.
+    ///
+    /// Setting this clears ``revealedValue`` and ``cachedHistory`` —
+    /// changing selection re-masks the previous secret (Decision 4).
+    var selectedSecretKey: String? {
+        didSet {
+            if selectedSecretKey != oldValue {
+                revealedValue = nil
+                revealedNotes = nil
+                cachedHistory = []
+            }
+        }
+    }
+
+    /// The decrypted plaintext for the selected secret while it is revealed.
+    ///
+    /// `nil` when no secret is selected, when the key mismatch guard fires,
+    /// or after selection changes re-masks it. Only ever the value for
+    /// ``selectedSecretKey`` — staleness is impossible because setting
+    /// `selectedSecretKey` unconditionally clears this field first.
+    private(set) var revealedValue: String?
+
+    /// The decrypted notes for the selected secret while it is revealed.
+    ///
+    /// Set alongside ``revealedValue`` by ``reveal(key:inScope:)`` and cleared
+    /// by the same selection-change cascade — notes live in the encrypted
+    /// payload and follow the same masking discipline (Decision 4).
+    private(set) var revealedNotes: String?
+
+    /// Informational result of the last action (e.g. a rescan summary).
+    ///
+    /// Distinct from ``errorMessage``: this is a success line, not a failure.
+    /// The window renders it in the same bottom status surface.
+    private(set) var statusMessage: String?
+
+    /// Rotation-history entries for the selected secret.
+    private(set) var cachedHistory: [CommitInfo] = []
+
+    /// Human-readable description of the most recent failure, for the window
+    /// to surface; `nil` when the last operation succeeded.
+    var errorMessage: String?
+
+    /// File-based age key from `SHARIBAKO_AGE_KEY`; `nil` selects the Keychain path.
+    ///
+    /// The dev bypass for unsigned builds (Decision 7); AT-02's reveal
+    /// selects its provider through ``makeAgeKeyProvider()``.
+    let devAgeKeyPath: URL?
+
+    /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
+    private(set) var pendingDiff: MaterializeDiff?
+
+    /// The resolved scan roots (from the GUI config file).
+    ///
+    /// Populated at init from `~/Library/Application Support/Sharibako/config.yaml`
+    /// and updated when ``rescan()`` persists a new root. `var` (not `private(set)`)
+    /// so tests can inject roots directly without touching the filesystem config.
+    var scanRoots: [URL] = []
+
+    /// The resolved GUI config file URL, fixed at init from the injected `home`.
+    ///
+    /// Every config read AND write goes through this URL — never through a
+    /// freshly-resolved default — so tests that inject a temp `home` can never
+    /// touch the live user config.
+    let configURL: URL
+
+    /// Resolves the vault per `WorkshopConfig` precedence and loads its scopes.
+    ///
+    /// `environment` and `home` default to live process values; tests inject
+    /// both to exercise every branch without mutating process state.
+    init(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) {
+        let resolved = WorkshopConfig.resolveVaultURL(environment: environment, home: home)
+        devAgeKeyPath = WorkshopConfig.resolveDevAgeKeyURL(environment: environment)
+        configURL = WorkshopConfig.defaultConfigURL(home: home)
+        scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+        if WorkshopConfig.isVaultDirectory(resolved) {
+            vaultState = .open(vaultURL: resolved)
+            loadScopes()
+        } else {
+            vaultState = .noVault(expectedPath: resolved)
+        }
+    }
+}
+
+// MARK: - Scope listing and sidebar sections
+
+extension WorkshopModel {
+    /// Reloads the scope list from the open vault.
+    ///
+    /// A no-op in the `.noVault` state. Failures land in ``errorMessage``
+    /// rather than throwing — the window stays up and says what went wrong.
+    func loadScopes() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        do {
+            scopes = try VaultCore(vaultURL: vaultURL).listScopes()
+            errorMessage = nil
+        } catch {
+            scopes = []
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// The sidebar's sections: one per `ScopeType` holding scopes, in fixed
+    /// display order, with empty sections omitted.
+    var scopeSections: [ScopeSection] {
+        Self.sectionOrder.compactMap { type in
+            let matching = scopes.filter { $0.type == type }
+            guard !matching.isEmpty else { return nil }
+            return ScopeSection(type: type, scopes: matching)
+        }
+    }
+
+    /// Fixed sidebar ordering of the five scope categories.
+    static let sectionOrder: [ScopeType] = [.projectDev, .projectProd, .service, .machine, .other]
+}
+
+// MARK: - Secret listing (AT-02)
+
+extension WorkshopModel {
+    /// The secrets cached for the currently selected scope.
+    ///
+    /// Empty when no scope is selected or after a listing error.
+    var secrets: [SecretInfo] { cachedSecrets }
+
+    /// Loads the secrets for the given scope and stores them in ``secrets``.
+    ///
+    /// Uses the no-encryption ``VaultCore/init(vaultURL:)`` seam — listing
+    /// never decrypts. Failures land in ``errorMessage``.
+    func loadSecrets(for scopeID: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        do {
+            guard let core = try? VaultCore(vaultURL: vaultURL) else { return }
+            cachedSecrets = try core.inspect(scopeID)
+            errorMessage = nil
+        } catch {
+            cachedSecrets = []
+            errorMessage = Self.message(for: error)
+        }
+    }
+}
+
+// MARK: - Reveal (AT-02, Decision 4)
+
+extension WorkshopModel {
+    /// Decrypts the selected secret and stores the plaintext in ``revealedValue``.
+    ///
+    /// Mirrors the CLI's `GetCommand.fetchValue` flow (read only):
+    /// 1. Build the age key provider (file-key when dev bypass is set; Keychain otherwise).
+    /// 2. Load the identity, obtaining an `AgeKeyHandle`.
+    /// 3. Construct `VaultCore(vaultURL:ageKeyURL:)` with the temp key file.
+    /// 4. Call `getSecretContent(_:inScope:)` — value AND notes together, so
+    ///    the detail pane can display notes alongside the revealed value.
+    /// 5. `defer { handle.release() }` — runs on every exit path.
+    ///
+    /// A Touch ID cancellation or Keychain failure sets ``errorMessage`` and leaves
+    /// the value masked (revealedValue stays `nil`). No auto-hide timer — the value
+    /// stays revealed until ``selectedSecretKey`` or ``selectedScopeID`` changes
+    /// (Decision 4).
+    func reveal(key: String, inScope scopeID: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Reveal \(key) from \(scopeID)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let content = try core.getSecretContent(key, inScope: scopeID)
+            revealedValue = content.value
+            revealedNotes = content.notes
+            errorMessage = nil
+        } catch {
+            revealedValue = nil
+            revealedNotes = nil
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Masks the current revealed value and notes without changing selection.
+    ///
+    /// Used by the detail pane's "Hide" control. Selection-change re-masking
+    /// is handled automatically by the `selectedSecretKey` setter.
+    func maskValue() {
+        revealedValue = nil
+        revealedNotes = nil
+    }
+}
+
+// MARK: - History (AT-02, Decision 6)
+
+extension WorkshopModel {
+    /// The history entries cached for the currently selected secret.
+    var history: [CommitInfo] { cachedHistory }
+
+    /// Loads the git history for a secret file and stores it in ``history``.
+    ///
+    /// Calls ``Conduit/log(fileURL:)`` on the secret's on-disk path. Returns
+    /// silently when the vault has no git repository; failures land in
+    /// ``errorMessage``.
+    func loadHistory(for key: String, inScope scopeID: String, kind: SecretInfo.Kind) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        // Compute the file URL directly from the vault layout without going
+        // through VaultLayout (internal to SharibakoCore). The layout is
+        // documented as the stable public contract: scopes/<scopeID>/<key>.age
+        // for direct values, scopes/<scopeID>/<key>.link for links.
+        let fileExtension: String
+        switch kind {
+        case .value:
+            fileExtension = "age"
+        case .link:
+            fileExtension = "link"
+        }
+        let fileURL =
+            vaultURL
+            .appendingPathComponent("scopes", isDirectory: true)
+            .appendingPathComponent(scopeID, isDirectory: true)
+            .appendingPathComponent("\(key).\(fileExtension)", isDirectory: false)
+        do {
+            let conduit = try Conduit(vaultURL: vaultURL)
+            cachedHistory = try conduit.log(fileURL: fileURL)
+            errorMessage = nil
+        } catch let vaultError as VaultError {
+            // Non-git vaults (no .git/) surface as gitInvocationFailed.
+            // Degrade gracefully — no history is not a fatal state.
+            if case .gitInvocationFailed = vaultError {
+                cachedHistory = []
+            } else {
+                errorMessage = Self.message(for: vaultError)
+            }
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+}
+
+// MARK: - Mutation intents (AT-03, Decision 5)
+
+extension WorkshopModel {
+    /// Creates a new scope and refreshes the sidebar, selecting the new scope.
+    ///
+    /// Maps thrown `VaultError` to ``errorMessage``; never crashes the window.
+    func addScope(id: String, type: ScopeType, displayName: String?) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            let name = displayName.flatMap { $0.isEmpty ? nil : $0 }
+            try core.createScope(id, type: type, displayName: name)
+            loadScopes()
+            selectedScopeID = id
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Adds a secret to the given scope and refreshes the secret list.
+    ///
+    /// Requires the age key because `addSecret` encrypts. Uses the current age
+    /// key provider (file bypass in dev; Keychain in the signed app).
+    func addSecret(key: String, value: String, notes: String?, inScope scopeID: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Encrypt new secret \(key) in \(scopeID)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
+            try core.addSecret(key, value: value, inScope: scopeID, notes: normalizedNotes)
+            if selectedScopeID == scopeID {
+                loadSecrets(for: scopeID)
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Adds a new shared entry to `shared/`.
+    ///
+    /// Requires the age key for encryption. Maps errors to ``errorMessage``.
+    func addSharedEntry(id: String, value: String, notes: String?) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Encrypt new shared entry \(id)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
+            try core.addSharedEntry(id, value: value, notes: normalizedNotes)
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Rotates a scope-local secret to a new value.
+    ///
+    /// Clears any stale revealed value for that key so the caller must
+    /// re-reveal the new ciphertext via Touch ID (Decision 4).
+    func editValue(key: String, inScope scopeID: String, newValue: String) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Rotate \(key) in \(scopeID)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            try core.rotate(key, inScope: scopeID, newValue: newValue)
+            // Clear stale reveal so the new value must be explicitly re-revealed.
+            if selectedSecretKey == key {
+                revealedValue = nil
+                revealedNotes = nil
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Updates a secret's notes without changing its value or rotation date.
+    ///
+    /// A notes-only edit is not a rotation and must not bump `rotated_at`;
+    /// this routes through `VaultCore.updateNotes`, not `rotate` (Decision 6).
+    func editNotes(key: String, inScope scopeID: String, notes: String?) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Edit notes for \(key) in \(scopeID)")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let normalized = notes.flatMap { $0.isEmpty ? nil : $0 }
+            try core.updateNotes(key, inScope: scopeID, notes: normalized)
+            // Keep the displayed notes current when this secret is revealed —
+            // the value stays revealed (no rotation happened, Decision 6).
+            if selectedSecretKey == key, revealedValue != nil {
+                revealedNotes = normalized
+            }
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+}
+
+// MARK: - Action intents (AT-03, Decision 5)
+
+extension WorkshopModel {
+    /// Materializes the selected scope's secrets into its marker's `.env` target.
+    ///
+    /// Requires the age key for decryption. Resolves the scope's marker by
+    /// scanning ``scanRoots``. On drift, stores the diff in ``pendingDiff`` and
+    /// returns without writing — the view presents a confirmation dialog and
+    /// calls ``materializeSelectedScope(force:)`` with `force: true` on approval
+    /// (Decision 5: never overwrite drift silently, mirror the CLI's `--force` gate).
+    func materializeSelectedScope(force: Bool = false) {
+        guard case .open(let vaultURL) = vaultState,
+            let scopeID = selectedScopeID
+        else { return }
+        statusMessage = nil
+        let provider = makeAgeKeyProvider()
+        let handle: AgeKeyHandle
+        do {
+            handle = try provider.loadIdentity(reason: "Decrypt secrets for materialize")
+        } catch {
+            errorMessage = "Could not load age key: \(error)"
+            return
+        }
+        defer { handle.release() }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
+            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+            let marker = try materializer.resolveMarker(forScope: scopeID, scanRoots: scanRoots)
+            let result = try materializer.materialize(marker: marker, overwriteDrift: force)
+            switch result {
+            case .diffPending(let diff):
+                // Surface the diff; require explicit confirmation before re-running with force.
+                pendingDiff = diff
+            case .wrote(let path, let keysWritten):
+                // Every outcome visibly concludes (dogfood-gate finding: a
+                // silent success reads as a broken button).
+                pendingDiff = nil
+                let count = keysWritten.count
+                statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
+                errorMessage = nil
+            case .unchanged(let path):
+                // CLI parity: `sharibako materialize` says "already up to date".
+                pendingDiff = nil
+                statusMessage = "Already up to date: \(path.path)"
+                errorMessage = nil
+            }
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Dismisses the pending diff (user chose not to overwrite drift).
+    func dismissPendingDiff() {
+        pendingDiff = nil
+    }
+
+    /// Commits pending vault changes and pushes to the remote.
+    ///
+    /// A vault with no configured remote commits locally and no-ops the push
+    /// (clean no-op, not an error — mirrors the CLI's SyncCommand posture).
+    /// Push rejections and conflicts map to ``errorMessage``; every other
+    /// outcome reports through ``statusMessage`` so the button visibly
+    /// concludes even on a no-op (dogfood-gate finding).
+    func sync() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        statusMessage = nil
+        do {
+            let conduit = try Conduit(vaultURL: vaultURL)
+            let commitResult = try conduit.commit(message: "sharibako auto-commit")
+            let pushResult = try conduit.push()
+            if case .rejected(let reason) = pushResult {
+                errorMessage = "Push rejected: \(reason). Resolve remotely, then sync again."
+                return
+            }
+            statusMessage = Self.syncStatusMessage(commit: commitResult, push: pushResult)
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Builds the sync status line from the commit + push outcomes.
+    ///
+    /// Mirrors the CLI SyncCommand's vocabulary ("nothing to commit",
+    /// "committed <sha>, pushed <n>"). `.rejected` never reaches here — the
+    /// caller routes it to ``errorMessage``.
+    private static func syncStatusMessage(commit: CommitResult, push: PushResult) -> String {
+        let commitPart: String
+        switch commit {
+        case .success(let sha):
+            commitPart = "Committed \(sha.prefix(7))"
+        case .nothingToCommit:
+            commitPart = "Nothing to commit"
+        }
+        switch push {
+        case .success(let count):
+            return "\(commitPart); pushed \(count) commit\(count == 1 ? "" : "s")."
+        case .upToDate:
+            return "\(commitPart); remote already up to date."
+        case .noRemote:
+            return "\(commitPart); no remote configured."
+        case .rejected:
+            // Unreachable by contract; keep the switch exhaustive.
+            return "\(commitPart)."
+        }
+    }
+
+    /// Rescans for `.sharibako` markers.
+    ///
+    /// When no scan root is configured, `openPanel` is called to let the view
+    /// present an `NSOpenPanel` directory picker; on a nil return (user cancelled),
+    /// does nothing. On a chosen root, persists it via
+    /// ``WorkshopConfig/persistScanRoot(_:configURL:)`` against the model's own
+    /// ``configURL`` — never a freshly-resolved default, so injected-home tests
+    /// stay isolated from the live user config. After picking or when roots are
+    /// already configured, runs `Materializer.scan(roots:)` and reports the
+    /// result through ``statusMessage`` so the button visibly did something
+    /// (Decision 3).
+    func rescan(openPanel: (() -> URL?)? = nil) {
+        guard case .open(let vaultURL) = vaultState else { return }
+        statusMessage = nil
+        if scanRoots.isEmpty {
+            guard let panel = openPanel, let chosen = panel() else {
+                return
+            }
+            do {
+                try WorkshopConfig.persistScanRoot(chosen, configURL: configURL)
+                scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+            } catch {
+                errorMessage = Self.message(for: error)
+                return
+            }
+        }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+            let report = try materializer.scan(roots: scanRoots)
+            let markerCount = report.markers.count
+            let rootCount = scanRoots.count
+            statusMessage =
+                "Scan found \(markerCount) marker\(markerCount == 1 ? "" : "s") "
+                + "in \(rootCount) root\(rootCount == 1 ? "" : "s")."
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+}
+
+// MARK: - Age key provider and error messages
+
+extension WorkshopModel {
+    /// Builds the age-key provider for decrypt operations (used from AT-02 on).
+    ///
+    /// The file provider wins when `SHARIBAKO_AGE_KEY` is set (the dev bypass,
+    /// Decision 7); otherwise the GUI's own Keychain adapter (Decision 1).
+    func makeAgeKeyProvider() -> any GUIAgeKeyProvider {
+        if let devAgeKeyPath {
+            return GUIFileAgeKeyProvider(path: devAgeKeyPath)
+        }
+        return GUIKeychainAgeKeyProvider()
+    }
+
+    /// Renders an error as a user-facing sentence.
+    ///
+    /// Dispatches to `vaultErrorMessage` for known `VaultError` cases;
+    /// everything else falls through to a generic description.
+    static func message(for error: Error) -> String {
+        guard let vaultError = error as? VaultError else {
+            return "Unexpected error: \(error)"
+        }
+        return Self.vaultErrorMessage(for: vaultError)
+    }
+
+    /// Names the `VaultError` cases the model can surface; split from
+    /// `message(for:)` to keep cyclomatic complexity within the linter ceiling.
+    private static func vaultErrorMessage(for vaultError: VaultError) -> String {
+        switch vaultError {
+        case .vaultNotFound(let path):
+            return "No vault found at \(path.path)."
+        case .yamlDecodeError(let path, _):
+            return "Could not read \(path.lastPathComponent) — the file is not valid YAML."
+        case .fileSystemError(let path, _):
+            return "A filesystem operation failed at \(path.path)."
+        case .secretNotFound(let scope, let key):
+            return "Secret '\(key)' not found in scope '\(scope)'."
+        case .scopeNotFound(let id):
+            return "Scope '\(id)' not found."
+        case .scopeAlreadyExists(let id):
+            return "A scope named '\(id)' already exists."
+        case .sharedEntryExists(let id):
+            return "A shared entry named '\(id)' already exists."
+        case .sharedEntryNotFound(let id):
+            return "Shared entry '\(id)' not found."
+        case .markerNotFound:
+            return "No .sharibako marker found for this scope in the configured scan roots."
+        case .ageInvocationFailed(_, let stderr):
+            return "Encryption failed: \(stderr.prefix(120))"
+        case .gitInvocationFailed(_, let stderr):
+            return "Git error: \(stderr.prefix(120))"
+        default:
+            return "Vault error: \(vaultError)"
+        }
+    }
+}
+
+// MARK: - Sidebar section type
+
+/// One sidebar section: a scope category and its member scopes.
+struct ScopeSection: Equatable, Identifiable {
+    /// The category this section groups.
+    let type: ScopeType
+
+    /// Scopes of that category, in vault order (sorted by identity).
+    let scopes: [ScopeMetadata]
+
+    /// Stable identity for SwiftUI lists.
+    var id: String { type.rawValue }
+
+    /// The section header text.
+    var title: String {
+        switch type {
+        case .projectDev:
+            return "Projects — dev"
+        case .projectProd:
+            return "Projects — prod"
+        case .service:
+            return "Services"
+        case .machine:
+            return "Machines"
+        case .other:
+            return "Other"
+        }
+    }
+}

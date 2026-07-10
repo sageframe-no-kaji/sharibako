@@ -213,6 +213,66 @@ public struct Conduit: Sendable {
         return .success(sha: sha)
     }
 
+    // MARK: - History
+
+    /// Returns the commit history for a single file in the vault repository.
+    ///
+    /// Shells `git log --follow --format=%h%x1f%ad%x1f%s --date=short -- <relativePath>`
+    /// and parses each line into a ``CommitInfo`` using the ASCII unit-separator
+    /// (`\u{1f}`) as the field delimiter. Results are newest-first (git's default).
+    ///
+    /// Returns `[]` for an untracked file (git exits 0 with empty output) — an
+    /// absence of history is not an error. Throws for any non-zero git exit that
+    /// is not the empty-output case.
+    ///
+    /// - Parameter fileURL: Absolute URL of a file inside the vault directory.
+    /// - Returns: Commit history, newest-first, or `[]` for an untracked file.
+    /// - Throws: ``VaultError/gitInvocationFailed(exitCode:stderr:)`` on a
+    ///   non-zero git exit; ``VaultError/fileSystemError(path:underlying:)`` if
+    ///   the vault-relative path cannot be computed.
+    public func log(fileURL: URL) throws -> [CommitInfo] {
+        let relativePath: String
+        if fileURL.path.hasPrefix(vaultURL.path + "/") {
+            relativePath = String(fileURL.path.dropFirst(vaultURL.path.count + 1))
+        } else {
+            relativePath = fileURL.lastPathComponent
+        }
+
+        let result = try git([
+            "log",
+            "--follow",
+            "--format=%h\u{1f}%ad\u{1f}%s",
+            "--date=short",
+            "--",
+            relativePath,
+        ])
+        if result.exitCode != 0 {
+            // git exits 128 with "does not have any commits yet" on a freshly
+            // initialised repo with no commits — treat as empty history, same
+            // as an untracked file in an established repo (exit 0 + empty output).
+            let stderr = result.stderr.lowercased()
+            if stderr.contains("does not have any commits") {
+                return []
+            }
+            throw VaultError.gitInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+
+        let output = result.stdout.trimmingCharacters(in: .newlines)
+        guard !output.isEmpty else {
+            return []
+        }
+
+        return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let parts = line.split(separator: "\u{1f}", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3 else { return nil }
+            return CommitInfo(
+                shortSHA: String(parts[0]),
+                date: String(parts[1]),
+                subject: String(parts[2])
+            )
+        }
+    }
+
     // MARK: - Private helpers
 
     private static func assertVaultDirectoryExists(_ vaultURL: URL) throws {

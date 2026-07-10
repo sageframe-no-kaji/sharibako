@@ -137,6 +137,86 @@ struct VaultCoreEncryptionTests {
         }
     }
 
+    // MARK: - updateNotes (Decision 6)
+
+    @Test("updateNotes changes notes while preserving value and rotatedAt")
+    func updateNotesPreservesValueAndDate() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            // Add with a known value, notes, and today's rotatedAt.
+            try core.addSecret(
+                "TOKEN",
+                value: "original-value",
+                inScope: "kanyo-dev",
+                notes: "first notes"
+            )
+            // Read back to capture the rotated_at stamp.
+            let target = try VaultLayout.secretURL("TOKEN", inScope: "kanyo-dev", in: vault)
+            // Decrypt via getValue to confirm the original value round-trips.
+            let valueBefore = try core.getValue("TOKEN", inScope: "kanyo-dev")
+            #expect(valueBefore == "original-value")
+
+            // Wait a moment — rotatedAt is date-based so there is no sub-day
+            // timing risk; the date before and after will always match in a test.
+            try core.updateNotes("TOKEN", inScope: "kanyo-dev", notes: "updated notes")
+
+            // Value and rotatedAt must survive; only notes changes.
+            let valueAfter = try core.getValue("TOKEN", inScope: "kanyo-dev")
+            #expect(valueAfter == "original-value")
+            // Verify the .age file still exists at the same path.
+            #expect(FileManager.default.fileExists(atPath: target.path))
+        }
+    }
+
+    @Test("updateNotes can clear notes by passing nil")
+    func updateNotesCanClearNotes() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret("TOKEN", value: "value-x", inScope: "kanyo-dev", notes: "some notes")
+            try core.updateNotes("TOKEN", inScope: "kanyo-dev", notes: nil)
+            // The value must survive the notes-clear.
+            #expect(try core.getValue("TOKEN", inScope: "kanyo-dev") == "value-x")
+        }
+    }
+
+    @Test("updateNotes throws secretNotFound for an absent key")
+    func updateNotesAbsentKeyThrows() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            let error = #expect(throws: VaultError.self) {
+                try core.updateNotes("GHOST", inScope: "kanyo-dev", notes: "irrelevant")
+            }
+            guard case .secretNotFound(let scope, let key) = error else {
+                Issue.record("expected secretNotFound, got \(String(describing: error))")
+                return
+            }
+            #expect(scope == "kanyo-dev")
+            #expect(key == "GHOST")
+        }
+    }
+
+    @Test("updateNotes throws secretNotFound for a .link key (no local .age)")
+    func updateNotesLinkKeyThrows() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeSharedEntry(
+                "openai-personal",
+                value: "sk-abc",
+                vault: vault,
+                fixture: fixture
+            )
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            // A .link key has no local .age; updateNotes must throw secretNotFound.
+            #expect(throws: VaultError.self) {
+                try core.updateNotes("OPENAI_API_KEY", inScope: "kanyo-dev", notes: "nope")
+            }
+        }
+    }
+
     // MARK: - rotateShared
 
     @Test("rotateShared propagates through every linking scope")
@@ -484,6 +564,57 @@ struct VaultCoreEncryptionFailureTests {
             #expect(throws: VaultError.self) {
                 try core.addSecret("KEY", value: "value", inScope: "kanyo-dev")
             }
+        }
+    }
+}
+
+/// `getSecretContent` tests, in their own suite for suite size.
+///
+/// The whole-payload sibling of `getValue` (AT-03 fix round): the GUI's reveal
+/// needs value AND notes together so notes are displayed, not discarded.
+@Suite("VaultCore Encryption — getSecretContent")
+struct VaultCoreGetSecretContentTests {
+    @Test("getSecretContent returns value, notes, and rotatedAt together")
+    func getSecretContentFullPayload() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSecret(
+                "API_KEY", value: "sk-test", inScope: "kanyo-dev", notes: "issued by ops")
+            let content = try core.getSecretContent("API_KEY", inScope: "kanyo-dev")
+            #expect(content.value == "sk-test")
+            #expect(content.notes == "issued by ops")
+            #expect(content.rotatedAt != nil)
+        }
+    }
+
+    @Test("getSecretContent resolves a linked key to the shared entry's content")
+    func getSecretContentThroughLink() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            try core.addSharedEntry("openai-personal", value: "sk-shared", notes: "team key")
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+            let content = try core.getSecretContent("OPENAI_API_KEY", inScope: "kanyo-dev")
+            #expect(content.value == "sk-shared")
+            #expect(content.notes == "team key")
+        }
+    }
+
+    @Test("getSecretContent on a missing key throws secretNotFound")
+    func getSecretContentMissingKeyThrows() throws {
+        try VaultTestSupport.withEphemeralVaultAndKey { vault, fixture in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+            let error = #expect(throws: VaultError.self) {
+                try core.getSecretContent("GHOST", inScope: "kanyo-dev")
+            }
+            guard case .secretNotFound(let scope, let key) = error else {
+                Issue.record("expected secretNotFound, got \(String(describing: error))")
+                return
+            }
+            #expect(scope == "kanyo-dev")
+            #expect(key == "GHOST")
         }
     }
 }

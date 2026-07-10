@@ -49,7 +49,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "Sharibako",
-            dependencies: ["SharibakoCore"],
+            dependencies: [
+                "SharibakoCore",
+                "Yams",
+            ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
             ]
@@ -57,6 +60,13 @@ let package = Package(
         .testTarget(
             name: "SharibakoCoreTests",
             dependencies: ["SharibakoCore"]
+        ),
+        .testTarget(
+            name: "SharibakoAppTests",
+            dependencies: [
+                "Sharibako",
+                "SharibakoCore",
+            ]
         ),
         .testTarget(
             name: "SharibakoCLITests",
