@@ -6,7 +6,10 @@ import SwiftUI
 /// Shows a selected secret's value (masked or revealed), notes, link target,
 /// and rotation history. Adds edit affordances for value (routes through
 /// `rotate`) and notes (routes through `updateNotes`) as distinct submits —
-/// a notes edit never rotates the value (Decision 6).
+/// a notes edit never rotates the value (Decision 6). When only a scope is
+/// selected (no secret yet), shows that scope's marker target instead of the
+/// generic empty state (ho-06.1 AT-02 Waymarking Decision 3 — "where would
+/// this scope's secrets land").
 ///
 /// **Reveal idiom (Decision 4):** value renders as `••••••••` until the user
 /// taps Reveal, which calls `model.reveal(key:inScope:)` (the file-key dev path
@@ -24,6 +27,8 @@ struct SecretDetail: View {
         Group {
             if let sel = resolvedSelection() {
                 detailContent(key: sel.key, scopeID: sel.scopeID, info: sel.info)
+            } else if let scopeID = model.selectedScopeID {
+                scopeOnlyContent(scopeID: scopeID)
             } else {
                 ContentUnavailableView(
                     "No Secret Selected",
@@ -81,6 +86,51 @@ struct SecretDetail: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle(key)
+    }
+
+    // MARK: - Scope-only content (marker target)
+
+    /// Shown when a scope is selected but no secret is — names where this
+    /// scope's secrets would materialize to, from the scan cache
+    /// (``WorkshopModel/markerTargetDescription(forScope:)``), with the two
+    /// honest empty states named in AT-02: "not scanned yet" and "no marker
+    /// found for this scope".
+    @ViewBuilder
+    private func scopeOnlyContent(scopeID: String) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Marker Target", systemImage: "mappin.and.ellipse")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            switch model.markerTargetDescription(forScope: scopeID) {
+            case .notScanned:
+                Text("Not scanned yet.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            case .notFound:
+                Text("No marker found for this scope.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            case .found(let markerDirectory, let targetURL):
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(markerDirectory.path)
+                        .font(.system(.callout, design: .monospaced))
+                        .textSelection(.enabled)
+                    Text("Materializes to \(targetURL.path)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Spacer()
+
+            Text("Select a secret to view its details.")
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: - Value section
@@ -167,7 +217,14 @@ private struct ValueEditSection: View {
                 if !isEditing {
                     Button("Edit") {
                         isEditing = true
-                        editValue = ""
+                        // Prefill ONLY when the value is already revealed for
+                        // this key (ho-06.1 AT-03 Decision 5) — an unrevealed
+                        // value must never be decrypted just to prefill the
+                        // edit field. `model.revealedValue` is only ever the
+                        // plaintext for `key` (WorkshopModel's invariant: a
+                        // selection change clears it first), so this check is
+                        // sufficient without re-checking `selectedSecretKey`.
+                        editValue = model.revealedValue ?? ""
                     }
                     .buttonStyle(.borderless)
                     .font(.callout)
@@ -177,8 +234,7 @@ private struct ValueEditSection: View {
             if isEditing {
                 // Distinct edit path for value — submits via rotate (editValue intent).
                 VStack(alignment: .leading, spacing: 6) {
-                    SecureField("New value", text: $editValue)
-                        .font(.system(.body, design: .monospaced))
+                    RevealableSecureField(placeholder: "New value", text: $editValue)
                         .textFieldStyle(.roundedBorder)
 
                     HStack {

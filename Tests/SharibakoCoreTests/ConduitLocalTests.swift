@@ -110,6 +110,21 @@ struct ConduitLocalTests {
         }
     }
 
+    @Test("remoteURL returns nil (not a throw) on a non-git directory")
+    func remoteURLReturnsNilForNonGitDirectory() throws {
+        // Unlike status/setIdentity/setRemote/commit, remoteURL treats a
+        // non-zero `git remote get-url origin` exit as "no remote" rather than
+        // an invocation failure — a bare directory with no `.git/` reads the
+        // same as a git repo with no origin configured (ho-06.1 AT-02 Waymarking:
+        // the sidebar footer's "no remote" state must not throw).
+        let bareDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: bareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bareDir) }
+        let conduit = try Conduit(vaultURL: bareDir)
+        let url = try conduit.remoteURL()
+        #expect(url == nil)
+    }
+
     // MARK: - status
 
     @Test("status on an initialized empty repo returns clean state")

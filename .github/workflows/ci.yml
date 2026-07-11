@@ -118,14 +118,30 @@ jobs:
           #     history/pendingDiff (not excluded); not headlessly drivable
           #     (ho-05 Decision 8).
           #   AddScopeSheet, AddSecretSheet, AddSharedEntrySheet — SwiftUI
-          #     create-form sheets (ho-05 AT-03); validation state is simple
-          #     boolean guards from VaultCore.isValidIdentifier (not excluded).
-          #     Submitted work routes through WorkshopModel intents (not excluded);
-          #     the sheet bodies are declarative bindings, not headlessly drivable
+          #     create-form sheets (ho-05 AT-03), now hosted in auxiliary
+          #     Window scenes opened via openWindow (ho-06.1 AT-03 Decision 6);
+          #     validation state is simple boolean guards from
+          #     VaultCore.isValidIdentifier (not excluded). Submitted work
+          #     routes through WorkshopModel intents (not excluded); the form
+          #     bodies are declarative bindings, not headlessly drivable
           #     (ho-05 Decision 8).
+          #   EnvPreviewSheet — SwiftUI declarative body; renders the
+          #     Materializer.preview result (ho-06.1 AT-03 Decision 5), driven
+          #     by WorkshopModel.envPreview (not excluded); not headlessly
+          #     drivable (ho-05 Decision 8).
+          #   RevealableSecureField — SwiftUI declarative body; the
+          #     SecureField/TextField eye-toggle shared by Add Secret, Add
+          #     Shared Entry, and the rotate field (ho-06.1 AT-03 Decision 5).
+          #     All state is local @State (isRevealed) with no branching logic
+          #     to test independently of rendering; not headlessly drivable
+          #     (ho-05 Decision 8).
+          #   AuxiliaryWindowChrome — AppKit window-chrome accessor for the Add
+          #     windows (hides minimize/zoom; ho-06.1 gate finding). Reaches a
+          #     live NSWindow, which only exists inside a launched app; not
+          #     headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

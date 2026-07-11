@@ -1,12 +1,24 @@
 import SharibakoCore
 import SwiftUI
 
-/// Sheet for adding a new secret to the selected scope.
+/// Form for adding a new secret to a scope.
 ///
 /// Validates the key against the vault identifier grammar
 /// (`VaultCore.isValidIdentifier`) and disables submit on invalid input.
-/// The value field is a `SecureField` so the plaintext never echoes on screen.
-/// Notes are optional.
+/// The value field is a ``RevealableSecureField`` — masked by default, with a
+/// show-while-typing eye toggle (ho-06.1 AT-03 Decision 5). Notes are
+/// optional.
+///
+/// Hosted in its own auxiliary `Window` scene (`WindowGroup(id:for:)` keyed
+/// on the scope ID), opened via `openWindow(id:value:)` (ho-06.1 AT-03
+/// Decision 6) rather than a modal `.sheet` — movable, non-modal, the main
+/// window stays interactive while this is open. `scopeID` is read once at
+/// open time and carried as the window's own value — it does not track
+/// `WorkshopModel.selectedScopeID` afterward, so a selection change in the
+/// main window while this is open cannot retarget an in-progress add.
+/// `dismiss()` closes the window on Cancel or successful submit; the
+/// creation announce (`WorkshopModel.addSecret`) surfaces in the main
+/// window's status surface, not here.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8). All submitted work routes through `WorkshopModel.addSecret`.
@@ -17,7 +29,7 @@ struct AddSecretSheet: View {
     @Environment(\.dismiss)
     private var dismiss
 
-    /// The scope to add the secret into.
+    /// The scope to add the secret into, fixed for this window's lifetime.
     let scopeID: String
 
     @State private var secretKey: String = ""
@@ -25,7 +37,7 @@ struct AddSecretSheet: View {
     @State private var notes: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Add Secret")
                 .font(.headline)
 
@@ -46,9 +58,10 @@ struct AddSecretSheet: View {
                 }
 
                 Section {
-                    // SecureField so the value never echoes (decision: same hygiene as the CLI prompt).
-                    SecureField("Value", text: $secretValue)
-                        .font(.system(.body, design: .monospaced))
+                    // Masked by default (decision: same hygiene as the CLI prompt);
+                    // the eye toggle lets the operator confirm what they typed
+                    // before submitting (ho-06.1 AT-03 Decision 5).
+                    RevealableSecureField(placeholder: "Value", text: $secretValue)
                 } header: {
                     Text("Value")
                 }
@@ -84,7 +97,13 @@ struct AddSecretSheet: View {
             }
         }
         .padding()
-        .frame(minWidth: 420, minHeight: 340)
+        // Fixed width + intrinsic height: with `.windowResizability(.contentSize)`
+        // this pins the window compact (ho-06.1 gate finding).
+        .frame(width: 440)
+        // Esc closes the window — `.keyboardShortcut(.cancelAction)` alone is
+        // not reliably routed in a plain window the way it is in a sheet.
+        .onExitCommand { dismiss() }
+        .background(AuxiliaryWindowChrome())
     }
 
     private var isValidKey: Bool {

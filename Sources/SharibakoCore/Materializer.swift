@@ -148,6 +148,64 @@ extension Materializer {
         marker: ScopeMarker,
         overwriteDrift: Bool = false
     ) throws -> MaterializeResult {
+        let composed = try composeMaterializedText(marker: marker)
+        let scopeID = marker.scope
+        let targetURL = composed.targetURL
+
+        if !composed.differing.isEmpty, !overwriteDrift {
+            return .diffPending(
+                diff: MaterializeDiff(
+                    scopeID: scopeID,
+                    path: targetURL,
+                    ownedKeysDiffering: composed.differing,
+                    ownedKeysMissingFromFile: composed.missing
+                )
+            )
+        }
+
+        if composed.fileExists, composed.renderedText == composed.originalText {
+            return .unchanged(path: targetURL)
+        }
+        try writeAtomically(text: composed.renderedText, to: targetURL)
+        return .wrote(
+            path: targetURL,
+            keysWritten: collectOwnedKeysInLines(composed.outputLines, ownedKeys: composed.ownedKeys)
+                .sorted()
+        )
+    }
+
+    /// Returns the exact `.env` content ``materialize(marker:overwriteDrift:)``
+    /// would write for `marker`, without writing anything (ho-06.1 Decision 5).
+    ///
+    /// Renders the vault-side composition unconditionally — unlike
+    /// `materialize`, `preview` does not gate on drift, since its whole job is
+    /// to show what the write path would produce (a materialize dry-run,
+    /// doubling as the GUI's scope-level reveal). Reuses the same private
+    /// composer (``composeMaterializedText(marker:)`` → `buildMaterializedLines`)
+    /// as the write path, so the two can never drift from each other.
+    public func preview(marker: ScopeMarker) throws -> String {
+        try composeMaterializedText(marker: marker).renderedText
+    }
+
+    /// Bundle produced by ``composeMaterializedText(marker:)`` — the composed
+    /// text plus every intermediate `materialize`/`preview` need to decide
+    /// their own next step (write-or-not, diff-or-not).
+    private struct ComposedText {
+        let targetURL: URL
+        let originalText: String
+        let fileExists: Bool
+        let ownedKeys: Set<String>
+        let differing: [String]
+        let missing: [String]
+        let outputLines: [EnvLine]
+        let renderedText: String
+    }
+
+    /// Reads the target file, decrypts the scope's owned values, and composes
+    /// the canonical `.env` text.
+    ///
+    /// The shared seam behind both `materialize` and `preview`. Performs no writes.
+    private func composeMaterializedText(marker: ScopeMarker) throws -> ComposedText {
         let scopeID = marker.scope
         let targetURL = try marker.validatedTargetURL()
         let readResult = try readAndParseTarget(at: targetURL)
@@ -167,16 +225,6 @@ extension Materializer {
             vaultValues: vaultValues,
             corruptedKeys: corruptedKeys
         )
-        if !differing.isEmpty, !overwriteDrift {
-            return .diffPending(
-                diff: MaterializeDiff(
-                    scopeID: scopeID,
-                    path: targetURL,
-                    ownedKeysDiffering: differing,
-                    ownedKeysMissingFromFile: missing
-                )
-            )
-        }
 
         let withTrailing = fileExists ? parseResult.hadTrailingNewline : true
         let outputLines = buildMaterializedLines(
@@ -191,13 +239,15 @@ extension Materializer {
         )
         let renderedText = renderEnvLines(outputLines, withTrailingNewline: withTrailing)
 
-        if fileExists, renderedText == originalText {
-            return .unchanged(path: targetURL)
-        }
-        try writeAtomically(text: renderedText, to: targetURL)
-        return .wrote(
-            path: targetURL,
-            keysWritten: collectOwnedKeysInLines(outputLines, ownedKeys: ownedKeys).sorted()
+        return ComposedText(
+            targetURL: targetURL,
+            originalText: originalText,
+            fileExists: fileExists,
+            ownedKeys: ownedKeys,
+            differing: differing,
+            missing: missing,
+            outputLines: outputLines,
+            renderedText: renderedText
         )
     }
 

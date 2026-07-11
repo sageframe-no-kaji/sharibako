@@ -9,11 +9,87 @@ import SharibakoCore
 /// operation; views read published state and call intent methods — no view
 /// touches vault logic directly beyond displaying results.
 ///
-/// All methods run synchronously on the main actor: vault operations are
-/// local, fast filesystem work (Decision 2 keeps v1 synchronous).
+/// Fast single-file operations (reveal, add, rotate, notes) run synchronously
+/// on the main actor. The long operations — `rescan`, `materializeSelectedScope`,
+/// `sync` — are `async` intents (ho-06.1 Decision 1, amending ho-05 Decision 2's
+/// synchronous posture for tree-walking and network work): they set ``activity``,
+/// hand the blocking Core work to ``worker`` (a ``VaultWorker`` actor), and
+/// publish results back here on the main actor. The model stays
+/// `@Observable @MainActor` and owns all published state; only the blocking work
+/// hops off-main.
 @Observable
 @MainActor
 final class WorkshopModel {
+    /// A long-running vault operation currently in flight, or `nil` when idle.
+    ///
+    /// Non-nil ``activity`` drives the responsiveness UI (ho-06.1 Decision 1):
+    /// the toolbar's vault-action buttons disable and the status surface shows
+    /// a progress indicator with ``Activity/label``. The async intents guard
+    /// re-entry against it — an intent called while it is non-nil returns
+    /// without work — so the UI stays honest even though ``worker`` already
+    /// serializes execution.
+    enum Activity: Equatable {
+        /// A scan (launch scan or Rescan) is walking the scan roots.
+        case scanning
+        /// A materialize is decrypting and writing a scope's `.env` target.
+        case materializing
+        /// A sync is committing and pushing to the remote.
+        case syncing
+
+        /// Progress text shown beside the indicator in the status surface.
+        var label: String {
+            switch self {
+            case .scanning: return "Scanning…"
+            case .materializing: return "Materializing…"
+            case .syncing: return "Syncing…"
+            }
+        }
+    }
+
+    /// The long-running operation in flight, or `nil` when idle.
+    ///
+    /// `internal` (not `private(set)`): ``previewEnv()``
+    /// (`WorkshopModel+Preview.swift`, AT-03) is a long operation of its own
+    /// — it decrypts every scope secret through ``worker``, the same weight
+    /// as materialize — and sets this the same way every other async intent
+    /// does. Cross-file-extension access follows the `Conduit`/
+    /// `Conduit+Remote.swift` precedent; views still only ever read it.
+    var activity: Activity?
+
+    /// Serial off-main execution domain for blocking Core work (Decision 1).
+    ///
+    /// One instance per model. Every long operation's tree-walk / shell-out
+    /// runs through it, so two operations submitted here cannot interleave.
+    let worker = VaultWorker()
+
+    /// The latest scan report, held in memory for the session (Decision 2).
+    ///
+    /// Populated by ``performLaunchScan()`` at window open and refreshed by
+    /// ``rescan(openPanel:)``. ``materializeSelectedScope(force:)`` resolves its
+    /// marker from here instead of re-walking the scan root per action, and
+    /// AT-02's jump-to-directory button plus ho-06.2's glyphs read it through
+    /// ``cachedMarker(forScope:)``. Never persisted — markers change externally,
+    /// and a persisted cache would lie across sessions.
+    private(set) var scanReport: ScanReport?
+
+    /// The vault's git remote, resolved once at launch (AT-02 Decision 3).
+    ///
+    /// `nil` while unresolved (the sidebar footer omits the remote line until
+    /// this is set, rather than guessing "no remote" before the fast local
+    /// git call returns). Resolved alongside ``performLaunchScan()`` — not
+    /// per-render — via ``Conduit/remoteURL()``. A vault with no `.git/` or no
+    /// configured `origin` resolves to ``RemoteDescription/none``, which the
+    /// footer states plainly rather than treating as an error.
+    private(set) var remoteDescription: RemoteDescription?
+
+    /// The vault's git remote, as read at launch.
+    enum RemoteDescription: Equatable {
+        /// `origin` is configured; carries the full URL string.
+        case configured(url: String)
+        /// The vault has no configured `origin` (or no `.git/` at all).
+        case none
+    }
+
     /// Whether the resolved vault path holds an openable vault.
     enum VaultState: Equatable {
         /// No vault at the resolved path; the window shows the empty state
@@ -68,20 +144,30 @@ final class WorkshopModel {
     /// or after selection changes re-masks it. Only ever the value for
     /// ``selectedSecretKey`` — staleness is impossible because setting
     /// `selectedSecretKey` unconditionally clears this field first.
-    private(set) var revealedValue: String?
+    ///
+    /// `internal` (not `private(set)`): the mutation intents that clear it on
+    /// rotate/edit live in `WorkshopModel+Mutations.swift`, a separate file in
+    /// the same module (the `Conduit`/`Conduit+Remote.swift` split precedent —
+    /// Swift's `private` is file-scoped even within one type).
+    var revealedValue: String?
 
     /// The decrypted notes for the selected secret while it is revealed.
     ///
     /// Set alongside ``revealedValue`` by ``reveal(key:inScope:)`` and cleared
     /// by the same selection-change cascade — notes live in the encrypted
-    /// payload and follow the same masking discipline (Decision 4).
-    private(set) var revealedNotes: String?
+    /// payload and follow the same masking discipline (Decision 4). `internal`
+    /// for the same cross-file reason as ``revealedValue``.
+    var revealedNotes: String?
 
     /// Informational result of the last action (e.g. a rescan summary).
     ///
     /// Distinct from ``errorMessage``: this is a success line, not a failure.
-    /// The window renders it in the same bottom status surface.
-    private(set) var statusMessage: String?
+    /// The window renders it in the same bottom status surface. `internal`
+    /// (not `private(set)`): the creation announces
+    /// (`WorkshopModel+Mutations.swift`) and the jump announce
+    /// (`WorkshopModel+Waymarking.swift`) both set it from their own files —
+    /// the `Conduit`/`Conduit+Remote.swift` split precedent.
+    var statusMessage: String?
 
     /// Rotation-history entries for the selected secret.
     private(set) var cachedHistory: [CommitInfo] = []
@@ -99,6 +185,17 @@ final class WorkshopModel {
     /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
     private(set) var pendingDiff: MaterializeDiff?
 
+    /// The result of the last "Preview .env" action, or `nil` before one has
+    /// run (ho-06.1 AT-03, Decision 5).
+    ///
+    /// Set by ``previewEnv()`` (`WorkshopModel+Preview.swift`); presenting the
+    /// sheet is driven by this becoming non-nil, dismissing it by setting this
+    /// back to `nil`. `internal` (not `private(set)`) for the same
+    /// cross-file-extension reason as ``statusMessage`` — the preview intent
+    /// lives in its own extension file, following the `Conduit` +
+    /// `Conduit+Remote.swift` precedent.
+    var envPreview: EnvPreviewResult?
+
     /// The resolved scan roots (from the GUI config file).
     ///
     /// Populated at init from `~/Library/Application Support/Sharibako/config.yaml`
@@ -113,6 +210,14 @@ final class WorkshopModel {
     /// touch the live user config.
     let configURL: URL
 
+    /// The injected (or live) home directory, retained for
+    /// `vaultDirectoryShortDescription` (`WorkshopModel+Waymarking.swift`) —
+    /// the sidebar footer abbreviates the vault path against this, not the
+    /// live `NSHomeDirectory()`, so injected-home tests never resolve against
+    /// the real user's home (AT-02 Decision 3). `internal` (not `private`) so
+    /// the waymarking extension file can read it.
+    let home: URL
+
     /// Resolves the vault per `WorkshopConfig` precedence and loads its scopes.
     ///
     /// `environment` and `home` default to live process values; tests inject
@@ -124,6 +229,7 @@ final class WorkshopModel {
         let resolved = WorkshopConfig.resolveVaultURL(environment: environment, home: home)
         devAgeKeyPath = WorkshopConfig.resolveDevAgeKeyURL(environment: environment)
         configURL = WorkshopConfig.defaultConfigURL(home: home)
+        self.home = home
         scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
         if WorkshopConfig.isVaultDirectory(resolved) {
             vaultState = .open(vaultURL: resolved)
@@ -289,153 +395,93 @@ extension WorkshopModel {
     }
 }
 
-// MARK: - Mutation intents (AT-03, Decision 5)
-
-extension WorkshopModel {
-    /// Creates a new scope and refreshes the sidebar, selecting the new scope.
-    ///
-    /// Maps thrown `VaultError` to ``errorMessage``; never crashes the window.
-    func addScope(id: String, type: ScopeType, displayName: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL)
-            let name = displayName.flatMap { $0.isEmpty ? nil : $0 }
-            try core.createScope(id, type: type, displayName: name)
-            loadScopes()
-            selectedScopeID = id
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Adds a secret to the given scope and refreshes the secret list.
-    ///
-    /// Requires the age key because `addSecret` encrypts. Uses the current age
-    /// key provider (file bypass in dev; Keychain in the signed app).
-    func addSecret(key: String, value: String, notes: String?, inScope scopeID: String) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Encrypt new secret \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.addSecret(key, value: value, inScope: scopeID, notes: normalizedNotes)
-            if selectedScopeID == scopeID {
-                loadSecrets(for: scopeID)
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Adds a new shared entry to `shared/`.
-    ///
-    /// Requires the age key for encryption. Maps errors to ``errorMessage``.
-    func addSharedEntry(id: String, value: String, notes: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Encrypt new shared entry \(id)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalizedNotes = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.addSharedEntry(id, value: value, notes: normalizedNotes)
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Rotates a scope-local secret to a new value.
-    ///
-    /// Clears any stale revealed value for that key so the caller must
-    /// re-reveal the new ciphertext via Touch ID (Decision 4).
-    func editValue(key: String, inScope scopeID: String, newValue: String) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Rotate \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            try core.rotate(key, inScope: scopeID, newValue: newValue)
-            // Clear stale reveal so the new value must be explicitly re-revealed.
-            if selectedSecretKey == key {
-                revealedValue = nil
-                revealedNotes = nil
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Updates a secret's notes without changing its value or rotation date.
-    ///
-    /// A notes-only edit is not a rotation and must not bump `rotated_at`;
-    /// this routes through `VaultCore.updateNotes`, not `rotate` (Decision 6).
-    func editNotes(key: String, inScope scopeID: String, notes: String?) {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Edit notes for \(key) in \(scopeID)")
-        } catch {
-            errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        defer { handle.release() }
-        do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let normalized = notes.flatMap { $0.isEmpty ? nil : $0 }
-            try core.updateNotes(key, inScope: scopeID, notes: normalized)
-            // Keep the displayed notes current when this secret is revealed —
-            // the value stays revealed (no rotation happened, Decision 6).
-            if selectedSecretKey == key, revealedValue != nil {
-                revealedNotes = normalized
-            }
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
-        }
-    }
-}
-
 // MARK: - Action intents (AT-03, Decision 5)
 
 extension WorkshopModel {
+    /// The cached marker for `scopeID`, or `nil` when the cache holds none.
+    ///
+    /// Reads the session scan cache (Decision 2) populated by
+    /// ``performLaunchScan()`` / ``rescan(openPanel:)``. AT-02's
+    /// jump-to-directory button and ho-06.2's sidebar glyphs read this — a
+    /// cache hit means the marker's target directory is known without a fresh
+    /// walk. Returns `nil` when no scan has run yet or no marker matches.
+    func cachedMarker(forScope scopeID: String) -> ScopeMarker? {
+        scanReport?.markers.first { $0.scope == scopeID }
+    }
+
+    /// Runs one non-blocking scan at window open to warm the scan cache
+    /// (Decision 2), and resolves the sidebar footer's remote description
+    /// (Decision 3).
+    ///
+    /// Called from the window's `.task` modifier so the window renders
+    /// immediately and both fill in behind it. The remote resolution is a
+    /// fast local git call and runs even when ``scanRoots`` is empty — it has
+    /// nothing to do with scan roots — but still only when the vault is open
+    /// and only once (skipped on a re-entrant call while ``remoteDescription``
+    /// is already set, so Rescan does not re-shell for a value that cannot
+    /// have changed mid-session). Quiet on success for both — the user did not
+    /// trigger this, so it sets no ``statusMessage``; failures still land in
+    /// ``errorMessage``. Guards re-entry against ``activity`` like every long
+    /// intent. The scan walk runs through ``worker``.
+    func performLaunchScan() async {
+        guard activity == nil else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        if remoteDescription == nil {
+            resolveRemoteDescription(vaultURL: vaultURL)
+        }
+        guard !scanRoots.isEmpty else { return }
+        activity = .scanning
+        defer { activity = nil }
+        let roots = scanRoots
+        do {
+            let report = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL)
+                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            }
+            scanReport = report
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Resolves ``remoteDescription`` via ``Conduit/remoteURL()``.
+    ///
+    /// A synchronous, fast local git call (no network) — it does not warrant
+    /// the ``worker``/``activity`` machinery the tree-walk and network intents
+    /// use. A vault with no `.git/` or no `origin` and any `Conduit`
+    /// construction failure both resolve to ``RemoteDescription/none`` rather
+    /// than surfacing an error — the footer's job is to state the fact
+    /// plainly, not to treat "no remote" as a failure.
+    private func resolveRemoteDescription(vaultURL: URL) {
+        guard let conduit = try? Conduit(vaultURL: vaultURL),
+            let url = try? conduit.remoteURL()
+        else {
+            remoteDescription = RemoteDescription.none
+            return
+        }
+        remoteDescription = .configured(url: url)
+    }
+
     /// Materializes the selected scope's secrets into its marker's `.env` target.
     ///
-    /// Requires the age key for decryption. Resolves the scope's marker by
-    /// scanning ``scanRoots``. On drift, stores the diff in ``pendingDiff`` and
-    /// returns without writing — the view presents a confirmation dialog and
-    /// calls ``materializeSelectedScope(force:)`` with `force: true` on approval
+    /// Async (Decision 1): decryption + file write run through ``worker`` off the
+    /// main thread; the age key is acquired on the main actor first (it is user
+    /// interaction, not CPU work) and only its `Sendable` handle URL crosses.
+    /// Resolves the scope's marker from the scan cache (Decision 2); on a cache
+    /// miss it runs one fresh scan through the worker, retries the lookup, and
+    /// only then surfaces the marker-not-found error. On drift, stores the diff
+    /// in ``pendingDiff`` and returns without writing — the view presents a
+    /// confirmation dialog and calls this again with `force: true` on approval
     /// (Decision 5: never overwrite drift silently, mirror the CLI's `--force` gate).
-    func materializeSelectedScope(force: Bool = false) {
+    func materializeSelectedScope(force: Bool = false) async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState,
             let scopeID = selectedScopeID
         else { return }
         statusMessage = nil
+        activity = .materializing
+        defer { activity = nil }
         let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
         do {
@@ -444,31 +490,75 @@ extension WorkshopModel {
             errorMessage = "Could not load age key: \(error)"
             return
         }
-        defer { handle.release() }
         do {
-            let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
-            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-            let marker = try materializer.resolveMarker(forScope: scopeID, scanRoots: scanRoots)
-            let result = try materializer.materialize(marker: marker, overwriteDrift: force)
-            switch result {
-            case .diffPending(let diff):
-                // Surface the diff; require explicit confirmation before re-running with force.
-                pendingDiff = diff
-            case .wrote(let path, let keysWritten):
-                // Every outcome visibly concludes (dogfood-gate finding: a
-                // silent success reads as a broken button).
-                pendingDiff = nil
-                let count = keysWritten.count
-                statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
-                errorMessage = nil
-            case .unchanged(let path):
-                // CLI parity: `sharibako materialize` says "already up to date".
-                pendingDiff = nil
-                statusMessage = "Already up to date: \(path.path)"
-                errorMessage = nil
+            let marker = try await resolveMarkerFromCache(forScope: scopeID, vaultURL: vaultURL)
+            let keyURL = handle.url
+            let result = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+                let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
+                return try materializer.materialize(marker: marker, overwriteDrift: force)
             }
+            handle.release()
+            applyMaterializeResult(result)
         } catch {
+            handle.release()
             errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// Resolves the scope's marker from the cache, falling back to one fresh
+    /// scan on a miss (Decision 2).
+    ///
+    /// A cache hit avoids re-walking the scan root per materialize. A miss —
+    /// the marker moved or was deleted since the last scan, or the cache is
+    /// cold — runs exactly one fresh scan through ``worker``, updates the cache,
+    /// and retries the lookup before letting the marker-not-found error surface.
+    ///
+    /// `internal` (not `private`): ``previewEnv()`` (`WorkshopModel+Preview.swift`,
+    /// AT-03) resolves markers the same way materialize does, so "Preview
+    /// .env" and "Materialize" always agree on which marker they're
+    /// targeting — the `Conduit`/`Conduit+Remote.swift` cross-file-extension
+    /// precedent.
+    func resolveMarkerFromCache(
+        forScope scopeID: String,
+        vaultURL: URL
+    ) async throws -> ScopeMarker {
+        if let cached = cachedMarker(forScope: scopeID) {
+            return cached
+        }
+        let roots = scanRoots
+        let report = try await worker.run {
+            let core = try VaultCore(vaultURL: vaultURL)
+            return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+        }
+        scanReport = report
+        if let refreshed = cachedMarker(forScope: scopeID) {
+            return refreshed
+        }
+        let hint = roots.first ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        throw VaultError.markerNotFound(startingFrom: hint)
+    }
+
+    /// Applies a materialize outcome to published state (main-actor).
+    ///
+    /// Split from ``materializeSelectedScope(force:)`` so the awaited worker
+    /// call stays a single expression. Every outcome visibly concludes
+    /// (dogfood-gate finding: a silent success reads as a broken button).
+    private func applyMaterializeResult(_ result: MaterializeResult) {
+        switch result {
+        case .diffPending(let diff):
+            // Surface the diff; require explicit confirmation before re-running with force.
+            pendingDiff = diff
+        case .wrote(let path, let keysWritten):
+            pendingDiff = nil
+            let count = keysWritten.count
+            statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
+            errorMessage = nil
+        case .unchanged(let path):
+            // CLI parity: `sharibako materialize` says "already up to date".
+            pendingDiff = nil
+            statusMessage = "Already up to date: \(path.path)"
+            errorMessage = nil
         }
     }
 
@@ -479,18 +569,26 @@ extension WorkshopModel {
 
     /// Commits pending vault changes and pushes to the remote.
     ///
+    /// Async (Decision 1): `git commit`/`push` is network I/O that beach-balls
+    /// exactly like a scan, so it runs through ``worker`` off the main thread.
     /// A vault with no configured remote commits locally and no-ops the push
     /// (clean no-op, not an error — mirrors the CLI's SyncCommand posture).
     /// Push rejections and conflicts map to ``errorMessage``; every other
     /// outcome reports through ``statusMessage`` so the button visibly
     /// concludes even on a no-op (dogfood-gate finding).
-    func sync() {
+    func sync() async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
+        activity = .syncing
+        defer { activity = nil }
         do {
-            let conduit = try Conduit(vaultURL: vaultURL)
-            let commitResult = try conduit.commit(message: "sharibako auto-commit")
-            let pushResult = try conduit.push()
+            let (commitResult, pushResult) = try await worker.run {
+                let conduit = try Conduit(vaultURL: vaultURL)
+                let commit = try conduit.commit(message: "sharibako auto-commit")
+                let push = try conduit.push()
+                return (commit, push)
+            }
             if case .rejected(let reason) = pushResult {
                 errorMessage = "Push rejected: \(reason). Resolve remotely, then sync again."
                 return
@@ -539,7 +637,13 @@ extension WorkshopModel {
     /// already configured, runs `Materializer.scan(roots:)` and reports the
     /// result through ``statusMessage`` so the button visibly did something
     /// (Decision 3).
-    func rescan(openPanel: (() -> URL?)? = nil) {
+    ///
+    /// Async (Decision 1): the directory picker runs on the main actor (user
+    /// interaction), then the tree walk hops to ``worker``. The report is stored
+    /// in the ``scanReport`` cache (Decision 2) so materialize and the
+    /// jump-to-directory button read fresh markers after a Rescan.
+    func rescan(openPanel: (() -> URL?)? = nil) async {
+        guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
         if scanRoots.isEmpty {
@@ -554,12 +658,17 @@ extension WorkshopModel {
                 return
             }
         }
+        activity = .scanning
+        defer { activity = nil }
+        let roots = scanRoots
         do {
-            let core = try VaultCore(vaultURL: vaultURL)
-            let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-            let report = try materializer.scan(roots: scanRoots)
+            let report = try await worker.run {
+                let core = try VaultCore(vaultURL: vaultURL)
+                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            }
+            scanReport = report
             let markerCount = report.markers.count
-            let rootCount = scanRoots.count
+            let rootCount = roots.count
             statusMessage =
                 "Scan found \(markerCount) marker\(markerCount == 1 ? "" : "s") "
                 + "in \(rootCount) root\(rootCount == 1 ? "" : "s")."
