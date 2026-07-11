@@ -165,9 +165,11 @@ struct SecretDetail: View {
                             Text(WorkshopModel.driftKey(drift))
                                 .font(.system(.callout, design: .monospaced))
                             Spacer(minLength: 8)
+                            // Drifted keys read red at a glance; in-sync stays
+                            // quiet secondary (gate finding).
                             Text(WorkshopModel.driftStatusLabel(for: drift))
                                 .font(.callout)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(WorkshopModel.isKeyDrifted(drift) ? Color.red : Color.secondary)
                         }
                     }
                     if let badge = model.driftBadge(forScope: scopeID), badge != .clean {

@@ -65,6 +65,16 @@ extension WorkshopModel {
         }
     }
 
+    /// Whether a single owned key has drifted — drives the detail pane's red
+    /// status coloring (gate finding: drift needs to read at a glance, not blend
+    /// into the in-sync rows).
+    static func isKeyDrifted(_ drift: KeyDrift) -> Bool {
+        switch drift {
+        case .match: return false
+        case .fileMissing, .fileValueDiffers, .fileLineCorrupted: return true
+        }
+    }
+
     // MARK: - Badge + per-key reads (cache-only, synchronous)
 
     /// The sidebar drift badge for `scopeID`, or `nil` when no check has run
@@ -179,16 +189,44 @@ extension WorkshopModel {
 
     // MARK: - Reconcile refresh
 
-    /// Clears the selected scope's cached drift after it reconciles.
+    /// Refreshes the selected scope's cached drift after it reconciles.
     ///
     /// Called from ``applyMaterializeResult(_:)`` on a successful write /
-    /// already-up-to-date outcome: the file now matches the vault, so the
-    /// cached "drifted" report is stale — dropping it removes the badge until
-    /// the next Check-drift refills it (Decision 3's "clear it and let the next
-    /// check refill").
-    func clearDriftForSelectedScope() {
+    /// already-up-to-date outcome. A full materialize writes every owned value
+    /// into the file, so the scope is in sync *by construction* — rather than
+    /// dropping the cached report (which reverted the detail pane to its "no
+    /// check yet" empty state and read as a blank window at the 06.2 gate),
+    /// ``markScopeInSync(_:)`` rebuilds it as an all-`match` report. The detail
+    /// pane stays on the drift view showing every key "In sync" and the badge
+    /// flips to clean (Decision 3's "re-heal it" branch — done without a decrypt
+    /// or a new Touch ID, since the in-sync result is known from the write).
+    func refreshDriftForSelectedScopeAfterWrite() {
         guard let scopeID = selectedScopeID else { return }
-        driftReports.removeValue(forKey: scopeID)
+        markScopeInSync(scopeID)
+    }
+
+    /// Rebuilds a reconciled scope's cached drift as an all-in-sync report.
+    ///
+    /// Runs only when the scope already had a cached report, so a plain
+    /// Materialize on a never-checked scope never conjures an ambient badge
+    /// (Decision 3's no-badge-without-a-check).
+    ///
+    /// The owned key list comes from ``VaultCore/inspect(_:)``, which lists keys
+    /// without decrypting, so this stays a synchronous, key-free refresh. If the
+    /// vault read fails, the entry is dropped rather than left stale.
+    func markScopeInSync(_ scopeID: String) {
+        guard driftReports[scopeID] != nil else { return }
+        guard case .open(let vaultURL) = vaultState,
+            let core = try? VaultCore(vaultURL: vaultURL),
+            let infos = try? core.inspect(scopeID)
+        else {
+            driftReports.removeValue(forKey: scopeID)
+            return
+        }
+        let owned = infos.map(\.key).sorted().map { KeyDrift.match(key: $0) }
+        let path = driftReports[scopeID]?.path ?? URL(fileURLWithPath: "/")
+        driftReports[scopeID] = DriftReport(
+            scopeID: scopeID, path: path, owned: owned, parseWarnings: [])
     }
 
     // MARK: - Materialize all stale
@@ -266,9 +304,10 @@ extension WorkshopModel {
                     let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
                     return try materializer.materialize(marker: marker, overwriteDrift: true)
                 }
-                // The forced write brings the file into sync — drop the stale
-                // report so the badge stops showing drift.
-                driftReports.removeValue(forKey: scopeID)
+                // The forced write brings the file into sync — refresh the
+                // cached report to all-`match` so the badge flips to clean
+                // rather than vanishing (gate finding, same as reconcile).
+                markScopeInSync(scopeID)
                 if case .wrote = result { wrote += 1 }
             }
             let total = plan.scopeIDs.count

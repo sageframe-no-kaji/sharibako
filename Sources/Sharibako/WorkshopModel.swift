@@ -586,14 +586,14 @@ extension WorkshopModel {
             pendingDiff = diff
         case .wrote(let path, let keysWritten):
             pendingDiff = nil
-            clearDriftForSelectedScope()
+            refreshDriftForSelectedScopeAfterWrite()
             let count = keysWritten.count
             statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
             errorMessage = nil
         case .unchanged(let path):
             // CLI parity: `sharibako materialize` says "already up to date".
             pendingDiff = nil
-            clearDriftForSelectedScope()
+            refreshDriftForSelectedScopeAfterWrite()
             statusMessage = "Already up to date: \(path.path)"
             errorMessage = nil
         }

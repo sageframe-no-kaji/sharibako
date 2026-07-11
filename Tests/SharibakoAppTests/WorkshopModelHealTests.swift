@@ -203,8 +203,8 @@ struct WorkshopModelHealTests {
 
     // MARK: - Per-scope reconcile
 
-    @Test("a forced reconcile writes the vault value back and clears the scope's cached drift")
-    func reconcileClearsDrift() async throws {
+    @Test("a forced reconcile writes the vault value back and marks the scope in sync")
+    func reconcileMarksInSync() async throws {
         try await Self.withMaterializedScope { model, _, envURL in
             try "DB=postgres://tampered\n".write(to: envURL, atomically: true, encoding: .utf8)
             await model.checkDrift()
@@ -215,11 +215,18 @@ struct WorkshopModelHealTests {
             await model.materializeSelectedScope(force: true)
             #expect(model.errorMessage == nil)
 
-            // The file is back in sync and the stale badge is gone.
+            // The file is back in sync. The cached report is REFRESHED to
+            // all-match (not cleared) so the detail pane stays on the drift view
+            // showing "In sync" and the badge flips to clean — not a blank
+            // window (06.2 gate finding).
             let contents = try String(contentsOf: envURL, encoding: .utf8)
             #expect(contents.contains("DB=postgres://vault"))
-            #expect(model.driftReports["kanyo-dev"] == nil)
-            #expect(model.driftBadge(forScope: "kanyo-dev") == nil)
+            guard let report = model.driftReports["kanyo-dev"] else {
+                Issue.record("Expected a refreshed in-sync report, not a cleared entry")
+                return
+            }
+            #expect(WorkshopModel.isDrifted(report) == false)
+            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
         }
     }
 
@@ -255,7 +262,7 @@ struct WorkshopModelHealTests {
         }
     }
 
-    @Test("confirmMaterializeAllStale reconciles the drifted set and clears their drift")
+    @Test("confirmMaterializeAllStale reconciles the drifted set and marks them in sync")
     func allStaleReconciles() async throws {
         try await Self.withMaterializedScope { model, _, envURL in
             try "DB=postgres://tampered\n".write(to: envURL, atomically: true, encoding: .utf8)
@@ -269,8 +276,18 @@ struct WorkshopModelHealTests {
 
             let contents = try String(contentsOf: envURL, encoding: .utf8)
             #expect(contents.contains("DB=postgres://vault"))
-            #expect(model.driftReports["kanyo-dev"] == nil)
+            // Refreshed to clean, not cleared (same gate finding as reconcile).
+            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
             #expect(model.statusMessage == "Reconciled 1 of 1 drifted scope.")
         }
+    }
+
+    @Test("isKeyDrifted is false only for .match")
+    func isKeyDriftedAcrossCases() {
+        #expect(WorkshopModel.isKeyDrifted(.match(key: "A")) == false)
+        #expect(WorkshopModel.isKeyDrifted(.fileMissing(key: "A")))
+        #expect(
+            WorkshopModel.isKeyDrifted(.fileValueDiffers(key: "A", vaultSha256: "x", fileSha256: "y")))
+        #expect(WorkshopModel.isKeyDrifted(.fileLineCorrupted(key: "A")))
     }
 }
