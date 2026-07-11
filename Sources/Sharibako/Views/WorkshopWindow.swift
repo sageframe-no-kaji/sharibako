@@ -179,7 +179,7 @@ struct WorkshopWindow: View {
                     .controlSize(.small)
                 Text(activity.label)
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 10)
@@ -189,7 +189,7 @@ struct WorkshopWindow: View {
         } else if let message = model.errorMessage {
             Text(message)
                 .font(.body)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.drift)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)
                 .padding(.leading, Self.sidebarAlignedInset)
@@ -200,7 +200,7 @@ struct WorkshopWindow: View {
             // errors so actions always visibly conclude.
             Text(status)
                 .font(.body)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)
                 .padding(.leading, Self.sidebarAlignedInset)
@@ -218,7 +218,7 @@ struct WorkshopWindow: View {
         ZStack {
             Rectangle().fill(.bar)
             if statusPulseActive {
-                Rectangle().fill(Color.green.opacity(0.25))
+                Rectangle().fill(Color.inSync.opacity(0.25))
             }
         }
     }
@@ -229,7 +229,7 @@ struct WorkshopWindow: View {
         ZStack {
             Rectangle().fill(.bar)
             if errorPulseActive {
-                Rectangle().fill(Color.red.opacity(0.25))
+                Rectangle().fill(Color.drift.opacity(0.25))
             }
         }
     }

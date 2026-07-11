@@ -107,17 +107,17 @@ struct SecretDetail: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Marker Target", systemImage: "mappin.and.ellipse")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
 
             switch model.markerTargetDescription(forScope: scopeID) {
             case .notScanned:
                 Text("Not scanned yet.")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
             case .notFound:
                 Text("No marker found for this scope.")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
             case .found(let markerDirectory, let targetURL):
                 VStack(alignment: .leading, spacing: 4) {
                     Text(markerDirectory.path)
@@ -125,7 +125,7 @@ struct SecretDetail: View {
                         .textSelection(.enabled)
                     Text("Materializes to \(targetURL.path)")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.inkSecondary)
                         .textSelection(.enabled)
                 }
             }
@@ -136,7 +136,7 @@ struct SecretDetail: View {
 
             Text("Select a secret to view its details.")
                 .font(.callout)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color.inkTertiary)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -159,13 +159,13 @@ struct SecretDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Drift", systemImage: "arrow.triangle.branch")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
 
             if let report = model.driftReport(forScope: scopeID) {
                 if report.owned.isEmpty {
                     Text("This scope owns no keys to check.")
                         .font(.callout)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color.inkTertiary)
                 } else {
                     ForEach(Array(report.owned.enumerated()), id: \.offset) { _, drift in
                         HStack(spacing: 8) {
@@ -176,7 +176,7 @@ struct SecretDetail: View {
                             // quiet secondary (gate finding).
                             Text(WorkshopModel.driftStatusLabel(for: drift))
                                 .font(.callout)
-                                .foregroundStyle(WorkshopModel.isKeyDrifted(drift) ? Color.red : Color.secondary)
+                                .foregroundStyle(WorkshopModel.isKeyDrifted(drift) ? Color.drift : Color.inkSecondary)
                         }
                     }
                     if let badge = model.driftBadge(forScope: scopeID), badge != .clean {
@@ -191,7 +191,7 @@ struct SecretDetail: View {
             } else {
                 Text("No drift check yet — use Check Drift in the toolbar.")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
             }
         }
     }
@@ -203,10 +203,10 @@ struct SecretDetail: View {
         let drifted = WorkshopModel.isKeyDrifted(drift)
         HStack(spacing: 8) {
             Image(systemName: drifted ? "exclamationmark.triangle.fill" : "checkmark.seal")
-                .foregroundStyle(drifted ? Color.red : Color.secondary)
+                .foregroundStyle(drifted ? Color.drift : Color.inkSecondary)
             Text(WorkshopModel.driftStatusLabel(for: drift))
                 .font(.callout)
-                .foregroundStyle(drifted ? Color.red : Color.secondary)
+                .foregroundStyle(drifted ? Color.drift : Color.inkSecondary)
             Spacer()
             if drifted {
                 Button("Reconcile") {
@@ -243,11 +243,11 @@ struct SecretDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Linked to shared entry", systemImage: "link")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
 
             Text(sharedID)
                 .font(.system(.body, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
                 .textSelection(.enabled)
         }
     }
@@ -259,11 +259,11 @@ struct SecretDetail: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Rotation History", systemImage: "clock.arrow.circlepath")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
 
             if model.history.isEmpty {
                 Text("No history — file is untracked or the vault has no git repository.")
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
                     .font(.callout)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
@@ -301,7 +301,7 @@ private struct ValueEditSection: View {
             HStack {
                 Label("Value", systemImage: "lock.rectangle")
                     .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
                 Spacer()
                 if !isEditing {
                     Button("Edit") {
@@ -372,13 +372,13 @@ private struct ValueEditSection: View {
                     .help("Copy to clipboard")
                 }
                 .padding(10)
-                .background(Color.accentColor.opacity(0.08))
+                .background(Color.accentMoss.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else {
                 HStack(spacing: 8) {
                     Text("••••••••")
                         .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color.inkSecondary)
 
                     Spacer()
 
@@ -420,7 +420,7 @@ private struct NotesEditSection: View {
             HStack {
                 Label("Notes", systemImage: "note.text")
                     .font(.headline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
                 Spacer()
                 if !isEditing {
                     Button("Edit Notes") {
@@ -475,11 +475,11 @@ private struct NotesEditSection: View {
                 // Revealed, but the payload carries no notes.
                 Text("No notes.")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
             } else {
                 Text("(reveal to see notes, or edit to update)")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
             }
         }
     }
@@ -495,12 +495,12 @@ private struct HistoryRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(entry.shortSHA)
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
                 .frame(width: 56, alignment: .leading)
 
             Text(entry.date)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
                 .frame(width: 80, alignment: .leading)
 
             Text(entry.subject)

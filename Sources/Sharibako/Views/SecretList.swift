@@ -87,9 +87,9 @@ private struct SecretRow: View {
     private var iconColor: Color {
         switch info.kind {
         case .value:
-            return .secondary
+            return .inkSecondary
         case .link:
-            return .accentColor
+            return .accentMoss
         }
     }
 }

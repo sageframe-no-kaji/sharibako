@@ -51,7 +51,7 @@ struct AddSecretSheet: View {
                                 + "no spaces, no leading dots or dashes."
                         )
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.drift)
                     }
                 } header: {
                     Text("Key")

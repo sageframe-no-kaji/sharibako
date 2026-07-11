@@ -46,7 +46,7 @@ struct AddSharedEntrySheet: View {
                     + "via `sharibako link` in the CLI (ho-07 will surface it here)."
             )
             .font(.callout)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.inkSecondary)
 
             Form {
                 Section {
@@ -58,7 +58,7 @@ struct AddSharedEntrySheet: View {
                                 + "no spaces, no leading dots or dashes."
                         )
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.drift)
                     }
                 } header: {
                     Text("Identifier")

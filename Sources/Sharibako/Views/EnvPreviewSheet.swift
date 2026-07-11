@@ -31,7 +31,7 @@ struct EnvPreviewSheet: View {
                     .font(.headline)
                 Text("This is what Materialize writes to \(preview.targetURL.path)")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
                     .textSelection(.enabled)
             }
 
