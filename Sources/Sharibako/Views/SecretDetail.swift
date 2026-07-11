@@ -183,7 +183,7 @@ struct SecretDetail: View {
                         Button("Reconcile") {
                             Task { await model.materializeSelectedScope() }
                         }
-                        .buttonStyle(.bordered)
+                        .primaryActionButton()
                         .disabled(model.activity != nil)
                         .help("Overwrite the .env with vault values (asks before overwriting drift)")
                     }
@@ -212,7 +212,7 @@ struct SecretDetail: View {
                 Button("Reconcile") {
                     Task { await model.materializeSelectedScope() }
                 }
-                .buttonStyle(.bordered)
+                .primaryActionButton()
                 .disabled(model.activity != nil)
                 .help("Overwrite the .env with vault values (asks before overwriting drift)")
             }
@@ -338,7 +338,7 @@ private struct ValueEditSection: View {
                             isEditing = false
                             editValue = ""
                         }
-                        .buttonStyle(.bordered)
+                        .primaryActionButton()
                         .disabled(editValue.isEmpty)
                     }
                 }
@@ -385,7 +385,7 @@ private struct ValueEditSection: View {
                     Button("Reveal") {
                         model.reveal(key: key, inScope: scopeID)
                     }
-                    .buttonStyle(.bordered)
+                    .primaryActionButton()
                     .help("Reveal the secret value using Touch ID or the dev age key")
                 }
                 .padding(10)
@@ -456,7 +456,7 @@ private struct NotesEditSection: View {
                             isEditing = false
                             editNotes = ""
                         }
-                        .buttonStyle(.bordered)
+                        .primaryActionButton()
                     }
                 }
                 .padding(10)
@@ -510,5 +510,21 @@ private struct HistoryRow: View {
                 .truncationMode(.tail)
         }
         .textSelection(.enabled)
+    }
+}
+
+// MARK: - Primary action button treatment
+
+extension View {
+    /// The Workshop's call-to-action button treatment (ho-06.2 gate polish):
+    /// a little more space and an accent color shift so the next action to
+    /// press stands out from the calm, quiet UI without shouting.
+    ///
+    /// Applied to primary actions (Reveal, Reconcile, Rotate Value, Save
+    /// Notes); secondary actions (Cancel, Edit, Hide/Copy) stay borderless so
+    /// the emphasis reads as a single clear "do this next".
+    func primaryActionButton() -> some View {
+        buttonStyle(.borderedProminent)
+            .controlSize(.large)
     }
 }
