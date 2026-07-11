@@ -124,6 +124,28 @@ struct WorkshopWindow: View {
                     Text(driftMessage(for: diff))
                 }
             }
+            // Materialize-all-stale confirmation (AT-02 Decision 3): lists the
+            // drifted scopes and target paths that will be written before the
+            // one-Touch-ID batch reconcile runs.
+            .confirmationDialog(
+                "Reconcile drifted scopes",
+                isPresented: .init(
+                    get: { model.allStalePlan != nil },
+                    set: { if !$0 { model.dismissAllStale() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")", role: .destructive) {
+                    Task { await model.confirmMaterializeAllStale() }
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissAllStale()
+                }
+            } message: {
+                if let plan = model.allStalePlan {
+                    Text(allStaleMessage(for: plan))
+                }
+            }
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -235,16 +257,29 @@ struct WorkshopWindow: View {
             }
         }
     }
+}
 
-    // MARK: - Toolbar
+// MARK: - Toolbar and dialogs
 
-    /// Every action button carries an always-visible title alongside its icon
+/// The toolbar content, the drift/all-stale confirmation helpers, and the
+/// jump-to-directory action, split into an extension so the main `View` struct
+/// body stays under SwiftLint's `type_body_length` ceiling (the same pressure
+/// the `WorkshopModel` extension-file splits relieve, here within one file
+/// since a `View`'s `body` and its helpers can't move to another target).
+extension WorkshopWindow {
+    /// Every primary action carries an always-visible title alongside its icon
     /// (AT-02 Decision 4 — hover tooltips failed the operator at the ho-05
-    /// gate).
+    /// gate). ho-06.2 Decision 1's chrome fix keeps the native top-toolbar
+    /// (no right-side rail): the heal workflow this ho adds — Materialize,
+    /// Check Drift, Materialize All Stale — sits front-and-center as primary
+    /// titled actions alongside Sync and Rescan; the two secondary reads that
+    /// crowded the bar (Preview .env, Jump to Directory) and the least-used
+    /// create action (Add Shared Secret) move into a legible overflow menu with
+    /// their titles intact.
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        // Add Scope/Secret/Shared open auxiliary windows (ho-06.1 AT-03
-        // Decision 6) rather than modal sheets — the main window stays
-        // interactive while one is up.
+        // Add Scope/Secret open auxiliary windows (ho-06.1 AT-03 Decision 6)
+        // rather than modal sheets — the main window stays interactive while
+        // one is up.
         ToolbarItem(placement: .primaryAction) {
             Button {
                 openWindow(id: SharibakoApp.addScopeWindowID)
@@ -279,16 +314,6 @@ struct WorkshopWindow: View {
 
         ToolbarItem(placement: .primaryAction) {
             Button {
-                openWindow(id: SharibakoApp.addSharedEntryWindowID)
-            } label: {
-                Label("Add Shared Secret", systemImage: "link.badge.plus")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Add a new shared secret entry to the vault")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
                 Task { await model.materializeSelectedScope() }
             } label: {
                 Label("Materialize", systemImage: "arrow.down.doc")
@@ -305,37 +330,34 @@ struct WorkshopWindow: View {
             )
         }
 
-        // Preview .env: adjacent to Materialize (ho-06.1 AT-03 Decision 5) —
-        // one Touch ID renders exactly what Materialize would write, without
-        // writing. Disabled without a selected scope + cached marker, same
-        // gate as Jump to Directory.
+        // Check Drift: sweeps every live-here scope behind one Touch ID
+        // (Decision 3). Sits beside Materialize — the per-scope drift workflow.
         ToolbarItem(placement: .primaryAction) {
             Button {
-                Task { await model.previewEnv() }
+                Task { await model.checkDrift() }
             } label: {
-                Label("Preview .env", systemImage: "doc.text.magnifyingglass")
+                Label("Check Drift", systemImage: "arrow.triangle.branch")
             }
             .labelStyle(.titleAndIcon)
-            .disabled(model.previewDisabledReason != nil || model.activity != nil)
-            .help(model.previewDisabledReason ?? "Preview this scope's .env composition")
+            .disabled(model.activity != nil)
+            .help("Check every materialized scope for drift from the vault (one Touch ID)")
         }
 
-        // Jump to Directory: its own block, left of Sync (operator-specified
-        // placement at the ho-05 gate). Reads the AT-01 scan cache only —
-        // never re-scans for display; the disabled reason names why it can't
-        // (AT-02 Decision 3).
-        ToolbarItem(placement: .secondaryAction) {
+        // Materialize All Stale: batch-reconciles the drift-cache's drifted set
+        // behind one confirmation and one Touch ID (Decision 3). Prompts to
+        // check drift first when the cache is empty.
+        ToolbarItem(placement: .primaryAction) {
             Button {
-                jumpToSelectedScopeDirectory()
+                model.requestMaterializeAllStale()
             } label: {
-                Label("Jump to Directory", systemImage: "arrow.up.forward.square")
+                Label("Materialize All Stale", systemImage: "arrow.down.doc.fill")
             }
             .labelStyle(.titleAndIcon)
-            .disabled(model.jumpDisabledReason != nil)
-            .help(model.jumpDisabledReason ?? "Open this scope's marker directory in Finder")
+            .disabled(model.activity != nil)
+            .help("Reconcile every drifted scope from the last drift check")
         }
 
-        ToolbarItem(placement: .secondaryAction) {
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 Task { await model.sync() }
             } label: {
@@ -346,7 +368,7 @@ struct WorkshopWindow: View {
             .help("Commit pending vault changes and push to the remote")
         }
 
-        ToolbarItem(placement: .secondaryAction) {
+        ToolbarItem(placement: .primaryAction) {
             Button {
                 Task {
                     await model.rescan {
@@ -368,6 +390,36 @@ struct WorkshopWindow: View {
             .labelStyle(.titleAndIcon)
             .disabled(model.activity != nil)
             .help("Scan configured directories for .sharibako markers")
+        }
+
+        // Overflow: the secondary reads and the least-used create action, kept
+        // legible as a titled menu rather than crowding the primary bar past
+        // legibility (Decision 1's chrome fix — native menu, not a rail).
+        ToolbarItem(placement: .primaryAction) {
+            Menu {
+                Button {
+                    openWindow(id: SharibakoApp.addSharedEntryWindowID)
+                } label: {
+                    Label("Add Shared Secret", systemImage: "link.badge.plus")
+                }
+
+                Button {
+                    Task { await model.previewEnv() }
+                } label: {
+                    Label("Preview .env", systemImage: "doc.text.magnifyingglass")
+                }
+                .disabled(model.previewDisabledReason != nil || model.activity != nil)
+
+                Button {
+                    jumpToSelectedScopeDirectory()
+                } label: {
+                    Label("Jump to Directory", systemImage: "arrow.up.forward.square")
+                }
+                .disabled(model.jumpDisabledReason != nil)
+            } label: {
+                Label("More", systemImage: "ellipsis.circle")
+            }
+            .help("More actions — Add Shared Secret, Preview .env, Jump to Directory")
         }
     }
 
@@ -404,5 +456,23 @@ struct WorkshopWindow: View {
         }
         parts.append("Overwriting will replace file values with vault values.")
         return parts.joined(separator: "\n")
+    }
+
+    // MARK: - Materialize-all-stale dialog helpers
+
+    /// The number of scopes the pending all-stale plan would reconcile.
+    private var allStaleCount: Int {
+        model.allStalePlan?.scopeIDs.count ?? 0
+    }
+
+    /// The all-stale confirmation body: each drifted scope and the target path
+    /// that will be written, so the batch write is never a blind action.
+    private func allStaleMessage(for plan: WorkshopModel.AllStalePlan) -> String {
+        var lines = ["These scopes will be overwritten with vault values:"]
+        for (index, scopeID) in plan.scopeIDs.enumerated() {
+            let path = index < plan.targetPaths.count ? plan.targetPaths[index] : ""
+            lines.append("• \(scopeID) → \(path)")
+        }
+        return lines.joined(separator: "\n")
     }
 }

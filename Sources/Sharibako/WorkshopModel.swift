@@ -35,6 +35,9 @@ final class WorkshopModel {
         case materializing
         /// A sync is committing and pushing to the remote.
         case syncing
+        /// A Check-drift sweep is decrypting and comparing every `live_here`
+        /// scope against its materialized `.env` (ho-06.2 AT-02, Decision 3).
+        case checkingDrift
 
         /// Progress text shown beside the indicator in the status surface.
         var label: String {
@@ -42,6 +45,7 @@ final class WorkshopModel {
             case .scanning: return "Scanning…"
             case .materializing: return "Materializing…"
             case .syncing: return "Syncing…"
+            case .checkingDrift: return "Checking drift…"
             }
         }
     }
@@ -71,6 +75,26 @@ final class WorkshopModel {
     /// ``cachedMarker(forScope:)``. Never persisted — markers change externally,
     /// and a persisted cache would lie across sessions.
     private(set) var scanReport: ScanReport?
+
+    /// Per-scope drift, pulled on demand and cached for the session (ho-06.2
+    /// AT-02, Decision 3).
+    ///
+    /// Keyed by scope id. Populated ONLY by an explicit ``checkDrift()`` sweep
+    /// — never at launch, never on selection — because ``Materializer/heal(marker:)``
+    /// decrypts every owned key, so a drift check costs the age key and a Touch
+    /// ID; rendering badges ambiently would prompt Touch ID the moment the
+    /// window opens, undoing ho-06.1's "window interactive immediately"
+    /// achievement. Never persisted (markers and files change externally; a
+    /// persisted drift cache would lie across sessions) — same posture as
+    /// ``scanReport``. A scope's entry is cleared when it reconciles so the
+    /// badge stops showing stale drift. `internal` (not `private(set)`, unlike
+    /// ``scanReport``): the sweep, the classification helpers, and the
+    /// reconcile refresh all live in `WorkshopModel+Heal.swift`, and Swift's
+    /// `private(set)` is file-scoped — a same-module extension file cannot
+    /// write it (the same reason ``statusMessage`` and ``envPreview`` are
+    /// plain `var`; the `Conduit`/`Conduit+Remote.swift` precedent). Views only
+    /// ever read it.
+    var driftReports: [String: DriftReport] = [:]
 
     /// The vault's git remote, resolved once at launch (AT-02 Decision 3).
     ///
@@ -184,6 +208,17 @@ final class WorkshopModel {
 
     /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
     private(set) var pendingDiff: MaterializeDiff?
+
+    /// A pending Materialize-all-stale plan awaiting confirmation, or `nil`
+    /// (ho-06.2 AT-02, Decision 3).
+    ///
+    /// Set by ``requestMaterializeAllStale()`` (`WorkshopModel+Heal.swift`); the
+    /// window presents a confirmation listing the drifted scopes and their
+    /// target paths and calls ``confirmMaterializeAllStale()`` on approval or
+    /// ``dismissAllStale()`` on cancel. `internal` (not `private(set)`) for the
+    /// same cross-file-extension reason as ``driftReports`` — its mutators live
+    /// in the heal extension file.
+    var allStalePlan: AllStalePlan?
 
     /// The result of the last "Preview .env" action, or `nil` before one has
     /// run (ho-06.1 AT-03, Decision 5).
@@ -551,12 +586,14 @@ extension WorkshopModel {
             pendingDiff = diff
         case .wrote(let path, let keysWritten):
             pendingDiff = nil
+            clearDriftForSelectedScope()
             let count = keysWritten.count
             statusMessage = "Wrote \(count) secret\(count == 1 ? "" : "s") to \(path.path)."
             errorMessage = nil
         case .unchanged(let path):
             // CLI parity: `sharibako materialize` says "already up to date".
             pendingDiff = nil
+            clearDriftForSelectedScope()
             statusMessage = "Already up to date: \(path.path)"
             errorMessage = nil
         }

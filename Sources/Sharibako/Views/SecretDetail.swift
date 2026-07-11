@@ -123,6 +123,8 @@ struct SecretDetail: View {
                 }
             }
 
+            driftSection(scopeID: scopeID)
+
             Spacer()
 
             Text("Select a secret to view its details.")
@@ -131,6 +133,58 @@ struct SecretDetail: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // MARK: - Drift section (AT-02)
+
+    /// Per-key drift for the selected scope, from the session drift cache
+    /// (``WorkshopModel/driftReport(forScope:)``, Decision 3).
+    ///
+    /// Renders only after a Check-drift has run for the scope; before that it
+    /// states the honest empty state rather than implying "in sync". Never
+    /// surfaces plaintext or the SHA digests — a plain-language status per key
+    /// (from the model) is the whole truth. When the scope is drifted, offers
+    /// Reconcile, which routes through the existing `materializeSelectedScope`
+    /// flow and its drift confirmation (no second write path).
+    @ViewBuilder
+    private func driftSection(scopeID: String) -> some View {
+        Divider()
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Drift", systemImage: "arrow.triangle.branch")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            if let report = model.driftReport(forScope: scopeID) {
+                if report.owned.isEmpty {
+                    Text("This scope owns no keys to check.")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ForEach(Array(report.owned.enumerated()), id: \.offset) { _, drift in
+                        HStack(spacing: 8) {
+                            Text(WorkshopModel.driftKey(drift))
+                                .font(.system(.callout, design: .monospaced))
+                            Spacer(minLength: 8)
+                            Text(WorkshopModel.driftStatusLabel(for: drift))
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let badge = model.driftBadge(forScope: scopeID), badge != .clean {
+                        Button("Reconcile") {
+                            Task { await model.materializeSelectedScope() }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.activity != nil)
+                        .help("Overwrite the .env with vault values (asks before overwriting drift)")
+                    }
+                }
+            } else {
+                Text("No drift check yet — use Check Drift in the toolbar.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            }
+        }
     }
 
     // MARK: - Value section

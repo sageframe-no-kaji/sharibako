@@ -53,7 +53,14 @@ struct ScopeSidebar: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            // Trailing slot for AT-02's drift badge — intentionally empty here.
+            // Drift badge (AT-02): rendered only after a Check-drift has run for
+            // this scope; before that the slot is empty and the row shows only
+            // its glyph (Decision 3 — no ambient badge, no launch-time Touch ID).
+            if let badge = model.driftBadge(forScope: scope.identity) {
+                Image(systemName: badge.symbolName)
+                    .foregroundStyle(.secondary)
+                    .help(badge.helpText)
+            }
         }
     }
 
