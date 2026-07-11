@@ -282,6 +282,23 @@ struct WorkshopModelHealTests {
         }
     }
 
+    @Test("keyDrift returns the selected key's drift, or nil before a check / for an unowned key")
+    func keyDriftLookup() async throws {
+        try await Self.withMaterializedScope { model, _, envURL in
+            // Before a check: nil for any key.
+            #expect(model.keyDrift(forScope: "kanyo-dev", key: "DB") == nil)
+
+            try "DB=postgres://tampered\n".write(to: envURL, atomically: true, encoding: .utf8)
+            await model.checkDrift()
+
+            let drift = model.keyDrift(forScope: "kanyo-dev", key: "DB")
+            #expect(drift != nil)
+            #expect(drift.map(WorkshopModel.isKeyDrifted) == true)
+            // A key the scope does not own has no drift entry.
+            #expect(model.keyDrift(forScope: "kanyo-dev", key: "NOT_A_KEY") == nil)
+        }
+    }
+
     @Test("isKeyDrifted is false only for .match")
     func isKeyDriftedAcrossCases() {
         #expect(WorkshopModel.isKeyDrifted(.match(key: "A")) == false)

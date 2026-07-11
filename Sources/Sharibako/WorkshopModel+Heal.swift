@@ -121,6 +121,17 @@ extension WorkshopModel {
         driftReports[scopeID]
     }
 
+    /// The cached drift for a single owned `key` in `scopeID`, for the
+    /// secret-detail pane's inline drift banner; `nil` when no check has run for
+    /// the scope or the key is not owned.
+    ///
+    /// Lets the drift stay visible when a key is selected (gate finding: drift
+    /// vanished the moment you drilled into a secret), not just in the
+    /// scope-overview pane.
+    func keyDrift(forScope scopeID: String, key: String) -> KeyDrift? {
+        driftReports[scopeID]?.owned.first { Self.driftKey($0) == key }
+    }
+
     /// The `live_here` scopes a sweep would check — vault scopes with a marker
     /// in the scan roots (AT-01's ``glyphState(forScope:)``).
     var liveHereScopes: [ScopeMetadata] {

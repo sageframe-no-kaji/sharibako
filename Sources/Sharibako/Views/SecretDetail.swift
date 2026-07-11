@@ -64,6 +64,13 @@ struct SecretDetail: View {
                     .font(.title2.monospaced())
                     .textSelection(.enabled)
 
+                // Inline drift banner (AT-02 gate fix): keeps this key's drift
+                // status visible while you're on the secret, not only in the
+                // scope-overview pane. Renders only after a Check-drift.
+                if let drift = model.keyDrift(forScope: scopeID, key: key) {
+                    keyDriftBanner(drift: drift)
+                }
+
                 Divider()
 
                 // Value section (reveal + edit for .value kind)
@@ -187,6 +194,32 @@ struct SecretDetail: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// The selected secret's inline drift status, with Reconcile when it has
+    /// drifted (AT-02 gate fix — drift stays reachable while on a key).
+    @ViewBuilder
+    private func keyDriftBanner(drift: KeyDrift) -> some View {
+        let drifted = WorkshopModel.isKeyDrifted(drift)
+        HStack(spacing: 8) {
+            Image(systemName: drifted ? "exclamationmark.triangle.fill" : "checkmark.seal")
+                .foregroundStyle(drifted ? Color.red : Color.secondary)
+            Text(WorkshopModel.driftStatusLabel(for: drift))
+                .font(.callout)
+                .foregroundStyle(drifted ? Color.red : Color.secondary)
+            Spacer()
+            if drifted {
+                Button("Reconcile") {
+                    Task { await model.materializeSelectedScope() }
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.activity != nil)
+                .help("Overwrite the .env with vault values (asks before overwriting drift)")
+            }
+        }
+        .padding(10)
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Value section
