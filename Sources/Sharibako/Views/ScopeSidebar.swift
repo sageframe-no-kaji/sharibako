@@ -124,6 +124,14 @@ struct ScopeSidebar: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                // Scan-root visibility (ho-06.2 AT-03 Decision 5): the missing
+                // half of "where is it scanning" — read-only, all configured
+                // roots, full paths in the tooltip.
+                Label(model.scanRootsShortDescription, systemImage: "magnifyingglass")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             // 16 pt insets keep the footer clear of the window's rounded
             // bottom-left corner and on the sidebar's own content line
@@ -147,6 +155,9 @@ struct ScopeSidebar: View {
         }
         if let remoteFull = model.remoteFullDescription {
             lines.append("Remote: \(remoteFull)")
+        }
+        if let scanRootsFull = model.scanRootsFullDescription {
+            lines.append("Scan roots: \(scanRootsFull)")
         }
         return lines.joined(separator: "\n")
     }

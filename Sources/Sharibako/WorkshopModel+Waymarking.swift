@@ -58,6 +58,27 @@ extension WorkshopModel {
         }
     }
 
+    /// The configured scan roots in short form for the sidebar footer, each
+    /// abbreviated against the model's injected `home` (ho-06.2 AT-03 Decision
+    /// 5).
+    ///
+    /// Renders *all* roots — `scanRoots` is already `[URL]`, so a user who
+    /// hand-edits `config.yaml` to add roots sees them reflected — joined for
+    /// display. A plain "No scan root configured" when empty. Read-only
+    /// visibility; the single-root pick stays the existing `NSOpenPanel`-on-empty
+    /// flow (multi-root *management* is an owed near-term ho, not this one).
+    var scanRootsShortDescription: String {
+        guard !scanRoots.isEmpty else { return "No scan root configured" }
+        return scanRoots.map { Self.abbreviate($0, against: home) }.joined(separator: ", ")
+    }
+
+    /// The configured scan roots as full, non-abbreviated paths — the sidebar
+    /// footer's tooltip content; `nil` when no root is configured.
+    var scanRootsFullDescription: String? {
+        guard !scanRoots.isEmpty else { return nil }
+        return scanRoots.map(\.path).joined(separator: "\n")
+    }
+
     /// Abbreviates `url` against `home` with a leading `~`, or returns the
     /// full path unchanged when `url` does not fall under `home`.
     ///
