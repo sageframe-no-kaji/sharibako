@@ -36,6 +36,10 @@ struct SharibakoApp: App {
                 .environment(model)
                 .frame(minWidth: 720, minHeight: 440)
                 .preferredColorScheme(appearance.colorScheme)
+                // The one interactive color drives selection and every
+                // `.borderedProminent` CTA (ho-06.4 Decision 4); set on each
+                // scene root since scenes don't inherit environment from siblings.
+                .tint(Color.accentMoss)
         }
 
         // The appearance override's home (ho-06.2 AT-03 Decision 4). `Settings {}`
@@ -43,6 +47,7 @@ struct SharibakoApp: App {
         // (which would need an explicit `id:` and would not wire ⌘,).
         Settings {
             SettingsScene()
+                .tint(Color.accentMoss)
         }
 
         // Add Secret carries its target scope as the window's `value` —
@@ -54,6 +59,7 @@ struct SharibakoApp: App {
             if let scopeID {
                 AddSecretSheet(scopeID: scopeID)
                     .environment(model)
+                    .tint(Color.accentMoss)
             }
         }
         .windowResizability(.contentSize)
@@ -65,12 +71,14 @@ struct SharibakoApp: App {
         WindowGroup("Add Scope", id: Self.addScopeWindowID) {
             AddScopeSheet()
                 .environment(model)
+                .tint(Color.accentMoss)
         }
         .windowResizability(.contentSize)
 
         WindowGroup("Add Shared Secret", id: Self.addSharedEntryWindowID) {
             AddSharedEntrySheet()
                 .environment(model)
+                .tint(Color.accentMoss)
         }
         .windowResizability(.contentSize)
     }

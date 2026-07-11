@@ -47,7 +47,7 @@ struct ScopeSidebar: View {
         let state = model.glyphState(forScope: scope.identity)
         HStack(spacing: 6) {
             Image(systemName: state.symbolName)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.inkSecondary)
                 .help(state.helpText)
             Text(scope.displayName ?? scope.identity)
                 .lineLimit(1)
@@ -58,7 +58,7 @@ struct ScopeSidebar: View {
             // its glyph (Decision 3 — no ambient badge, no launch-time Touch ID).
             if let badge = model.driftBadge(forScope: scope.identity) {
                 Image(systemName: badge.symbolName)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
                     .help(badge.helpText)
             }
         }
@@ -81,14 +81,14 @@ struct ScopeSidebar: View {
                 ForEach(unlinked) { marker in
                     HStack(spacing: 6) {
                         Image(systemName: marker.symbolName)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color.inkSecondary)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(marker.title)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Text(marker.markerPath)
                                 .font(.caption)
-                                .foregroundStyle(.tertiary)
+                                .foregroundStyle(Color.inkTertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -114,13 +114,13 @@ struct ScopeSidebar: View {
                 // unreadably small at .caption (10 pt).
                 Label(vaultShort, systemImage: "shippingbox.fill")
                     .font(.callout)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.inkSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let remoteShort = model.remoteShortDescription {
                     Label(remoteShort, systemImage: "arrow.triangle.branch")
                         .font(.callout)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(Color.inkTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -129,7 +129,7 @@ struct ScopeSidebar: View {
                 // roots, full paths in the tooltip.
                 Label(model.scanRootsShortDescription, systemImage: "magnifyingglass")
                     .font(.callout)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color.inkTertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
