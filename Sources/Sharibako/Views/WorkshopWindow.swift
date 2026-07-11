@@ -218,7 +218,7 @@ struct WorkshopWindow: View {
         ZStack {
             Rectangle().fill(.bar)
             if statusPulseActive {
-                Rectangle().fill(Color.inSync.opacity(0.25))
+                Rectangle().fill(Color.inSync.opacity(0.40))
             }
         }
     }
@@ -229,7 +229,7 @@ struct WorkshopWindow: View {
         ZStack {
             Rectangle().fill(.bar)
             if errorPulseActive {
-                Rectangle().fill(Color.drift.opacity(0.25))
+                Rectangle().fill(Color.drift.opacity(0.40))
             }
         }
     }

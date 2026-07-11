@@ -81,6 +81,15 @@ enum Theme {
         light: RGBA(red: 0.5961, green: 0.3020, blue: 0.2353, alpha: 1),
         dark: RGBA(red: 0.7725, green: 0.4196, blue: 0.3412, alpha: 1))
 
+    /// The affirmative wash — the status/success pulse (`#5E8A50` / `#85BE73`).
+    ///
+    /// A cleaner, brighter moss than `accent`, tuned to read as a clear "done"
+    /// over the translucent status bar rather than muddy olive (06.4 gate). Still
+    /// the moss family, not a separate traffic-light green (Decision 1).
+    static let inSync = Palette(
+        light: RGBA(red: 0.3686, green: 0.5412, blue: 0.3137, alpha: 1),
+        dark: RGBA(red: 0.5216, green: 0.7451, blue: 0.4510, alpha: 1))
+
     /// Primary text — near-black warm ink light, warm off-white dark
     /// (`#1D1B18` / `#ECE7DF`); never pure black or white.
     static let ink = Palette(
@@ -124,9 +133,12 @@ extension Color {
     /// Drift, errors, validation failures, destructive intent (pālana `alarm`).
     static var drift: Color { Theme.alarm.color }
 
-    /// The affirmative — success pulse and "in sync", reusing moss since the
-    /// system has no green (ho-06.4 Decision 1).
-    static var inSync: Color { Theme.accent.color }
+    /// The affirmative — the status/success pulse.
+    ///
+    /// Its own tuned moss (cleaner, brighter than `accentMoss`) so a low-opacity
+    /// wash over the dark status bar reads as a clear "done", not olive murk.
+    /// Still moss, not a fourth hue (ho-06.4 Decision 1).
+    static var inSync: Color { Theme.inSync.color }
 
     /// Primary text.
     static var ink: Color { Theme.ink.color }

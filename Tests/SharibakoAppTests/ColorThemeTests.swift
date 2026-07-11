@@ -34,6 +34,11 @@ struct ColorThemeTests {
             light: RGBA(red: 0.5961, green: 0.3020, blue: 0.2353, alpha: 1),
             dark: RGBA(red: 0.7725, green: 0.4196, blue: 0.3412, alpha: 1)),
         Expected(
+            name: "inSync",
+            palette: Theme.inSync,
+            light: RGBA(red: 0.3686, green: 0.5412, blue: 0.3137, alpha: 1),
+            dark: RGBA(red: 0.5216, green: 0.7451, blue: 0.4510, alpha: 1)),
+        Expected(
             name: "ink",
             palette: Theme.ink,
             light: RGBA(red: 0.1137, green: 0.1059, blue: 0.0941, alpha: 1),
@@ -89,7 +94,7 @@ struct ColorThemeTests {
     }
 
     @MainActor
-    @Test("Color statics are wired; inSync reuses the moss accent, no green (Decision 1)")
+    @Test("Color statics are wired; inSync is its own moss, distinct from accent (Decision 1)")
     func colorStaticsAreWired() throws {
         // Touch every semantic token so the `Color` extension is exercised.
         let all: [Color] = [
@@ -98,16 +103,17 @@ struct ColorThemeTests {
         ]
         #expect(all.count == 9)
 
-        // inSync and accentMoss are the same quiet moss — the affirmative reuses
-        // the accent rather than introducing a fourth (green) hue.
         let sync = try #require(NSColor(Color.inSync).usingColorSpace(.sRGB))
         let moss = try #require(NSColor(Color.accentMoss).usingColorSpace(.sRGB))
-        #expect(abs(sync.redComponent - moss.redComponent) < 0.001)
-        #expect(abs(sync.greenComponent - moss.greenComponent) < 0.001)
-        #expect(abs(sync.blueComponent - moss.blueComponent) < 0.001)
-        // Confirm it is green-dominant, so a red/blue mis-wiring would be caught.
+        // Both stay in the moss family (green-dominant) — the affirmative is not
+        // a rust/alarm hue, and a red/blue mis-wiring would be caught.
+        #expect(sync.greenComponent > sync.redComponent)
+        #expect(sync.greenComponent > sync.blueComponent)
         #expect(moss.greenComponent > moss.redComponent)
         #expect(moss.greenComponent > moss.blueComponent)
+        // inSync is its own tuned tone (a cleaner/brighter moss for the status
+        // wash), NOT the raw accent — it must be brighter (higher green).
+        #expect(sync.greenComponent > moss.greenComponent)
     }
 
     /// Resolves a palette's dynamic `NSColor` under a concrete appearance and
