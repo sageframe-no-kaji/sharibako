@@ -34,7 +34,9 @@ struct WorkshopWindow: View {
     /// own horizontal padding (`ScopeSidebar`), so the status line's leading
     /// edge reads as continuous with the sidebar column's section labels
     /// (AT-02 Decision 4) instead of spanning the full window edge-to-edge.
-    private static let sidebarAlignedInset: CGFloat = 10
+    /// 16 pt also keeps the bottom row's text clear of the window's rounded
+    /// corners (ho-06.1 gate finding).
+    private static let sidebarAlignedInset: CGFloat = 16
 
     /// `true` for one brief window after `statusMessage` changes — drives the
     /// status surface's green pulse.
@@ -154,17 +156,17 @@ struct WorkshopWindow: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(activity.label)
-                    .font(.callout)
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .padding(.leading, Self.sidebarAlignedInset)
-            .padding(.trailing, 8)
+            .padding(.trailing, Self.sidebarAlignedInset)
             .background(.bar)
         } else if let message = model.errorMessage {
             Text(message)
-                .font(.callout)
+                .font(.body)
                 .foregroundStyle(.red)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)
@@ -175,7 +177,7 @@ struct WorkshopWindow: View {
             // Informational result line (e.g. rescan summary) — same surface as
             // errors so actions always visibly conclude.
             Text(status)
-                .font(.callout)
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)

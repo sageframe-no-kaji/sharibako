@@ -29,7 +29,7 @@ struct AddScopeSheet: View {
     @State private var scopeType: ScopeType = .projectDev
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Add Scope")
                 .font(.headline)
 
@@ -86,7 +86,15 @@ struct AddScopeSheet: View {
             }
         }
         .padding()
-        .frame(minWidth: 400, minHeight: 300)
+        // Fixed width + intrinsic height: with the scene's
+        // `.windowResizability(.contentSize)` this pins the window to a
+        // compact form instead of letting it balloon (ho-06.1 gate finding —
+        // the first open came up "intensely large").
+        .frame(width: 440)
+        // Esc closes the window — `.keyboardShortcut(.cancelAction)` alone is
+        // not reliably routed in a plain window the way it is in a sheet.
+        .onExitCommand { dismiss() }
+        .background(AuxiliaryWindowChrome())
     }
 
     private var isValidID: Bool {

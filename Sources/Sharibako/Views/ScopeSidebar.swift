@@ -41,23 +41,30 @@ struct ScopeSidebar: View {
     /// vault is open.
     @ViewBuilder private var footer: some View {
         if let vaultShort = model.vaultDirectoryShortDescription {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 Divider()
+                // .callout, not .caption — the ho-06.1 gate found the footer
+                // unreadably small at .caption (10 pt).
                 Label(vaultShort, systemImage: "shippingbox.fill")
-                    .font(.caption)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let remoteShort = model.remoteShortDescription {
                     Label(remoteShort, systemImage: "arrow.triangle.branch")
-                        .font(.caption)
+                        .font(.callout)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            // 16 pt insets keep the footer clear of the window's rounded
+            // bottom-left corner and on the sidebar's own content line
+            // (ho-06.1 gate finding: content tucked into the "mac
+            // super-corners" reads cramped).
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.bar)
             .help(footerTooltip)

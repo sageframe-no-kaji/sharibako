@@ -34,7 +34,7 @@ struct SharibakoApp: App {
         // the window is up, so a selection change in the main window after
         // the Add Secret window opens cannot retarget an in-progress add
         // (Decision 6's "must not break when selection changes mid-add").
-        WindowGroup(id: Self.addSecretWindowID, for: String.self) { $scopeID in
+        WindowGroup("Add Secret", id: Self.addSecretWindowID, for: String.self) { $scopeID in
             if let scopeID {
                 AddSecretSheet(scopeID: scopeID)
                     .environment(model)
@@ -42,13 +42,17 @@ struct SharibakoApp: App {
         }
         .windowResizability(.contentSize)
 
-        WindowGroup(Self.addScopeWindowID) {
+        // The unlabeled `WindowGroup(_:)` initializer takes a TITLE, not an id —
+        // passing the id positionally registers no id at all and
+        // `openWindow(id:)` silently does nothing (ho-06.1 gate finding: the
+        // Add Scope button was dead). Every auxiliary scene spells `id:`.
+        WindowGroup("Add Scope", id: Self.addScopeWindowID) {
             AddScopeSheet()
                 .environment(model)
         }
         .windowResizability(.contentSize)
 
-        WindowGroup(Self.addSharedEntryWindowID) {
+        WindowGroup("Add Shared Secret", id: Self.addSharedEntryWindowID) {
             AddSharedEntrySheet()
                 .environment(model)
         }

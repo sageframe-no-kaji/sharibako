@@ -37,7 +37,7 @@ struct AddSecretSheet: View {
     @State private var notes: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Add Secret")
                 .font(.headline)
 
@@ -97,7 +97,13 @@ struct AddSecretSheet: View {
             }
         }
         .padding()
-        .frame(minWidth: 420, minHeight: 340)
+        // Fixed width + intrinsic height: with `.windowResizability(.contentSize)`
+        // this pins the window compact (ho-06.1 gate finding).
+        .frame(width: 440)
+        // Esc closes the window — `.keyboardShortcut(.cancelAction)` alone is
+        // not reliably routed in a plain window the way it is in a sheet.
+        .onExitCommand { dismiss() }
+        .background(AuxiliaryWindowChrome())
     }
 
     private var isValidKey: Bool {
