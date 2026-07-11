@@ -1,6 +1,6 @@
 ---
 created: 2026-06-30
-updated: 2026-07-08
+updated: 2026-07-11
 status: draft
 type: ho-overview
 project: sharibako
@@ -26,6 +26,8 @@ _Revision 2026-07-11: **ho-06.2 authored, executed, gated, and closed same-day**
 
 _Revision 2026-07-10: **ho-05 executed and closed same-day** (PR #11 merged) — the Workshop shell shipped as planned: three-pane `NavigationSplitView`, Touch-ID reveal through a GUI-owned Keychain adapter (Decision 1 held; zero CLI files changed), full mutation surface, materialize with drift gate, sync, rescan; `Conduit.log` + `VaultCore.updateNotes` added to Core. The signed-install dogfood gate caught four defects the green suite missed (notes never displayed, tests leaking into the live user config, silent action outcomes, and the practitioner's pre-ho-04.14 vault lacking a git repo) — all fixed in-ho except the scaffold `git init`, folded into the owed scriptable-`init` ho. **One ratified premise failed:** synchronous-on-MainActor beach-balls on scan-heavy actions; async scan/materialize heads ho-06's list, which lives in ho-05's Reflect. Per-ho doc under `hos/` holds the detail._
 
+_Revision 2026-07-11 (second): **ho-06 body reconciled to its split; Phase-4 tail placed.** ho-06 is fully split — ho-06.1 (responsiveness, PR #12), ho-06.2 (glyphs + heal, PR #13), and **ho-06.4 (palana color-token layer, PR #14 — CLOSED this day)**, all merged — plus three owed: **ho-06.3** (first-run + age key + backup nudge + GUI ingest), **ho-06.5** (right-side chrome/panel — the forward-only replacement for 06.2's failed native-toolbar + overflow chrome, unblocked by 06.4's `panelGround`/`ground*` tokens; the NEXT session), and **ho-06.6** (multi-root scan-management UI, pulled forward from post-v1). Numbering ratified: 06.1/06.2/06.3/06.4 as published, panel = 06.5, multi-root = 06.6. The old single ho-06 entry is replaced by per-successor entries; closed successors point to their `hos/` docs, not back-filled. Small non-gating item from 06.4: destructive-verb rust (delete/remove affordances → the `drift`/alarm color), tracked under Anticipated splits. No phase restructure._
+
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
 ---
@@ -48,7 +50,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
 | 3. The Tool **(complete; hardened through ho-04.13)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7, **ho-04.8–04.13** | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback. Post-Checkpoint-1 hardening: ho-04.8–04.11 (Fable security/robustness sweep), ho-04.12 (Keychain + signal semantics), ho-04.13 (run → exec-replace). Two bugs owed hos (see below) |
-| 4. The Workshop | ho-05, ho-06 | SwiftUI app with three-state UI, first-run wizard, ingest decision matrix |
+| 4. The Workshop | ho-05, **ho-06.1–06.6** | SwiftUI app: shell (05), responsiveness (06.1), three-state glyphs + heal (06.2), first-run + ingest (06.3, owed), palana color-token layer (06.4), right-side chrome/panel (06.5, next), multi-root management (06.6, owed) |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
 
@@ -321,7 +323,7 @@ Split only if the ho spills a session. The pairing is deliberate — writing SEC
 
 ## Phase 4 — The Workshop
 
-The native Mac app. SwiftUI, Apple Silicon only, three-pane window (scopes / secrets / detail). ho-05 is the shell — window structure, scope navigation, secret editing, materialize and sync buttons. ho-06 is the polish that makes the GUI usable for non-experts — the three-state UI glyphs, the ingest decision matrix as a real flow, first-run experience, age key generation with backup nudge, heal surface. By the end of the phase, the vibe-coder success criterion (15-minute install-to-first-materialized-`.env`) is achievable in tests against a fresh user persona.
+The native Mac app. SwiftUI, Apple Silicon only, three-pane window (scopes / secrets / detail). ho-05 is the shell — window structure, scope navigation, secret editing, materialize and sync buttons. ho-06 is the polish that makes the GUI usable for non-experts, and it split into a run of focused hos as the work and the dogfood gates surfaced them: responsiveness (06.1), three-state glyphs + the heal/drift surface (06.2), the palana color-token layer (06.4), the right-side chrome/panel (06.5), and multi-root scan management (06.6) — with the first-run + ingest journey (06.3) still owed. By the end of the phase, the first-version success criterion (15-minute install-to-first-materialized-`.env`) is achievable in tests against a fresh, non-expert user persona; that gate is what 06.3 closes.
 
 *Release on phase complete: v0.4 (GUI + CLI, full primary workflow)*
 
@@ -361,45 +363,81 @@ Xcode project for `Sharibako.app`, SwiftUI window with the three-pane layout, sc
 - **Secret value reveal idiom**: tap-to-reveal-then-auto-hide (timer), reveal-on-Touch-ID-and-stay-revealed-until-selection-changes, or click-to-toggle. v1 default: Touch ID to reveal, stays revealed until you click away. Refine in ho-06.
 - **Git log rendering for rotation history**: shell out to `git log --follow <file>` and parse, or use a Swift git library. v1 default: shell out; Conduit already does this.
 
-### ho-06 — The Workshop polish: first-run, ingest, three-state UI, age key
+### ho-06 — The Workshop polish (split into ho-06.1–06.6)
 
-The polish ho. Three-state glyphs in the sidebar (live here / live elsewhere / orphaned), the ingest decision matrix as a real SwiftUI flow (not a terminal prompt), first-run experience (vault location, scan root, optional remote, age key generation with backup nudge), and the heal surface for drift. This is the densest single ho in the project; the practitioner's stage with SwiftUI also informs how it splits.
+ho-06 was the densest planned ho and split, as anticipated, into a run of focused sessions. The three closed successors are recorded here as one-liners (detail in their `hos/` docs, per the established not-back-filled pattern); the three owed successors get light entries below. The original single-ho decisions (backup nudge, first-run design, vault location, scan-root suggestion) migrate to **ho-06.3**, which is where they resolve.
 
-**Depends on:** ho-05
+**Closed:**
+- **ho-06.1 — responsiveness + honest feedback** (PR #12, `4b5db47`). `VaultWorker` actor for async scan/materialize/sync, launch-populated scan cache, waymarking, status announce, 5-minute Touch-ID reuse, `.env` preview, auxiliary Add windows. From ho-05's Reflect (sync-on-`MainActor` beach-balled on scan-heavy actions).
+- **ho-06.2 — three-state glyphs + heal/drift surface** (PR #13, `63564e5`). Sidebar glyphs computed from 06.1's scan cache + an "Unlinked markers" section; pulled-and-cached drift (`driftReports`), one-Touch-ID Check-drift sweep, per-key drift, reconcile through the existing materialize flow, Materialize-all-stale; native Settings appearance override + read-only scan-root footer. **Its native-toolbar + overflow-`»` chrome failed the gate → ho-06.5.**
+- **ho-06.4 — palana color-token layer** (PR #14, `60f78f2`, closed 2026-07-11). Nine semantic `Color` tokens (accent / drift / inSync / ink×3 / ground×3) over an appearance-aware `NSColor` provider, wired through `AppAppearance`; replaced the raw system accent and scattered `.red`/`.green`/`.secondary`. Defines `panelGround`/`ground*` for 06.5 to consume. Light = palana §2; dark = a warm-dark sibling set designed in-ho.
 
-**What's in scope:**
-- Three-state glyphs in the scope sidebar (computed from Materializer's `status`)
-- Ingest flow as a SwiftUI sheet: scan a directory, present per-secret decisions, commit the choices
-- First-run wizard: where do you keep code, where should the vault live, optional remote git URL, age key (generate new vs. import existing), backup-nudge screen
-- Age key generation with a designed backup-nudge screen that vibe coders can succeed at
-- Heal surface: drift indicator on materialized scopes, "Materialize" button to reconcile
-- "Materialize all stale" action (referenced in the README's first-session vignette)
+### ho-06.3 — First-run, age-key generation, GUI ingest
+
+The GUI's front door. A first-run wizard (where you keep code, where the vault lives, optional remote, age key generate-or-import, a backup-nudge screen a non-expert can succeed at) and the ingest journey as a real SwiftUI flow (scan a directory, present per-secret decisions, commit). Premise gate-validated at 06.1: the operator could not find the repos-to-vault path from the GUI — CLI `init` is still the only front door. This is the ho that closes the 15-minute first-version criterion (Checkpoint 2).
+
+**Depends on:** ho-05, ho-06.1 (async worker + scan cache), ho-06.2 (glyph/drift reads what ingest writes)
+
+**What's in scope (light):**
+- First-run wizard: vault location, scan root(s), optional remote, age-key generate/import, backup nudge
+- Age-key generation with a designed backup-nudge screen
+- Ingest as a SwiftUI sheet: scan → per-secret decisions → commit
+- Orphan remediation adjacent to ingest (create-scope-from-orphan, remove-stray-marker) — the 06.2 "Unlinked markers" rows are surfacing-only today
 
 **What "done" means:**
-- A vibe-coder persona can install the app, complete first-run, ingest a `.env`, materialize, and use it in a real project within 15 minutes (Success Criterion #3) — verified with a real non-Andrew test user
-- The three-state UI accurately reflects vault and filesystem reality
-- Drift is visible and one-click reconcilable
+- A non-expert persona installs, completes first-run, ingests a `.env`, materializes, and uses it in a real project within 15 minutes (Success Criterion #3), verified with a real non-Andrew user
 
-**What's out of scope:**
-- Linking UX (Phase 5)
-- Conflict resolution UI for git pulls (Deferred Decision #7, post-MVP unless real-use conflicts force it)
-- Import flows from Vaultwarden / iCloud Keychain (Deferred Decision #10, post-MVP)
-- Rotation reminders / date-tracking UI (post-MVP)
+**What's out of scope:** linking UX (Phase 5); import from Vaultwarden / iCloud Keychain (post-v1); conflict-resolution UI (post-v1)
 
 **Decisions required:**
-- **Backup nudge UX** (Deferred Decision #2): the design itself. Options to consider: print-to-PDF with a recovery code, "copy to clipboard with confirmation," "save to a chosen location with a guided picker," or "show the key and require typing it back to confirm captured." v1 design lands here. Test against the 15-minute vibe-coder criterion.
-- **First-run experience full design** (Deferred Decision #9): the exact flow. "Where do you keep code?" + "Where should the vault live?" + "Optional remote" + "Age key: generate or import?" — mockup in hand before the dandori session opens.
-- **Vault location default**: the seed flagged `~/Library/Application Support/Sharibako/vault/` vs. `~/sharibako-vault/`. The system design's example uses `/Users/<user>/Vaults/sageframe-no-kaji-dev/sharibako-vault`. Choose between Mac-conventional (hidden under Library, app-managed) and user-visible (in the home directory, user-managed). v1 default: present both as choices in the first-run wizard, default to the user-visible one because the project's audience expects to back the vault up themselves.
-- **Default scan root suggestion**: `~/` is too broad; the first-run wizard should suggest something like `~/Projects` or `~/Vaults` and accept user input. The suggestion logic is itself a small design choice.
+- **Backup nudge UX** (Deferred Decision #2): print-to-PDF with recovery code / copy-with-confirmation / guided save / type-it-back-to-confirm. Land the v1 design against the 15-minute criterion.
+- **First-run experience full design** (Deferred Decision #9): the exact flow ("Where do you keep code?" + "Where should the vault live?" + "Optional remote" + "Age key: generate or import?"), mocked before the dandori session opens.
+- **Vault location default**: Mac-conventional (hidden under Library, app-managed) vs. user-visible (home dir, user-managed). v1 default: offer both in the wizard, default user-visible — the audience backs the vault up themselves.
+- **Default scan-root suggestion**: `~/` is too broad; suggest `~/Projects`/`~/Vaults` and accept input. (Multi-root *management* is ho-06.6; 06.3 only sets the initial root.)
 
-**Possible split:** this is the densest single ho in the project. Realistic split candidates:
-- ho-06.1: three-state UI + heal surface + drift indicators
-- ho-06.2: ingest decision matrix as a SwiftUI flow
-- ho-06.3: first-run wizard + age key generation + backup nudge
+**Possible split:** ho-06.3a (first-run wizard + age key + backup nudge) and ho-06.3b (ingest flow + orphan remediation) if either sprawls.
 
-If the dandori-spec author can fit all three into one focused session, leave as ho-06. If not, split before opening the session.
+### ho-06.5 — Right-side chrome / panel
 
-**Phase boundary — replan checkpoint.** First-run + ingest + backup nudge are the moments vibe-coder usability succeeds or fails. Test with a real non-Andrew user *before* opening Phase 5. If the first-run flow needs another pass, insert ho-06.5 rather than carrying the weakness into the linking work.
+The forward-only replacement for 06.2's failed chrome. The 06.2 gate ruled the native-toolbar + overflow-`»` menu unacceptable, meeting the rail-revisit criterion; this ho gives the Workshop a proper right-side panel/rail for the scope actions (Materialize, Check Drift, Materialize All Stale, Add) and reconsiders where appearance control lives (the operator floated a top-bar light/dark/system toggle, currently buried in Settings). It is unblocked by 06.4 — it spends `panelGround` and the `ground*` surface tokens, and makes the holistic flat-grounds-vs-vibrancy-materials call that 06.4 deliberately deferred to it. Forward-only: a new chrome ho, not a reopening of 06.2.
+
+**Depends on:** ho-06.2 (the chrome it replaces + the actions it hosts), ho-06.4 (the panel/surface tokens)
+
+**What's in scope (light):**
+- A right-side collapsible panel/rail hosting the scope actions (replacing the toolbar + overflow menu)
+- The flat-ground-vs-vibrancy decision across the window, spending 06.4's `ground*`/`panelGround` tokens
+- Appearance-control placement revisit (top-bar toggle vs. Settings)
+
+**What "done" means:**
+- The scope actions are reachable without an overflow menu; the panel reads calm in both light and dark and as a sibling to palana
+- Nothing regresses from 06.2's drift / reconcile / settings behavior
+
+**What's out of scope:** the linking picker / shared-secret browser (Phase 5); any new vault behavior (chrome only)
+
+**Decisions required:**
+- **Panel vs. rail vs. inspector**: a collapsible right panel, a fixed narrow rail, or a SwiftUI `inspector`. Land the idiom here.
+- **Appearance-control home**: keep in Settings, or surface a top-bar light/dark/system toggle. v1 lean: a top-bar toggle if it adds no chrome noise, else leave it in Settings.
+- **Flat grounds vs. vibrancy materials**: replace `.bar`/`.quaternary` with flat `ground*` fills, or keep the materials. 06.4 kept the materials and handed this call here.
+- **Destructive-verb rust** (surfaced by 06.4): wire delete/remove affordances to the `drift`/alarm color, per palana. Small; fold in here or a later polish pass.
+
+### ho-06.6 — Multi-root scan management
+
+The management UI for scan roots — add, remove, reconfigure the trees Sharibako scans. 06.2 shipped read-only footer visibility of all configured roots; the config field already accepts `[String]`. Pulled forward from the original post-v1 deferral because the operator wants more than one tree now. Lowest-urgency of the Phase-4 tail — after the panel and first-run.
+
+**Depends on:** ho-06.3 (first-run sets the initial root; management extends it), ho-06.5 (where the roots UI likely lives in the chrome)
+
+**What's in scope (light):**
+- Add / remove / reconfigure scan roots from the GUI, persisted to config
+- Rescan across all roots; clear surfacing of which root a marker came from
+
+**What "done" means:**
+- A user with two or more code trees registers them all and scans across them from the GUI, no config-file editing
+
+**What's out of scope:** background filesystem watching (FSEvents, post-v1); remote-host scan (post-v1)
+
+**Possible split:** none anticipated — small, single-surface.
+
+**Phase boundary — replan checkpoint.** First-run + ingest + backup nudge (ho-06.3) are the moments non-expert usability succeeds or fails. Test with a real non-Andrew user *before* opening Phase 5. If first-run needs another pass, insert a further first-run-polish ho (next free decimal) rather than carrying the weakness into the linking work.
 
 ---
 
@@ -534,7 +572,7 @@ Cloudflare Pages site at `sharibako.sageframe.net` (matches the M4Bookmaker patt
 Tracked for v1.5 / post-v1; explicitly out of v1:
 
 - **The `sharibako-agent` daemon** for Touch-ID-per-CLI-invocation friction. Defer until friction is felt in real CLI use. Architecturally prepared for.
-- **Multi-root scanning UI.** Config field already accepts `[String]`; UI exposes only one in v1. Add when Andrew or a user has two trees.
+- ~~**Multi-root scanning UI.**~~ **Pulled forward to ho-06.6** — the operator wants more than one tree now, so it moved from post-v1 into the Phase-4 tail. (06.2 shipped read-only footer visibility of all roots; 06.6 adds management.)
 - **Additional materialization formats** beyond `.env`. Wait for a concrete user request with a non-`.env` consumer.
 - **Remote-host materialization** (SSH/SCP push). `sageframe-config-sync` and equivalents cover this externally for the homelabber use case; revisit if the vibe-coder audience surfaces a need.
 - **Import flows from Vaultwarden / iCloud Keychain.** `.env` ingest is the v1 import story.
@@ -560,13 +598,13 @@ Three explicit pause points. At each one, the practitioner stops, evaluates prog
 
 **Outcome (fired 2026-07-03).** The CLI was used on real secrets. Touch ID frequency on `run` was tolerable ("a security app; no problem with it") — the `sharibako-agent` daemon stays post-MVP. `Foundation.Process` propagated exit codes and signal-death faithfully; signal forwarding held (Ctrl-C terminated the child cleanly, no orphan) — no `posix_spawn` fallback needed. SECURITY.md's `run`/`--dry-run` sections were reconciled against shipped behavior (the `memset_s` claim was drift; corrected). One friction surfaced: `run` was silent at startup and across the Ctrl-C grace. That became **ho-04.7** (`run` feedback), built and closed here rather than carried into Phase 4. **Decision: proceed to Phase 4 (ho-05, the Workshop).** The CLI is solid enough; no further CLI polish is gating.
 
-### Checkpoint 2 — After ho-06 (GUI polish complete)
+### Checkpoint 2 — After ho-06.3 (first-run + ingest complete)
 
-**What's true:** the GUI is usable for primary workflows. First-run, ingest, and backup nudge exist as designed.
+**What's true:** the GUI is usable for primary workflows. First-run, ingest, and backup nudge exist as designed. (The rest of the Phase-4 tail — responsiveness 06.1, glyphs/heal 06.2, palette 06.4, chrome 06.5, multi-root 06.6 — is chrome and infrastructure around this front door; 06.3 is the piece the criterion actually tests.)
 
-**What to evaluate:** can a real non-Andrew vibe-coder complete first-run-to-first-materialized-`.env` in 15 minutes (Success Criterion #3)? If not, the failure is here, not in Phase 5. Test with a real user before opening Phase 5.
+**What to evaluate:** can a real non-Andrew, non-expert user complete first-run-to-first-materialized-`.env` in 15 minutes (Success Criterion #3)? If not, the failure is here, not in Phase 5. Test with a real user before opening Phase 5.
 
-**Why this is a checkpoint:** the linking UX in Phase 5 depends on the GUI's established idiom. If that idiom is weak, the linking UX will be weak on top of weakness. Insert ho-06.5 (first-run polish based on user testing) if needed.
+**Why this is a checkpoint:** the linking UX in Phase 5 depends on the GUI's established idiom. If that idiom is weak, the linking UX will be weak on top of weakness. Insert a further first-run-polish ho (next free decimal) if user testing demands it.
 
 ### Checkpoint 3 — After ho-07 (linking UX complete)
 
@@ -595,19 +633,20 @@ Candidates surfaced during the overview, by pattern:
 **Combined-scope hos likely to split:**
 
 - **ho-03 (Materializer)** → ho-03.1 (write path: markers + materialize + status + heal) and ho-03.2 (read path: ingest + `.env` parsing + name-matching) if ingest's decision matrix or `.env` parsing edge cases sprawl.
-- **ho-06 (GUI polish)** → ho-06.1 (three-state UI + heal), ho-06.2 (ingest flow in SwiftUI), ho-06.3 (first-run wizard + age key + backup nudge). This is the densest ho in the project; splitting is the default expectation unless one focused session can carry all three.
+- **ho-06 (GUI polish)** → **split as built**, and the original three-way guess undercounted. As built: ho-06.1 (responsiveness, closed PR #12), ho-06.2 (three-state glyphs + heal, closed PR #13), ho-06.3 (first-run + ingest, owed), ho-06.4 (palana color-token layer, closed PR #14), ho-06.5 (right-side chrome/panel, owed — next), ho-06.6 (multi-root management, owed). The palette (06.4) and chrome (06.5) hos were surfaced by the 06.2 gate and a theming pass, not predicted here.
 - **ho-07 (Linking UX)** → ho-07.1 (CLI link/unlink), ho-07.2 (GUI link picker + shared-secret browser), ho-07.3 (rotation propagation surface). Splits naturally along surface lines.
 - **ho-08 (Bundling + signing)** → ho-08.1 (Mac DMG + notarization + Install CLI) and ho-08.2 (Homebrew tap + Linux `.tar.gz`). Different infrastructure, different verification.
 
 **Insertions likely after replan checkpoints:**
 
 - **ho-04.5** was originally speculative here; it shipped as a committed ho carrying `sharibako run` (see Phase 3). The post-Checkpoint-1 inserts that were speculative here have since landed: **ho-04.6** (plain-prompt `init`, superseding the ho-04.4 dashboard) and **ho-04.7** (`run` feedback). The `sharibako-agent` daemon was *not* moved forward — Touch ID friction proved tolerable in real use.
-- **ho-06.5** after Checkpoint 2: first-run UX polish if vibe-coder testing fails the 15-minute criterion.
+- **A further first-run-polish ho** (next free decimal) after Checkpoint 2: if non-expert user testing fails the 15-minute criterion. (Note: 06.5 is now the chrome/panel ho, not a first-run-polish slot — the number the earlier draft reserved here has been spent.)
 - **ho-07.5** after Checkpoint 3: any final polish needed before locking in the v1 promise.
 
 **Insertions likely from real-world data:**
 
 - **A small benchmarking or perf ho** if the vault grows large enough during dogfooding that scan / list / status operations feel slow. Inserts wherever the friction surfaces.
+- **Destructive-verb rust** (surfaced by ho-06.4): palana reserves the `alarm`/rust color for delete/remove affordances too; 06.4 wired rust to drift / errors / validation but left the delete/remove affordances neutral (out of migration scope). Non-gating — folded into ho-06.5's decisions, or a later polish pass.
 
 **Owed from Phase 3 dogfooding (bugs awaiting their own hos):**
 
@@ -656,11 +695,16 @@ Phase 3 — The Tool  (complete; hardened post-Checkpoint-1 through ho-04.13)
 └── ho-04.14 (fresh-install vault scaffold — createVaultLayout fix) ── v0.3
         · owed ho: non-atomic ingest (deferrable); scriptable-init (followup)
 
-Phase 4 — The Workshop
-├── ho-05 (SwiftUI shell)
-└── ho-06 (GUI polish, first-run, ingest, backup nudge)
+Phase 4 — The Workshop   (numbers are addresses, not execution order)
+├── ho-05   (SwiftUI shell)                                        ✓ PR #11
+├── ho-06.1 (responsiveness — async worker + scan cache)          ✓ PR #12
+├── ho-06.2 (three-state glyphs + heal/drift surface)             ✓ PR #13
+├── ho-06.4 (palana color-token layer)                            ✓ PR #14
+├── ho-06.5 (right-side chrome / panel)         ← NEXT (unblocked by 06.4)
+├── ho-06.3 (first-run + age key + GUI ingest)  ── owed (Checkpoint-2 gate)
+└── ho-06.6 (multi-root scan management)         ── owed
         ▲
-        │  ◆ Replan Checkpoint 2 (vibe-coder test) ── v0.4
+        │  ◆ Replan Checkpoint 2 (first-version usability test) ── v0.4
 
 Phase 5 — Linking UX
 └── ho-07 (link UX across CLI + GUI)
@@ -680,8 +724,8 @@ Dependencies:
 - ho-04.5 depends on ho-01 (Vault Core), ho-03 (scope resolution), ho-04 (CLI base + Keychain integration).
 - ho-04.7 depends on ho-04.5 (the `run` verb and its `SignalForwarder`).
 - ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows. The ho-04.x CLI-polish inserts (04.2/04.3/04.5/04.6/04.7) have no GUI counterpart in v1, so ho-05 does not depend on them.
-- ho-06 depends on ho-05.
-- ho-07 depends on ho-04 (CLI base) and ho-06 (GUI polish base).
+- ho-06.1 depends on ho-05; ho-06.2 on ho-06.1 (its scan cache); ho-06.4 on ho-05 (the app sources it recolors); ho-06.5 on ho-06.2 (the chrome it replaces) + ho-06.4 (the panel/surface tokens); ho-06.3 on ho-05 / ho-06.1 / ho-06.2; ho-06.6 on ho-06.3 (initial root) + ho-06.5 (where the roots UI lives).
+- ho-07 depends on ho-04 (CLI base) and the ho-06.x GUI-polish base (ho-06.1 / ho-06.2 at minimum).
 - ho-08 depends on ho-05, ho-06 (the Mac app must build and run cleanly before signing matters).
 - ho-09 depends on ho-08.
 
@@ -695,8 +739,8 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
-The next *planned* dandori session is **ho-05 — The Workshop: SwiftUI shell** (Phase 4) — the GUI. Phases 0–3 are complete and hardened through ho-04.13; ho-05's first work is scaffolding `xcode/Sharibako.xcodeproj` against the Swift package (deferred to exactly this point).
+The next dandori session is **ho-06.5 — Right-side chrome / panel** — unblocked by ho-06.4's panel tokens and elevated by the 06.2 gate (the native-toolbar + overflow menu was ruled unacceptable). Phase 4 is well underway: ho-05, ho-06.1, ho-06.2, and ho-06.4 are closed and merged; **ho-06.3** (first-run + ingest, the Checkpoint-2 gate) and **ho-06.6** (multi-root management) remain owed after the panel.
 
-**Gate status before ho-05.** The fresh-install correctness bug (**`createVaultLayout`**) is **fixed in ho-04.14** — a clean bootstrap now works, so it no longer gates Phase 4. **Non-atomic ingest** remains owed but is robustness, not correctness-blocking, and can defer past the GUI. A **scriptable-`init`** followup (surfaced in ho-04.14) would let a full bootstrap be tested/unattended — nice-to-have, non-gating. Nothing now blocks ho-05.
+**Gate status.** Nothing blocks ho-06.5 — it is chrome over already-shipped behavior, and its surface tokens exist. Owed but non-gating for the panel: the first-run/ingest front door (ho-06.3, which the 15-minute criterion actually tests), multi-root management (ho-06.6), and the older Phase-3 carries — **non-atomic ingest** (robustness) and a **scriptable-`init`** followup. The `createVaultLayout` fresh-install bug was fixed in ho-04.14.
 
-_Phases 0–3 dandori specs live under `agent-tasks/` and their per-ho documents under `hos/`; the closed ones are the historical record and do not get reopened. Phase 4 begins fresh at ho-05 once the gate call above is made._
+_Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced panel (06.5) → first-run (06.3) → multi-root (06.6), though the decimal numbers are addresses, not execution order._
