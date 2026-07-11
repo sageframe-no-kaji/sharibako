@@ -20,15 +20,75 @@ struct ScopeSidebar: View {
                 ForEach(model.scopeSections) { section in
                     Section(section.title) {
                         ForEach(section.scopes, id: \.identity) { scope in
-                            Label(scope.displayName ?? scope.identity, systemImage: "shippingbox")
+                            scopeRow(for: scope)
                                 .tag(scope.identity)
                         }
                     }
                 }
+                unlinkedSection
             }
             .listStyle(.sidebar)
 
             footer
+        }
+    }
+
+    // MARK: - Scope row
+
+    /// One scope row: a state glyph leading the name, then a trailing slot.
+    ///
+    /// The glyph (``WorkshopModel/glyphState(forScope:)``, Decision 2a) leads
+    /// the name; the trailing slot is where AT-02 fills the drift badge. The
+    /// glyph's shape carries the state (colorblind-safe); the symbol name and
+    /// tooltip text both come from the model (Decision 8 keeps the branching
+    /// out of the view).
+    @ViewBuilder
+    private func scopeRow(for scope: ScopeMetadata) -> some View {
+        let state = model.glyphState(forScope: scope.identity)
+        HStack(spacing: 6) {
+            Image(systemName: state.symbolName)
+                .foregroundStyle(.secondary)
+                .help(state.helpText)
+            Text(scope.displayName ?? scope.identity)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            // Trailing slot for AT-02's drift badge — intentionally empty here.
+        }
+    }
+
+    // MARK: - Unlinked markers
+
+    /// The "Unlinked markers" section, from ``WorkshopModel/unlinkedMarkers``.
+    ///
+    /// Orphaned markers (a `.sharibako` pointing at a vault scope that doesn't
+    /// exist) and malformed-marker scan failures (ho-04.11, Decision 2b).
+    /// Omitted entirely when there are none. Surfacing only — the rows
+    /// show the marker path (inline and in the tooltip); no remediation
+    /// actions, and no `.tag`, so selecting one never drives the scope-detail
+    /// panes with a non-scope id (remediation is ho-06.3).
+    @ViewBuilder private var unlinkedSection: some View {
+        let unlinked = model.unlinkedMarkers
+        if !unlinked.isEmpty {
+            Section("Unlinked markers") {
+                ForEach(unlinked) { marker in
+                    HStack(spacing: 6) {
+                        Image(systemName: marker.symbolName)
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(marker.title)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Text(marker.markerPath)
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+                    .help(marker.helpText)
+                }
+            }
         }
     }
 
