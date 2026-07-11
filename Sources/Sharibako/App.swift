@@ -15,6 +15,14 @@ import SwiftUI
 struct SharibakoApp: App {
     @State private var model = WorkshopModel()
 
+    /// The appearance override (ho-06.2 AT-03, Decision 4).
+    ///
+    /// Read from the same `@AppStorage` value `SettingsScene`'s picker writes,
+    /// so a change in Settings updates the main window live and survives
+    /// relaunch.
+    @AppStorage(AppAppearance.storageKey)
+    private var appearance: AppAppearance = .system
+
     /// Window scene identifier for the Add Secret window (Decision 6).
     static let addSecretWindowID = "add-secret"
     /// Window scene identifier for the Add Scope window (Decision 6).
@@ -27,6 +35,14 @@ struct SharibakoApp: App {
             WorkshopWindow()
                 .environment(model)
                 .frame(minWidth: 720, minHeight: 440)
+                .preferredColorScheme(appearance.colorScheme)
+        }
+
+        // The appearance override's home (ho-06.2 AT-03 Decision 4). `Settings {}`
+        // keys ⌘, itself and is the correct scene type — NOT a `WindowGroup`
+        // (which would need an explicit `id:` and would not wire ⌘,).
+        Settings {
+            SettingsScene()
         }
 
         // Add Secret carries its target scope as the window's `value` —

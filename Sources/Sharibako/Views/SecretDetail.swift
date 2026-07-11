@@ -64,6 +64,13 @@ struct SecretDetail: View {
                     .font(.title2.monospaced())
                     .textSelection(.enabled)
 
+                // Inline drift banner (AT-02 gate fix): keeps this key's drift
+                // status visible while you're on the secret, not only in the
+                // scope-overview pane. Renders only after a Check-drift.
+                if let drift = model.keyDrift(forScope: scopeID, key: key) {
+                    keyDriftBanner(drift: drift)
+                }
+
                 Divider()
 
                 // Value section (reveal + edit for .value kind)
@@ -123,6 +130,8 @@ struct SecretDetail: View {
                 }
             }
 
+            driftSection(scopeID: scopeID)
+
             Spacer()
 
             Text("Select a secret to view its details.")
@@ -131,6 +140,86 @@ struct SecretDetail: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    // MARK: - Drift section (AT-02)
+
+    /// Per-key drift for the selected scope, from the session drift cache
+    /// (``WorkshopModel/driftReport(forScope:)``, Decision 3).
+    ///
+    /// Renders only after a Check-drift has run for the scope; before that it
+    /// states the honest empty state rather than implying "in sync". Never
+    /// surfaces plaintext or the SHA digests — a plain-language status per key
+    /// (from the model) is the whole truth. When the scope is drifted, offers
+    /// Reconcile, which routes through the existing `materializeSelectedScope`
+    /// flow and its drift confirmation (no second write path).
+    @ViewBuilder
+    private func driftSection(scopeID: String) -> some View {
+        Divider()
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Drift", systemImage: "arrow.triangle.branch")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+
+            if let report = model.driftReport(forScope: scopeID) {
+                if report.owned.isEmpty {
+                    Text("This scope owns no keys to check.")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                } else {
+                    ForEach(Array(report.owned.enumerated()), id: \.offset) { _, drift in
+                        HStack(spacing: 8) {
+                            Text(WorkshopModel.driftKey(drift))
+                                .font(.system(.callout, design: .monospaced))
+                            Spacer(minLength: 8)
+                            // Drifted keys read red at a glance; in-sync stays
+                            // quiet secondary (gate finding).
+                            Text(WorkshopModel.driftStatusLabel(for: drift))
+                                .font(.callout)
+                                .foregroundStyle(WorkshopModel.isKeyDrifted(drift) ? Color.red : Color.secondary)
+                        }
+                    }
+                    if let badge = model.driftBadge(forScope: scopeID), badge != .clean {
+                        Button("Reconcile") {
+                            Task { await model.materializeSelectedScope() }
+                        }
+                        .primaryActionButton()
+                        .disabled(model.activity != nil)
+                        .help("Overwrite the .env with vault values (asks before overwriting drift)")
+                    }
+                }
+            } else {
+                Text("No drift check yet — use Check Drift in the toolbar.")
+                    .font(.callout)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    /// The selected secret's inline drift status, with Reconcile when it has
+    /// drifted (AT-02 gate fix — drift stays reachable while on a key).
+    @ViewBuilder
+    private func keyDriftBanner(drift: KeyDrift) -> some View {
+        let drifted = WorkshopModel.isKeyDrifted(drift)
+        HStack(spacing: 8) {
+            Image(systemName: drifted ? "exclamationmark.triangle.fill" : "checkmark.seal")
+                .foregroundStyle(drifted ? Color.red : Color.secondary)
+            Text(WorkshopModel.driftStatusLabel(for: drift))
+                .font(.callout)
+                .foregroundStyle(drifted ? Color.red : Color.secondary)
+            Spacer()
+            if drifted {
+                Button("Reconcile") {
+                    Task { await model.materializeSelectedScope() }
+                }
+                .primaryActionButton()
+                .disabled(model.activity != nil)
+                .help("Overwrite the .env with vault values (asks before overwriting drift)")
+            }
+        }
+        .padding(10)
+        .background(.quaternary)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
     // MARK: - Value section
@@ -249,7 +338,7 @@ private struct ValueEditSection: View {
                             isEditing = false
                             editValue = ""
                         }
-                        .buttonStyle(.bordered)
+                        .primaryActionButton()
                         .disabled(editValue.isEmpty)
                     }
                 }
@@ -296,7 +385,7 @@ private struct ValueEditSection: View {
                     Button("Reveal") {
                         model.reveal(key: key, inScope: scopeID)
                     }
-                    .buttonStyle(.bordered)
+                    .primaryActionButton()
                     .help("Reveal the secret value using Touch ID or the dev age key")
                 }
                 .padding(10)
@@ -367,7 +456,7 @@ private struct NotesEditSection: View {
                             isEditing = false
                             editNotes = ""
                         }
-                        .buttonStyle(.bordered)
+                        .primaryActionButton()
                     }
                 }
                 .padding(10)
@@ -421,5 +510,21 @@ private struct HistoryRow: View {
                 .truncationMode(.tail)
         }
         .textSelection(.enabled)
+    }
+}
+
+// MARK: - Primary action button treatment
+
+extension View {
+    /// The Workshop's call-to-action button treatment (ho-06.2 gate polish):
+    /// a little more space and an accent color shift so the next action to
+    /// press stands out from the calm, quiet UI without shouting.
+    ///
+    /// Applied to primary actions (Reveal, Reconcile, Rotate Value, Save
+    /// Notes); secondary actions (Cancel, Edit, Hide/Copy) stay borderless so
+    /// the emphasis reads as a single clear "do this next".
+    func primaryActionButton() -> some View {
+        buttonStyle(.borderedProminent)
+            .controlSize(.large)
     }
 }
