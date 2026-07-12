@@ -151,4 +151,61 @@ extension WorkshopModel {
             errorMessage = Self.message(for: error)
         }
     }
+
+    // MARK: - Deletion (ho-06.7)
+
+    /// A staged scope deletion awaiting the window's confirmation.
+    struct ScopeDeletion: Equatable {
+        /// The scope to delete.
+        let scopeID: String
+        /// How many secrets it holds — for the confirmation's blast-radius line.
+        let secretCount: Int
+    }
+
+    /// Stages deletion of the selected scope, to be confirmed in the window.
+    ///
+    /// Reads the secret count via `inspect` (filenames only — no decryption, no
+    /// Touch ID) so the confirmation can name the blast radius, then sets
+    /// ``WorkshopModel/pendingScopeDeletion``. A no-op when nothing is selected
+    /// or an action is already in flight.
+    func requestDeleteSelectedScope() {
+        guard activity == nil else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let scopeID = selectedScopeID else { return }
+        statusMessage = nil
+        let count = (try? VaultCore(vaultURL: vaultURL).inspect(scopeID).count) ?? 0
+        pendingScopeDeletion = ScopeDeletion(scopeID: scopeID, secretCount: count)
+    }
+
+    /// Dismisses the pending scope deletion (user cancelled).
+    func dismissScopeDeletion() {
+        pendingScopeDeletion = nil
+    }
+
+    /// Deletes the staged scope and refreshes the sidebar.
+    ///
+    /// Keyless (`VaultCore(vaultURL:)`) — deletion removes files, it never
+    /// decrypts, so no age key and no Touch ID. Clears the selection when it
+    /// pointed at the deleted scope, announces via ``WorkshopModel/statusMessage``
+    /// on success (the sidebar refresh is the only other visible outcome), and
+    /// maps any `VaultError` to ``WorkshopModel/errorMessage`` without crashing
+    /// the window. Deletion only touches the vault — markers and materialized
+    /// .env files are left in place; the removal commits on the next Sync.
+    func confirmDeleteScope() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let deletion = pendingScopeDeletion else { return }
+        pendingScopeDeletion = nil
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            try core.deleteScope(deletion.scopeID)
+            if selectedScopeID == deletion.scopeID {
+                selectedScopeID = nil
+            }
+            loadScopes()
+            statusMessage = "Deleted scope \(deletion.scopeID). Sync to commit the removal."
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
 }

@@ -220,6 +220,16 @@ final class WorkshopModel {
     /// in the heal extension file.
     var allStalePlan: AllStalePlan?
 
+    /// A pending scope deletion awaiting confirmation, or `nil` (ho-06.7).
+    ///
+    /// Set by ``requestDeleteSelectedScope()`` (`WorkshopModel+Mutations.swift`);
+    /// the window presents a system-rendered destructive confirmation naming the
+    /// scope and its secret count and calls ``confirmDeleteScope()`` on approval
+    /// or ``dismissScopeDeletion()`` on cancel. `internal` (not `private(set)`)
+    /// for the same cross-file-extension reason as ``allStalePlan`` — its mutators
+    /// live in the mutations extension file.
+    var pendingScopeDeletion: ScopeDeletion?
+
     /// The result of the last "Preview .env" action, or `nil` before one has
     /// run (ho-06.1 AT-03, Decision 5).
     ///

@@ -96,6 +96,22 @@ struct ActionPanel: View {
             ) {
                 jumpToSelectedScopeDirectory()
             }
+
+            // The first real in-window destructive affordance (ho-06.7): it
+            // wears pālana rust (`Color.drift`), the voice ho-06.4 reserved and
+            // ho-06.5 could find no consumer for. The confirmation it opens is
+            // system-rendered — dialogs take no tint (ho-06.5 gate).
+            actionButton(
+                "Delete Scope",
+                systemImage: "trash",
+                help: model.selectedScopeID == nil
+                    ? "Select a scope to delete it"
+                    : "Delete this scope and all its secrets (markers and .env files are left in place)",
+                disabled: model.selectedScopeID == nil || model.activity != nil,
+                tint: Color.drift
+            ) {
+                model.requestDeleteSelectedScope()
+            }
         }
     }
 
@@ -233,15 +249,17 @@ struct ActionPanel: View {
 
     /// One always-titled panel verb.
     ///
-    /// The foreground is set explicitly per state (ink / faint ink) because an
-    /// explicit `foregroundStyle` would otherwise override the borderless
-    /// style's automatic disabled dimming — the honesty of a dimmed disabled
-    /// verb matters more than the one-liner.
+    /// The foreground is set explicitly per state (ink / faint ink, or `tint`
+    /// when the verb is destructive) because an explicit `foregroundStyle` would
+    /// otherwise override the borderless style's automatic disabled dimming — the
+    /// honesty of a dimmed disabled verb matters more than the one-liner. A
+    /// disabled verb always dims to faint ink regardless of `tint`.
     private func actionButton(
         _ title: String,
         systemImage: String,
         help: String,
         disabled: Bool = false,
+        tint: Color? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -251,7 +269,7 @@ struct ActionPanel: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(disabled ? Color.inkTertiary : Color.ink)
+        .foregroundStyle(disabled ? Color.inkTertiary : (tint ?? Color.ink))
         .disabled(disabled)
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
