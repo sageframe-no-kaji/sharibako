@@ -363,6 +363,77 @@ public struct VaultCore: Sendable {
         return shared.filter { !referenced.contains($0) }.sorted()
     }
 
+    // MARK: - Deletion (ho-06.7)
+
+    /// Deletes a scope and everything in it.
+    ///
+    /// Removes `scopes/<id>/` and its whole contents — `scope.yaml`, every
+    /// `<KEY>.age`, every `<KEY>.link`. A scope's own `.link` files are pointers;
+    /// they vanish with the scope and nothing in `shared/` is touched. Requires no
+    /// age key — deletion removes files, it does not decrypt them.
+    ///
+    /// Deletion only ever touches the vault (system design §): `.sharibako`
+    /// markers on disk and already-materialized `.env` files are left in place,
+    /// and the removal is not committed — a later `sync` commits it.
+    ///
+    /// - Parameter id: Scope identifier (the directory name).
+    /// - Throws: ``VaultError/invalidIdentifier(kind:value:source:)`` for an
+    ///   out-of-grammar ID; ``VaultError/scopeNotFound(id:)`` if the scope
+    ///   directory is absent; ``VaultError/fileSystemError(path:underlying:)`` if
+    ///   removal fails.
+    public func deleteScope(_ id: String) throws {
+        let scopeDir = try VaultLayout.scopeDirectoryURL(id, in: vaultURL)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: scopeDir.path) else {
+            throw VaultError.scopeNotFound(id: id)
+        }
+        do {
+            try fileManager.removeItem(at: scopeDir)
+        } catch {
+            throw VaultError.fileSystemError(path: scopeDir, underlying: error)
+        }
+    }
+
+    /// Deletes a shared entry, refusing when scopes still link to it.
+    ///
+    /// Removes `shared/<id>.age`. Because other scopes may point `.link` files at
+    /// this entry, deletion is guarded: if any scope links it and `force` is
+    /// `false`, this throws ``VaultError/sharedEntryLinked(id:linkers:)`` naming
+    /// every referencing `(scope, key)` pair and removes nothing — the caller
+    /// `unlink`s first (which preserves the value locally) and retries. With
+    /// `force == true`, the entry is removed and the linkers are left as dangling
+    /// `.link` files, surfaced by the existing orphan/heal machinery
+    /// (``VaultError/linkTargetMissing(id:)`` on the next resolution). Requires no
+    /// age key.
+    ///
+    /// Like ``deleteScope(_:)``, this only touches the vault and is not committed.
+    ///
+    /// - Parameters:
+    ///   - id: Shared-entry identifier (the `shared/<id>.age` stem).
+    ///   - force: When `true`, delete even if linked, orphaning the linkers.
+    /// - Throws: ``VaultError/invalidIdentifier(kind:value:source:)`` for an
+    ///   out-of-grammar ID; ``VaultError/sharedEntryNotFound(id:)`` if absent;
+    ///   ``VaultError/sharedEntryLinked(id:linkers:)`` if linked and not forced;
+    ///   ``VaultError/fileSystemError(path:underlying:)`` if removal fails.
+    public func deleteSharedEntry(_ id: String, force: Bool = false) throws {
+        let sharedURL = try VaultLayout.sharedEntryURL(id, in: vaultURL)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sharedURL.path) else {
+            throw VaultError.sharedEntryNotFound(id: id)
+        }
+        if !force {
+            let linkers = try linkGraph()[id] ?? []
+            if !linkers.isEmpty {
+                throw VaultError.sharedEntryLinked(id: id, linkers: linkers)
+            }
+        }
+        do {
+            try fileManager.removeItem(at: sharedURL)
+        } catch {
+            throw VaultError.fileSystemError(path: sharedURL, underlying: error)
+        }
+    }
+
     // MARK: - Identifier grammar (public gateway)
 
     /// Whether `value` satisfies the vault identifier grammar

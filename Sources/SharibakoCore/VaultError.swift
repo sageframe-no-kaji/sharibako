@@ -8,7 +8,8 @@ import Foundation
 ///
 /// Cases: ``vaultNotFound(path:)``, ``scopeNotFound(id:)``,
 /// ``secretNotFound(scope:key:)``, ``scopeAlreadyExists(id:)``,
-/// ``sharedEntryNotFound(id:)``, ``sharedEntryExists(id:)``, ``linkTargetMissing(id:)``,
+/// ``sharedEntryNotFound(id:)``, ``sharedEntryExists(id:)``,
+/// ``sharedEntryLinked(id:linkers:)``, ``linkTargetMissing(id:)``,
 /// ``ageInvocationFailed(exitCode:stderr:)``, ``yamlEncodeError(path:underlying:)``,
 /// ``yamlDecodeError(path:underlying:)``, ``fileSystemError(path:underlying:)``,
 /// ``shellNotFound(name:)``, ``gitInvocationFailed(exitCode:stderr:)``,
@@ -32,6 +33,13 @@ public enum VaultError: Error {
     /// Add means create: silently overwriting would propagate the new value to
     /// every scope linked to the entry. Deliberate replacement is `rotateShared`.
     case sharedEntryExists(id: String)
+    /// A shared-entry deletion was refused because scopes still link to it (ho-06.7).
+    ///
+    /// Deleting a linked entry would leave those `.link` files dangling. The
+    /// verb refuses by default and names every referencing `(scope, key)` pair so
+    /// the caller can `unlink` first; `deleteSharedEntry(_:force:)` with `force`
+    /// overrides and orphans the linkers deliberately.
+    case sharedEntryLinked(id: String, linkers: [(scopeID: String, key: String)])
     /// A `.link` file references a shared entry that no longer exists.
     case linkTargetMissing(id: String)
     /// The `age` binary was invoked and exited with a non-zero status.
