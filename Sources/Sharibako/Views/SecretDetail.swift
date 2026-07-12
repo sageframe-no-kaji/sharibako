@@ -426,13 +426,21 @@ private struct NotesEditSection: View {
                 Spacer()
                 if !isEditing {
                     Button("Edit Notes") {
+                        // Editing a note means reading it first, so revealing
+                        // is the price of entry — an explicit user action, and
+                        // the auth prompt is the expected cost (ho-06.5 gate
+                        // finding: the editor used to open blank over an
+                        // undecrypted note, silently clearing it on save).
+                        // `reveal` is synchronous: it prompts, decrypts, and
+                        // sets the revealed state before returning.
+                        if model.revealedValue == nil {
+                            model.reveal(key: key, inScope: scopeID)
+                            // Auth denied or key unavailable — the model has
+                            // announced the error in the status surface; do
+                            // not open an editor over a note you couldn't read.
+                            guard model.revealedValue != nil else { return }
+                        }
                         isEditing = true
-                        // Prefill ONLY when the note is already revealed for
-                        // this key — the same rule as the value editor: an
-                        // unrevealed note must never be decrypted just to
-                        // prefill the edit field. Before this, the field
-                        // always opened blank even with the revealed note
-                        // sitting right above it (ho-06.5 gate finding).
                         editNotes = model.revealedNotes ?? ""
                     }
                     .buttonStyle(.borderless)

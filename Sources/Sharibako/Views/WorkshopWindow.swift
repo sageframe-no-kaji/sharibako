@@ -128,16 +128,16 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
-                // Destructive-verb rust (ho-06.5 Decision 4, gate-tuned): the
-                // rust tint carries pālana's alarm voice; the .destructive
-                // role is deliberately absent — the system paints destructive
-                // labels red ON TOP of the tint fill, and red-on-rust was the
-                // gate's "icky red" finding. The wording carries the danger;
-                // the fill carries the voice.
-                Button("Overwrite Drift") {
+                // System-rendered, deliberately (ho-06.5 Decision 4, gate
+                // finding): confirmation dialogs render out of the view
+                // hierarchy and take NO tint — rust was ignored and even the
+                // moss accent never reached them (the untinted button came
+                // back system-blue). Dialogs speak the system's alarm voice;
+                // pālana rust lands on in-window destructive affordances
+                // (first consumer: the owed delete-scope ho).
+                Button("Overwrite Drift", role: .destructive) {
                     Task { await model.materializeSelectedScope(force: true) }
                 }
-                .tint(Color.drift)
                 Button("Cancel", role: .cancel) {
                     model.dismissPendingDiff()
                 }
@@ -157,12 +157,11 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
-                // Destructive-verb rust, no .destructive role (gate-tuned),
-                // same as the drift dialog above.
-                Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")") {
+                // System-rendered, same platform constraint as the drift
+                // dialog above.
+                Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")", role: .destructive) {
                     Task { await model.confirmMaterializeAllStale() }
                 }
-                .tint(Color.drift)
                 Button("Cancel", role: .cancel) {
                     model.dismissAllStale()
                 }
