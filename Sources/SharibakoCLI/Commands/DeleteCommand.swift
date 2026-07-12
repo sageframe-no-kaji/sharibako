@@ -2,38 +2,45 @@ import ArgumentParser
 import Foundation
 import SharibakoCore
 
-/// Deletes a scope, or — with `--shared` — a shared entry.
+/// Deletes a scope, a single key within a scope, or — with `--shared` — a shared entry.
 ///
-/// Asks for confirmation unless `--yes` is supplied. No age key required — both
-/// deletions remove files, they never decrypt. Deleting a shared entry that other
+/// Asks for confirmation unless `--yes` is supplied. No age key required — every
+/// deletion removes files, none decrypts. Deleting a shared entry that other
 /// scopes link to is refused unless `--force` is given (which orphans the linkers).
 struct DeleteCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "delete",
-        abstract: "Delete a scope, or a shared entry (--shared).",
+        abstract: "Delete a scope, a key within a scope, or a shared entry (--shared).",
         discussion: """
-            Removes a scope (scopes/<id>/ and all its secrets) or, with --shared, a \
-            shared entry (shared/<id>.age). Deletion only ever touches the vault: \
-            .sharibako markers in your projects and any already-materialized .env \
-            files are left exactly where they are (markers become orphans the next \
-            scan surfaces; use 'sharibako clean' first if you want the .env values \
-            gone too). The removal is not committed - run 'sharibako sync' to commit \
-            it. It stays in git history, so a deletion is recoverable.
+            Removes a scope (scopes/<id>/ and all its secrets), a single key within \
+            a scope when a second argument is given (scopes/<scope>/<key>.age or \
+            .link), or - with --shared - a shared entry (shared/<id>.age). Deletion \
+            only ever touches the vault: .sharibako markers in your projects and any \
+            already-materialized .env files are left exactly where they are (markers \
+            become orphans the next scan surfaces; use 'sharibako clean' first if you \
+            want the .env values gone too). The removal is not committed - run \
+            'sharibako sync' to commit it. It stays in git history, so a deletion is \
+            recoverable.
 
             No age key is required and no Touch ID fires - deletion removes files, it \
             never decrypts them. It asks for confirmation first unless --yes is \
             given; when stdin is not a terminal there is nobody to answer, so --yes \
             is required and its absence is a hard error rather than a silent skip.
 
-            A shared entry that other scopes still link to is refused by default - \
-            deleting it would leave those links dangling - and the referencing \
-            scope/key pairs are named so you can 'sharibako unlink' them first (that \
-            keeps the value locally). Pass --force to delete anyway and orphan them.
+            Deleting a key that is a link removes only the pointer - the shared entry \
+            it named is untouched. A shared entry that other scopes still link to is \
+            refused by default - deleting it would leave those links dangling - and \
+            the referencing scope/key pairs are named so you can 'sharibako unlink' \
+            them first (that keeps the value locally). Pass --force to delete anyway \
+            and orphan them.
 
             EXAMPLES
 
             Delete a scope, with a prompt:
               sharibako delete kanyo-dev
+
+            Delete a single key within a scope:
+              sharibako delete kanyo-dev OPENAI_API_KEY
 
             Delete a scope non-interactively (in a script):
               sharibako delete kanyo-dev --yes
@@ -53,6 +60,9 @@ struct DeleteCommand: AsyncParsableCommand {
 
     @Argument(help: "Scope ID to delete, or shared-entry ID when --shared is set.")
     var id: String
+
+    @Argument(help: "Optional key within the scope to delete instead of the whole scope.")
+    var key: String?
 
     @Flag(name: .long, help: "Delete a shared entry instead of a scope.")
     var shared: Bool = false
@@ -95,10 +105,13 @@ struct DeleteCommand: AsyncParsableCommand {
         let renderer = OutputRenderer(json: global.json, color: !global.json && TerminalDetector.isColorTerminal)
         if shared {
             try vault.deleteSharedEntry(id, force: force)
-            print(try rendered(kind: "shared", label: "shared entry", renderer: renderer))
+            print(try rendered(kind: "shared", label: "shared entry \"\(id)\"", renderer: renderer))
+        } else if let key {
+            try vault.deleteSecret(key, inScope: id)
+            print(try rendered(kind: "key", label: "key \"\(id)/\(key)\"", renderer: renderer))
         } else {
             try vault.deleteScope(id)
-            print(try rendered(kind: "scope", label: "scope", renderer: renderer))
+            print(try rendered(kind: "scope", label: "scope \"\(id)\"", renderer: renderer))
         }
     }
 
@@ -106,6 +119,8 @@ struct DeleteCommand: AsyncParsableCommand {
         let prompt: String
         if shared {
             prompt = "About to delete shared entry \"\(id)\". Continue? [y/N] "
+        } else if let key {
+            prompt = "About to delete key \"\(id)/\(key)\". Continue? [y/N] "
         } else {
             let count = (try? vault.inspect(id).count) ?? 0
             prompt =
@@ -120,8 +135,9 @@ struct DeleteCommand: AsyncParsableCommand {
 
     private func rendered(kind: String, label: String, renderer: OutputRenderer) throws -> String {
         if renderer.json {
-            return try renderer.encodeJSON(["deleted": [kind: id]])
+            let value = kind == "key" ? "\(id)/\(key ?? "")" : id
+            return try renderer.encodeJSON(["deleted": [kind: value]])
         }
-        return "Deleted \(label) \"\(id)\". Run `sharibako sync` to commit the removal."
+        return "Deleted \(label). Run `sharibako sync` to commit the removal."
     }
 }

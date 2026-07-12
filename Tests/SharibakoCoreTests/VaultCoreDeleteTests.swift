@@ -134,4 +134,69 @@ struct VaultCoreDeleteTests {
             #expect(id == "ghost")
         }
     }
+
+    // MARK: - deleteSecret
+
+    @Test("deleteSecret removes a scope-local .age value and only it")
+    func deleteSecretRemovesValue() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writePlaceholderAge("KEEP", inScope: "kanyo-dev", in: vault)
+            try VaultTestSupport.writePlaceholderAge("DROP", inScope: "kanyo-dev", in: vault)
+            let core = try VaultCore(vaultURL: vault)
+
+            try core.deleteSecret("DROP", inScope: "kanyo-dev")
+
+            #expect(try core.inspect("kanyo-dev").map(\.key) == ["KEEP"])
+        }
+    }
+
+    @Test("deleteSecret removes a .link (pointer only; shared entry untouched)")
+    func deleteSecretRemovesLink() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            try VaultTestSupport.writeSharedPlaceholderAge("openai-personal", in: vault)
+            let core = try VaultCore(vaultURL: vault)
+            try core.link("OPENAI_API_KEY", inScope: "kanyo-dev", toShared: "openai-personal")
+
+            try core.deleteSecret("OPENAI_API_KEY", inScope: "kanyo-dev")
+
+            #expect(try core.inspect("kanyo-dev").isEmpty)
+            // The shared entry the link pointed at is untouched.
+            let sharedURL = try VaultLayout.sharedEntryURL("openai-personal", in: vault)
+            #expect(FileManager.default.fileExists(atPath: sharedURL.path))
+        }
+    }
+
+    @Test("deleteSecret throws secretNotFound for an absent key")
+    func deleteSecretAbsentKey() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            try VaultTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
+            let core = try VaultCore(vaultURL: vault)
+            let error = #expect(throws: VaultError.self) {
+                try core.deleteSecret("MISSING", inScope: "kanyo-dev")
+            }
+            guard case .secretNotFound(let scope, let key) = error else {
+                Issue.record("expected secretNotFound, got \(String(describing: error))")
+                return
+            }
+            #expect(scope == "kanyo-dev")
+            #expect(key == "MISSING")
+        }
+    }
+
+    @Test("deleteSecret throws scopeNotFound when the scope is absent")
+    func deleteSecretAbsentScope() throws {
+        try VaultTestSupport.withEphemeralVault { vault in
+            let core = try VaultCore(vaultURL: vault)
+            let error = #expect(throws: VaultError.self) {
+                try core.deleteSecret("K", inScope: "ghost")
+            }
+            guard case .scopeNotFound(let id) = error else {
+                Issue.record("expected scopeNotFound, got \(String(describing: error))")
+                return
+            }
+            #expect(id == "ghost")
+        }
+    }
 }

@@ -107,6 +107,38 @@ struct DeleteCommandTests {
         }
     }
 
+    // MARK: - Key deletion
+
+    @Test("delete <scope> <key> --yes removes just that key")
+    func deleteKeyWithYes() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+            try vault.addSecret("KEEP", value: "a", inScope: "s1")
+            try vault.addSecret("DROP", value: "b", inScope: "s1")
+
+            let cmd = try DeleteCommand.parse(["--vault", vaultURL.path, "--yes", "s1", "DROP"])
+            try cmd._run()
+
+            #expect(try VaultCore(vaultURL: vaultURL).inspect("s1").map(\.key) == ["KEEP"])
+        }
+    }
+
+    @Test("delete <scope> <absent-key> throws secretNotFound")
+    func deleteAbsentKey() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, _ in
+            try CLITestSupport.writeScope("s1", in: vaultURL)
+            let cmd = try DeleteCommand.parse(["--vault", vaultURL.path, "--yes", "s1", "MISSING"])
+            let error = #expect(throws: VaultError.self) { try cmd._run() }
+            guard case .secretNotFound(let scope, let key) = error else {
+                Issue.record("expected secretNotFound, got \(String(describing: error))")
+                return
+            }
+            #expect(scope == "s1")
+            #expect(key == "MISSING")
+        }
+    }
+
     @Test("delete --shared --force removes a linked entry and orphans the linker")
     func deleteSharedForced() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

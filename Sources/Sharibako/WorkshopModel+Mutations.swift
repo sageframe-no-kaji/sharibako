@@ -208,4 +208,56 @@ extension WorkshopModel {
             errorMessage = Self.message(for: error)
         }
     }
+
+    /// A staged single-secret deletion awaiting the window's confirmation.
+    struct SecretDeletion: Equatable {
+        /// The scope holding the key.
+        let scopeID: String
+        /// The key to delete.
+        let key: String
+    }
+
+    /// Stages deletion of the selected secret, to be confirmed in the window.
+    ///
+    /// A no-op when no scope+secret is selected or an action is already in flight.
+    func requestDeleteSelectedSecret() {
+        guard activity == nil else { return }
+        guard case .open = vaultState else { return }
+        guard let scopeID = selectedScopeID, let key = selectedSecretKey else { return }
+        statusMessage = nil
+        pendingSecretDeletion = SecretDeletion(scopeID: scopeID, key: key)
+    }
+
+    /// Dismisses the pending secret deletion (user cancelled).
+    func dismissSecretDeletion() {
+        pendingSecretDeletion = nil
+    }
+
+    /// Deletes the staged secret and refreshes the secret list.
+    ///
+    /// Keyless (`VaultCore(vaultURL:)`) — removal decrypts nothing, so no age key
+    /// and no Touch ID. Clears the secret selection when it matched (its setter
+    /// re-masks any revealed value), refreshes the list for the scope, announces
+    /// via ``WorkshopModel/statusMessage``, and maps any `VaultError` to
+    /// ``WorkshopModel/errorMessage``. Only touches the vault; `sync` commits it.
+    func confirmDeleteSecret() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let deletion = pendingSecretDeletion else { return }
+        pendingSecretDeletion = nil
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            try core.deleteSecret(deletion.key, inScope: deletion.scopeID)
+            if selectedSecretKey == deletion.key {
+                selectedSecretKey = nil
+            }
+            if selectedScopeID == deletion.scopeID {
+                loadSecrets(for: deletion.scopeID)
+            }
+            statusMessage =
+                "Deleted key \(deletion.scopeID)/\(deletion.key). Sync to commit the removal."
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
 }

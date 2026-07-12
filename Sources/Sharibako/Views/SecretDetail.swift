@@ -90,6 +90,22 @@ struct SecretDetail: View {
 
                 // History section
                 historySection()
+
+                Divider()
+
+                // Delete this key (ho-06.7) — an in-window destructive verb, so
+                // it wears pālana rust; the confirmation it raises is
+                // system-rendered (WorkshopWindow). Deleting a linked key removes
+                // only the pointer; the .env file is left in place.
+                Button {
+                    model.requestDeleteSelectedSecret()
+                } label: {
+                    Label("Delete Secret", systemImage: "trash")
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(Color.drift)
+                .disabled(model.activity != nil)
+                .help("Delete this key from the scope (the .env file is left in place)")
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)

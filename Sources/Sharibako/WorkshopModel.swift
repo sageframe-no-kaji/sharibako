@@ -230,6 +230,15 @@ final class WorkshopModel {
     /// live in the mutations extension file.
     var pendingScopeDeletion: ScopeDeletion?
 
+    /// A pending single-secret deletion awaiting confirmation, or `nil` (ho-06.7).
+    ///
+    /// Set by ``requestDeleteSelectedSecret()`` (`WorkshopModel+Mutations.swift`);
+    /// the window presents a system-rendered destructive confirmation naming the
+    /// scope/key and calls ``confirmDeleteSecret()`` on approval or
+    /// ``dismissSecretDeletion()`` on cancel. `internal` for the same
+    /// cross-file-extension reason as ``pendingScopeDeletion``.
+    var pendingSecretDeletion: SecretDeletion?
+
     /// The result of the last "Preview .env" action, or `nil` before one has
     /// run (ho-06.1 AT-03, Decision 5).
     ///

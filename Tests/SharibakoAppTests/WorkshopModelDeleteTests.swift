@@ -112,4 +112,48 @@ struct WorkshopModelDeleteTests {
             }
         }
     }
+
+    // MARK: - Secret deletion
+
+    @Test("confirmDeleteSecret deletes just the key, clears its selection, and refreshes")
+    func confirmDeletesSecret() throws {
+        try AppAgeKeyFixture.withEphemeralKey { fixture in
+            try WorkshopTestSupport.withTempVault { vault in
+                try WorkshopTestSupport.writeScope("alpha", type: .projectDev, in: vault)
+                let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+                try core.addSecret("KEEP", value: "a", inScope: "alpha")
+                try core.addSecret("DROP", value: "b", inScope: "alpha")
+                let model = model(vault: vault, ageKey: fixture.privateKeyURL)
+                model.selectedScopeID = "alpha"
+                model.loadSecrets(for: "alpha")
+                model.selectedSecretKey = "DROP"
+
+                model.requestDeleteSelectedSecret()
+                #expect(
+                    model.pendingSecretDeletion
+                        == WorkshopModel.SecretDeletion(scopeID: "alpha", key: "DROP"))
+
+                model.confirmDeleteSecret()
+
+                #expect(model.pendingSecretDeletion == nil)
+                #expect(model.secrets.map(\.key) == ["KEEP"])
+                #expect(model.selectedSecretKey == nil)
+                #expect(model.statusMessage?.hasPrefix("Deleted key alpha/DROP") == true)
+                #expect(model.errorMessage == nil)
+            }
+        }
+    }
+
+    @Test("requestDeleteSelectedSecret is a no-op when no secret is selected")
+    func requestSecretNoOpWithoutSelection() throws {
+        try WorkshopTestSupport.withTempVault { vault in
+            try WorkshopTestSupport.writeScope("alpha", type: .other, in: vault)
+            let model = model(vault: vault)
+            model.selectedScopeID = "alpha"
+
+            model.requestDeleteSelectedSecret()
+
+            #expect(model.pendingSecretDeletion == nil)
+        }
+    }
 }
