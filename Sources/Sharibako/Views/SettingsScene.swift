@@ -28,6 +28,10 @@ struct SettingsScene: View {
             .pickerStyle(.inline)
         }
         .formStyle(.grouped)
+        // Flat pālana ground (ho-06.5 Decision 3) — Settings reads as the
+        // same paper as the main window.
+        .scrollContentBackground(.hidden)
+        .background(Color.ground)
         .frame(width: 380, height: 160)
     }
 }

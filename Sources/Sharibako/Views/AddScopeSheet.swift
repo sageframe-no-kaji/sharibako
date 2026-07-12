@@ -68,6 +68,8 @@ struct AddScopeSheet: View {
                 }
             }
             .formStyle(.grouped)
+            // Flat pālana ground behind the form sections (ho-06.5 Decision 3).
+            .scrollContentBackground(.hidden)
 
             HStack {
                 Spacer()
@@ -94,6 +96,7 @@ struct AddScopeSheet: View {
         // Esc closes the window — `.keyboardShortcut(.cancelAction)` alone is
         // not reliably routed in a plain window the way it is in a sheet.
         .onExitCommand { dismiss() }
+        .background(Color.ground)
         .background(AuxiliaryWindowChrome())
     }
 

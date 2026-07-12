@@ -42,7 +42,10 @@ struct EnvPreviewSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
             }
-            .background(.quaternary)
+            // The cooler pālana data surface (ho-06.5 Decision 3) — the
+            // composed .env is exactly the kind of content panelGround exists
+            // for.
+            .background(Color.panelGround)
             .clipShape(RoundedRectangle(cornerRadius: 6))
 
             HStack {
@@ -56,5 +59,7 @@ struct EnvPreviewSheet: View {
         }
         .padding()
         .frame(minWidth: 480, minHeight: 360)
+        // Flat pālana ground (ho-06.5 Decision 3).
+        .background(Color.ground)
     }
 }

@@ -28,9 +28,14 @@ struct ScopeSidebar: View {
                 unlinkedSection
             }
             .listStyle(.sidebar)
+            // Flat pālana ground (ho-06.5 Decision 3): hide the sidebar's
+            // vibrancy so the warm paper shows through — the whole window
+            // sits on flat token grounds now.
+            .scrollContentBackground(.hidden)
 
             footer
         }
+        .background(Color.ground)
     }
 
     // MARK: - Scope row
@@ -141,7 +146,8 @@ struct ScopeSidebar: View {
             .padding(.top, 6)
             .padding(.bottom, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.bar)
+            // Flat groundDeep, not the .bar material (ho-06.5 Decision 3).
+            .background(Color.groundDeep)
             .help(footerTooltip)
         }
     }

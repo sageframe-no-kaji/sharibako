@@ -1,18 +1,17 @@
 import SharibakoCore
 import SwiftUI
 
-/// The Workshop's main window: a three-pane `NavigationSplitView` shell, or
-/// the "no vault" empty state when the resolved path holds none (Decision 3).
+/// The Workshop's main window: a three-pane `NavigationSplitView` shell with
+/// the right-side action panel trailing it (ho-06.5 Decision 1), or the
+/// "no vault" empty state when the resolved path holds none (Decision 3).
 ///
-/// The toolbar carries Add Scope, Add Shared Secret, Materialize (enabled
-/// when a scope is selected), Preview .env, Sync, Rescan, and — its own
-/// block, left of Sync (ho-06.1 AT-02 Decision 3) — Jump to Directory. The
-/// three Add actions open auxiliary `Window` scenes via `openWindow`
-/// (ho-06.1 AT-03 Decision 6) — movable, non-modal, this window stays
-/// interactive while one is open. The drift confirmation dialog surfaces
-/// when `model.pendingDiff` is set; the user must confirm before the
-/// overwrite runs. All branching logic lives in `WorkshopModel` (tested);
-/// this view is declarative presentation only (Decision 8).
+/// Every Workshop verb lives in `ActionPanel` — the forward-only replacement
+/// for the ho-06.2 toolbar + overflow chrome that failed its gate. The
+/// toolbar carries only the panel toggle; the collapse state persists across
+/// relaunch (`@AppStorage`). The drift confirmation dialog surfaces when
+/// `model.pendingDiff` is set; the user must confirm before the overwrite
+/// runs. All branching logic lives in `WorkshopModel` (tested); this view is
+/// declarative presentation only (Decision 8).
 ///
 /// The status surface pulses green on a `statusMessage` change and red on an
 /// `errorMessage` change (AT-02 Decision 4) — the text persists (no
@@ -26,9 +25,6 @@ struct WorkshopWindow: View {
 
     @Environment(\.accessibilityReduceMotion)
     private var reduceMotion
-
-    @Environment(\.openWindow)
-    private var openWindow
 
     /// Leading inset shared by the status surface and the sidebar footer's
     /// own horizontal padding (`ScopeSidebar`), so the status line's leading
@@ -45,6 +41,13 @@ struct WorkshopWindow: View {
     /// status surface's red pulse.
     @State private var errorPulseActive = false
 
+    /// Whether the action panel is collapsed (ho-06.5 Decision 1).
+    ///
+    /// Persists across relaunch — a pure UI preference, same backend as the
+    /// appearance override.
+    @AppStorage("actionPanelCollapsed")
+    private var actionPanelCollapsed = false
+
     var body: some View {
         switch model.vaultState {
         case .noVault(let expectedPath):
@@ -58,34 +61,46 @@ struct WorkshopWindow: View {
                 )
                 .textSelection(.enabled)
             }
+            .background(Color.ground)
         case .open:
-            NavigationSplitView {
-                ScopeSidebar()
-                    .navigationSplitViewColumnWidth(min: 180, ideal: 240)
-            } content: {
-                SecretList()
-                    .onAppear {
-                        if let scopeID = model.selectedScopeID {
-                            model.loadSecrets(for: scopeID)
+            HStack(spacing: 0) {
+                NavigationSplitView {
+                    ScopeSidebar()
+                        .navigationSplitViewColumnWidth(min: 180, ideal: 240)
+                } content: {
+                    SecretList()
+                        .onAppear {
+                            if let scopeID = model.selectedScopeID {
+                                model.loadSecrets(for: scopeID)
+                            }
                         }
-                    }
-                    .onChange(of: model.selectedScopeID) { _, newScopeID in
-                        if let scopeID = newScopeID {
-                            model.loadSecrets(for: scopeID)
+                        .onChange(of: model.selectedScopeID) { _, newScopeID in
+                            if let scopeID = newScopeID {
+                                model.loadSecrets(for: scopeID)
+                            }
                         }
-                    }
-            } detail: {
-                SecretDetail()
-            }
-            .toolbar {
-                toolbarContent
-            }
-            // Warm the scan cache without blocking window render (ho-06.1
-            // Decision 2): the window paints immediately; the launch scan runs
-            // through the worker behind it. A no-op when no roots are configured
-            // or the vault is not open.
-            .task {
-                await model.performLaunchScan()
+                } detail: {
+                    SecretDetail()
+                }
+                .toolbar {
+                    toolbarContent
+                }
+                // Warm the scan cache without blocking window render (ho-06.1
+                // Decision 2): the window paints immediately; the launch scan runs
+                // through the worker behind it. A no-op when no roots are configured
+                // or the vault is not open.
+                .task {
+                    await model.performLaunchScan()
+                }
+
+                // The action panel (ho-06.5 Decision 1): every Workshop verb,
+                // always titled, on the flat panelGround surface. Collapsing
+                // removes it entirely; the toolbar toggle restores it.
+                if !actionPanelCollapsed {
+                    Divider()
+                    ActionPanel()
+                        .transition(.move(edge: .trailing))
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 statusSurface
@@ -113,9 +128,14 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
+                // Destructive-verb rust (ho-06.5 Decision 4): the tint asks the
+                // dialog button to speak pālana's alarm voice instead of the
+                // system destructive red. macOS may render dialog buttons its
+                // own way — verified at the gate.
                 Button("Overwrite Drift", role: .destructive) {
                     Task { await model.materializeSelectedScope(force: true) }
                 }
+                .tint(Color.drift)
                 Button("Cancel", role: .cancel) {
                     model.dismissPendingDiff()
                 }
@@ -135,9 +155,11 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
+                // Destructive-verb rust (ho-06.5 Decision 4), same as above.
                 Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")", role: .destructive) {
                     Task { await model.confirmMaterializeAllStale() }
                 }
+                .tint(Color.drift)
                 Button("Cancel", role: .cancel) {
                     model.dismissAllStale()
                 }
@@ -185,7 +207,7 @@ struct WorkshopWindow: View {
             .padding(.vertical, 10)
             .padding(.leading, Self.sidebarAlignedInset)
             .padding(.trailing, Self.sidebarAlignedInset)
-            .background(.bar)
+            .background(Color.groundDeep)
         } else if let message = model.errorMessage {
             Text(message)
                 .font(.body)
@@ -209,14 +231,15 @@ struct WorkshopWindow: View {
         }
     }
 
-    /// The status line's background: the standard `.bar` material, tinted
+    /// The status line's background: the flat `groundDeep` surface (ho-06.5
+    /// Decision 3 — the `.bar` material went with the vibrancy), tinted
     /// green while ``statusPulseActive`` — the announce (AT-02 Decision 4).
     ///
     /// Under Reduce Motion the tint still appears and fades, just without an
     /// eased animation curve driving it (a static emphasis, not a flash).
     private var statusPulseBackground: some View {
         ZStack {
-            Rectangle().fill(.bar)
+            Rectangle().fill(Color.groundDeep)
             if statusPulseActive {
                 Rectangle().fill(Color.inSync.opacity(0.40))
             }
@@ -227,7 +250,7 @@ struct WorkshopWindow: View {
     /// mirroring ``statusPulseBackground``.
     private var errorPulseBackground: some View {
         ZStack {
-            Rectangle().fill(.bar)
+            Rectangle().fill(Color.groundDeep)
             if errorPulseActive {
                 Rectangle().fill(Color.drift.opacity(0.40))
             }
@@ -261,182 +284,32 @@ struct WorkshopWindow: View {
 
 // MARK: - Toolbar and dialogs
 
-/// The toolbar content, the drift/all-stale confirmation helpers, and the
-/// jump-to-directory action, split into an extension so the main `View` struct
-/// body stays under SwiftLint's `type_body_length` ceiling (the same pressure
-/// the `WorkshopModel` extension-file splits relieve, here within one file
-/// since a `View`'s `body` and its helpers can't move to another target).
+/// The toolbar toggle and the drift/all-stale confirmation helpers, split
+/// into an extension so the main `View` struct body stays under SwiftLint's
+/// `type_body_length` ceiling (the same pressure the `WorkshopModel`
+/// extension-file splits relieve, here within one file since a `View`'s
+/// `body` and its helpers can't move to another target).
 extension WorkshopWindow {
-    /// Every primary action carries an always-visible title alongside its icon
-    /// (AT-02 Decision 4 — hover tooltips failed the operator at the ho-05
-    /// gate). ho-06.2 Decision 1's chrome fix keeps the native top-toolbar
-    /// (no right-side rail): the heal workflow this ho adds — Materialize,
-    /// Check Drift, Materialize All Stale — sits front-and-center as primary
-    /// titled actions alongside Sync and Rescan; the two secondary reads that
-    /// crowded the bar (Preview .env, Jump to Directory) and the least-used
-    /// create action (Add Shared Secret) move into a legible overflow menu with
-    /// their titles intact.
+    /// The emptied toolbar (ho-06.5 Decision 1): only the panel toggle.
+    ///
+    /// Every verb lives in `ActionPanel`. An icon-only chrome toggle is the
+    /// native idiom (Xcode's inspector toggle) — the titles-always-visible
+    /// rule guards action verbs, not chrome.
     @ToolbarContentBuilder private var toolbarContent: some ToolbarContent {
-        // Add Scope/Secret open auxiliary windows (ho-06.1 AT-03 Decision 6)
-        // rather than modal sheets — the main window stays interactive while
-        // one is up.
         ToolbarItem(placement: .primaryAction) {
             Button {
-                openWindow(id: SharibakoApp.addScopeWindowID)
-            } label: {
-                Label("Add Scope", systemImage: "folder.badge.plus")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Add a new scope to the vault")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                // The scope ID is read once, here, and travels as the
-                // window's `value` — not re-read from `model.selectedScopeID`
-                // while the Add Secret window is open, so a selection change
-                // in the main window afterward cannot retarget an in-progress
-                // add (Decision 6).
-                if let scopeID = model.selectedScopeID {
-                    openWindow(id: SharibakoApp.addSecretWindowID, value: scopeID)
-                }
-            } label: {
-                Label("Add Secret", systemImage: "plus.circle")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.selectedScopeID == nil)
-            .help(
-                model.selectedScopeID == nil
-                    ? "Select a scope to add a secret"
-                    : "Add a secret to the selected scope"
-            )
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await model.materializeSelectedScope() }
-            } label: {
-                Label("Materialize", systemImage: "arrow.down.doc")
-            }
-            .labelStyle(.titleAndIcon)
-            // Disabled while any long operation is in flight — the intents also
-            // guard re-entry, but the disabled button keeps the UI honest
-            // (ho-06.1 Decision 1).
-            .disabled(model.selectedScopeID == nil || model.activity != nil)
-            .help(
-                model.selectedScopeID == nil
-                    ? "Select a scope to materialize its secrets"
-                    : "Write this scope's secrets into its .env target"
-            )
-        }
-
-        // Check Drift: sweeps every live-here scope behind one Touch ID
-        // (Decision 3). Sits beside Materialize — the per-scope drift workflow.
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await model.checkDrift() }
-            } label: {
-                Label("Check Drift", systemImage: "arrow.triangle.branch")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.activity != nil)
-            .help("Check every materialized scope for drift from the vault (one Touch ID)")
-        }
-
-        // Materialize All Stale: batch-reconciles the drift-cache's drifted set
-        // behind one confirmation and one Touch ID (Decision 3). Prompts to
-        // check drift first when the cache is empty.
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                model.requestMaterializeAllStale()
-            } label: {
-                Label("Materialize All Stale", systemImage: "arrow.down.doc.fill")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.activity != nil)
-            .help("Reconcile every drifted scope from the last drift check")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await model.sync() }
-            } label: {
-                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.activity != nil)
-            .help("Commit pending vault changes and push to the remote")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task {
-                    await model.rescan {
-                        // Open an NSOpenPanel directory picker for the scan root.
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true
-                        panel.canChooseFiles = false
-                        panel.allowsMultipleSelection = false
-                        panel.message = "Choose a directory to scan for .sharibako markers"
-                        panel.prompt = "Choose"
-                        return panel.runModal() == .OK ? panel.url : nil
+                if reduceMotion {
+                    actionPanelCollapsed.toggle()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        actionPanelCollapsed.toggle()
                     }
                 }
             } label: {
-                // Rotate-form, not a magnifying glass (AT-02 Decision 4) — Rescan
-                // re-walks known roots, it doesn't search for new ones.
-                Label("Rescan", systemImage: "arrow.clockwise")
+                Label("Actions", systemImage: "sidebar.trailing")
             }
-            .labelStyle(.titleAndIcon)
-            .disabled(model.activity != nil)
-            .help("Scan configured directories for .sharibako markers")
+            .help(actionPanelCollapsed ? "Show the actions panel" : "Hide the actions panel")
         }
-
-        // Overflow: the secondary reads and the least-used create action, kept
-        // legible as a titled menu rather than crowding the primary bar past
-        // legibility (Decision 1's chrome fix — native menu, not a rail).
-        ToolbarItem(placement: .primaryAction) {
-            Menu {
-                Button {
-                    openWindow(id: SharibakoApp.addSharedEntryWindowID)
-                } label: {
-                    Label("Add Shared Secret", systemImage: "link.badge.plus")
-                }
-
-                Button {
-                    Task { await model.previewEnv() }
-                } label: {
-                    Label("Preview .env", systemImage: "doc.text.magnifyingglass")
-                }
-                .disabled(model.previewDisabledReason != nil || model.activity != nil)
-
-                Button {
-                    jumpToSelectedScopeDirectory()
-                } label: {
-                    Label("Jump to Directory", systemImage: "arrow.up.forward.square")
-                }
-                .disabled(model.jumpDisabledReason != nil)
-            } label: {
-                Label("More", systemImage: "ellipsis.circle")
-            }
-            .help("More actions — Add Shared Secret, Preview .env, Jump to Directory")
-        }
-    }
-
-    // MARK: - Jump to Directory
-
-    /// Opens the selected scope's cached marker directory in Finder and
-    /// announces it (AT-02 Decision 3).
-    ///
-    /// A no-op when nothing is selected or the cache holds no marker — the
-    /// toolbar button is already disabled in that state, so this is a
-    /// defensive guard, not the primary gate.
-    private func jumpToSelectedScopeDirectory() {
-        guard let scopeID = model.selectedScopeID,
-            let directory = model.jumpTargetDirectory(forScope: scopeID)
-        else { return }
-        NSWorkspace.shared.open(directory)
-        model.announceJump(to: directory)
     }
 
     // MARK: - Drift dialog helpers
