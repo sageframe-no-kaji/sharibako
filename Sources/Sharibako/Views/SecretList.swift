@@ -27,6 +27,7 @@ struct SecretList: View {
                 )
             }
         }
+        .background(Color.ground)
         .navigationTitle(model.selectedScopeID ?? "Secrets")
     }
 
@@ -42,6 +43,9 @@ struct SecretList: View {
             List(model.secrets, id: \.key, selection: selectionBinding(scopeID: scopeID)) { info in
                 SecretRow(info: info)
             }
+            // Flat pālana ground (ho-06.5 Decision 3) — the Group backdrop
+            // below carries the paper; the list stops painting over it.
+            .scrollContentBackground(.hidden)
         }
     }
 

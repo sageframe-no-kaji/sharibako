@@ -37,6 +37,8 @@ struct SecretDetail: View {
                 )
             }
         }
+        // Flat pālana ground (ho-06.5 Decision 3).
+        .background(Color.ground)
     }
 
     /// Resolved selection for the detail pane: all three pieces together or nil.
@@ -218,7 +220,7 @@ struct SecretDetail: View {
             }
         }
         .padding(10)
-        .background(.quaternary)
+        .background(Color.groundDeep)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
@@ -343,7 +345,7 @@ private struct ValueEditSection: View {
                     }
                 }
                 .padding(10)
-                .background(.quaternary)
+                .background(Color.groundDeep)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else if let revealed = model.revealedValue {
                 HStack(alignment: .top, spacing: 8) {
@@ -389,7 +391,7 @@ private struct ValueEditSection: View {
                     .help("Reveal the secret value using Touch ID or the dev age key")
                 }
                 .padding(10)
-                .background(.quaternary)
+                .background(Color.groundDeep)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
         }
@@ -424,8 +426,22 @@ private struct NotesEditSection: View {
                 Spacer()
                 if !isEditing {
                     Button("Edit Notes") {
+                        // Editing a note means reading it first, so revealing
+                        // is the price of entry — an explicit user action, and
+                        // the auth prompt is the expected cost (ho-06.5 gate
+                        // finding: the editor used to open blank over an
+                        // undecrypted note, silently clearing it on save).
+                        // `reveal` is synchronous: it prompts, decrypts, and
+                        // sets the revealed state before returning.
+                        if model.revealedValue == nil {
+                            model.reveal(key: key, inScope: scopeID)
+                            // Auth denied or key unavailable — the model has
+                            // announced the error in the status surface; do
+                            // not open an editor over a note you couldn't read.
+                            guard model.revealedValue != nil else { return }
+                        }
                         isEditing = true
-                        editNotes = ""
+                        editNotes = model.revealedNotes ?? ""
                     }
                     .buttonStyle(.borderless)
                     .font(.callout)
@@ -460,7 +476,7 @@ private struct NotesEditSection: View {
                     }
                 }
                 .padding(10)
-                .background(.quaternary)
+                .background(Color.groundDeep)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             } else if let notes = model.revealedNotes {
                 // Notes decrypt alongside the value on reveal; show them.
@@ -469,7 +485,7 @@ private struct NotesEditSection: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
-                    .background(.quaternary)
+                    .background(Color.groundDeep)
                     .clipShape(RoundedRectangle(cornerRadius: 6))
             } else if model.revealedValue != nil {
                 // Revealed, but the payload carries no notes.
