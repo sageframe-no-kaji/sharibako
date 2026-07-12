@@ -170,6 +170,51 @@ struct WorkshopWindow: View {
                     Text(allStaleMessage(for: plan))
                 }
             }
+            // Delete-scope confirmation (ho-06.7): the first in-window
+            // destructive verb reaches its confirmation here. The panel button
+            // wears pālana rust; this dialog is system-rendered (role:
+            // .destructive, no tint) — the same platform constraint the drift
+            // and all-stale dialogs above hit.
+            .confirmationDialog(
+                "Delete scope",
+                isPresented: .init(
+                    get: { model.pendingScopeDeletion != nil },
+                    set: { if !$0 { model.dismissScopeDeletion() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Scope", role: .destructive) {
+                    model.confirmDeleteScope()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissScopeDeletion()
+                }
+            } message: {
+                if let deletion = model.pendingScopeDeletion {
+                    Text(scopeDeletionMessage(for: deletion))
+                }
+            }
+            // Delete-secret confirmation (ho-06.7): same split as above — the
+            // detail-pane button wears rust, this dialog is system-rendered.
+            .confirmationDialog(
+                "Delete secret",
+                isPresented: .init(
+                    get: { model.pendingSecretDeletion != nil },
+                    set: { if !$0 { model.dismissSecretDeletion() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete Secret", role: .destructive) {
+                    model.confirmDeleteSecret()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissSecretDeletion()
+                }
+            } message: {
+                if let deletion = model.pendingSecretDeletion {
+                    Text(secretDeletionMessage(for: deletion))
+                }
+            }
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -349,5 +394,21 @@ extension WorkshopWindow {
             lines.append("• \(scopeID) → \(path)")
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func scopeDeletionMessage(for deletion: WorkshopModel.ScopeDeletion) -> String {
+        let noun = deletion.secretCount == 1 ? "secret" : "secrets"
+        return """
+            "\(deletion.scopeID)" and its \(deletion.secretCount) \(noun) will be removed \
+            from the vault. Materialized .env files and project markers are left in place. \
+            The removal is committed on the next Sync.
+            """
+    }
+
+    private func secretDeletionMessage(for deletion: WorkshopModel.SecretDeletion) -> String {
+        """
+        "\(deletion.key)" will be removed from scope "\(deletion.scopeID)". \
+        Materialized .env files are left in place. The removal is committed on the next Sync.
+        """
     }
 }

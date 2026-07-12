@@ -91,6 +91,7 @@ struct SharibakoCommand: AsyncParsableCommand {
             UpdateCommand.self,
             SyncCommand.self,
             CleanCommand.self,
+            DeleteCommand.self,
         ]
     )
 }

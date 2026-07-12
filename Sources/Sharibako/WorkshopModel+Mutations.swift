@@ -151,4 +151,113 @@ extension WorkshopModel {
             errorMessage = Self.message(for: error)
         }
     }
+
+    // MARK: - Deletion (ho-06.7)
+
+    /// A staged scope deletion awaiting the window's confirmation.
+    struct ScopeDeletion: Equatable {
+        /// The scope to delete.
+        let scopeID: String
+        /// How many secrets it holds — for the confirmation's blast-radius line.
+        let secretCount: Int
+    }
+
+    /// Stages deletion of the selected scope, to be confirmed in the window.
+    ///
+    /// Reads the secret count via `inspect` (filenames only — no decryption, no
+    /// Touch ID) so the confirmation can name the blast radius, then sets
+    /// ``WorkshopModel/pendingScopeDeletion``. A no-op when nothing is selected
+    /// or an action is already in flight.
+    func requestDeleteSelectedScope() {
+        guard activity == nil else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let scopeID = selectedScopeID else { return }
+        statusMessage = nil
+        let count = (try? VaultCore(vaultURL: vaultURL).inspect(scopeID).count) ?? 0
+        pendingScopeDeletion = ScopeDeletion(scopeID: scopeID, secretCount: count)
+    }
+
+    /// Dismisses the pending scope deletion (user cancelled).
+    func dismissScopeDeletion() {
+        pendingScopeDeletion = nil
+    }
+
+    /// Deletes the staged scope and refreshes the sidebar.
+    ///
+    /// Keyless (`VaultCore(vaultURL:)`) — deletion removes files, it never
+    /// decrypts, so no age key and no Touch ID. Clears the selection when it
+    /// pointed at the deleted scope, announces via ``WorkshopModel/statusMessage``
+    /// on success (the sidebar refresh is the only other visible outcome), and
+    /// maps any `VaultError` to ``WorkshopModel/errorMessage`` without crashing
+    /// the window. Deletion only touches the vault — markers and materialized
+    /// .env files are left in place; the removal commits on the next Sync.
+    func confirmDeleteScope() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let deletion = pendingScopeDeletion else { return }
+        pendingScopeDeletion = nil
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            try core.deleteScope(deletion.scopeID)
+            if selectedScopeID == deletion.scopeID {
+                selectedScopeID = nil
+            }
+            loadScopes()
+            statusMessage = "Deleted scope \(deletion.scopeID). Sync to commit the removal."
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
+
+    /// A staged single-secret deletion awaiting the window's confirmation.
+    struct SecretDeletion: Equatable {
+        /// The scope holding the key.
+        let scopeID: String
+        /// The key to delete.
+        let key: String
+    }
+
+    /// Stages deletion of the selected secret, to be confirmed in the window.
+    ///
+    /// A no-op when no scope+secret is selected or an action is already in flight.
+    func requestDeleteSelectedSecret() {
+        guard activity == nil else { return }
+        guard case .open = vaultState else { return }
+        guard let scopeID = selectedScopeID, let key = selectedSecretKey else { return }
+        statusMessage = nil
+        pendingSecretDeletion = SecretDeletion(scopeID: scopeID, key: key)
+    }
+
+    /// Dismisses the pending secret deletion (user cancelled).
+    func dismissSecretDeletion() {
+        pendingSecretDeletion = nil
+    }
+
+    /// Deletes the staged secret and refreshes the secret list.
+    ///
+    /// Keyless (`VaultCore(vaultURL:)`) — removal decrypts nothing, so no age key
+    /// and no Touch ID. Clears the secret selection when it matched (its setter
+    /// re-masks any revealed value), refreshes the list for the scope, announces
+    /// via ``WorkshopModel/statusMessage``, and maps any `VaultError` to
+    /// ``WorkshopModel/errorMessage``. Only touches the vault; `sync` commits it.
+    func confirmDeleteSecret() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        guard let deletion = pendingSecretDeletion else { return }
+        pendingSecretDeletion = nil
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            try core.deleteSecret(deletion.key, inScope: deletion.scopeID)
+            if selectedSecretKey == deletion.key {
+                selectedSecretKey = nil
+            }
+            if selectedScopeID == deletion.scopeID {
+                loadSecrets(for: deletion.scopeID)
+            }
+            statusMessage =
+                "Deleted key \(deletion.scopeID)/\(deletion.key). Sync to commit the removal."
+            errorMessage = nil
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
+    }
 }

@@ -128,6 +128,14 @@ extension ErrorReporter {
                 remediation: "Link to it instead, or replace its value deliberately with "
                     + "`sharibako rotate --shared \(id)`."
             )
+        case .sharedEntryLinked(let id, let linkers):
+            let refs = linkers.map { "\($0.scopeID)/\($0.key)" }.joined(separator: ", ")
+            return ErrorReport(
+                code: .userError,
+                message: "Shared entry \"\(id)\" is still linked by \(refs).",
+                remediation: "Unlink those keys first (`sharibako unlink <scope> <key>` keeps the value "
+                    + "locally), or pass --force to delete and orphan them."
+            )
         case .linkTargetMissing(let id):
             return ErrorReport(
                 code: .userError,
