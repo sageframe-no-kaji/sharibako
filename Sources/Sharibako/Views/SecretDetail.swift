@@ -427,7 +427,13 @@ private struct NotesEditSection: View {
                 if !isEditing {
                     Button("Edit Notes") {
                         isEditing = true
-                        editNotes = ""
+                        // Prefill ONLY when the note is already revealed for
+                        // this key — the same rule as the value editor: an
+                        // unrevealed note must never be decrypted just to
+                        // prefill the edit field. Before this, the field
+                        // always opened blank even with the revealed note
+                        // sitting right above it (ho-06.5 gate finding).
+                        editNotes = model.revealedNotes ?? ""
                     }
                     .buttonStyle(.borderless)
                     .font(.callout)

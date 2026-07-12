@@ -128,11 +128,13 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
-                // Destructive-verb rust (ho-06.5 Decision 4): the tint asks the
-                // dialog button to speak pālana's alarm voice instead of the
-                // system destructive red. macOS may render dialog buttons its
-                // own way — verified at the gate.
-                Button("Overwrite Drift", role: .destructive) {
+                // Destructive-verb rust (ho-06.5 Decision 4, gate-tuned): the
+                // rust tint carries pālana's alarm voice; the .destructive
+                // role is deliberately absent — the system paints destructive
+                // labels red ON TOP of the tint fill, and red-on-rust was the
+                // gate's "icky red" finding. The wording carries the danger;
+                // the fill carries the voice.
+                Button("Overwrite Drift") {
                     Task { await model.materializeSelectedScope(force: true) }
                 }
                 .tint(Color.drift)
@@ -155,8 +157,9 @@ struct WorkshopWindow: View {
                 ),
                 titleVisibility: .visible
             ) {
-                // Destructive-verb rust (ho-06.5 Decision 4), same as above.
-                Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")", role: .destructive) {
+                // Destructive-verb rust, no .destructive role (gate-tuned),
+                // same as the drift dialog above.
+                Button("Overwrite \(allStaleCount) Target\(allStaleCount == 1 ? "" : "s")") {
                     Task { await model.confirmMaterializeAllStale() }
                 }
                 .tint(Color.drift)
