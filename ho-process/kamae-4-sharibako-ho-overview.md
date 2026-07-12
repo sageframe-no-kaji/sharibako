@@ -28,6 +28,8 @@ _Revision 2026-07-10: **ho-05 executed and closed same-day** (PR #11 merged) —
 
 _Revision 2026-07-11 (second): **ho-06 body reconciled to its split; Phase-4 tail placed.** ho-06 is fully split — ho-06.1 (responsiveness, PR #12), ho-06.2 (glyphs + heal, PR #13), and **ho-06.4 (palana color-token layer, PR #14 — CLOSED this day)**, all merged — plus three owed: **ho-06.3** (first-run + age key + backup nudge + GUI ingest), **ho-06.5** (right-side chrome/panel — the forward-only replacement for 06.2's failed native-toolbar + overflow chrome, unblocked by 06.4's `panelGround`/`ground*` tokens; the NEXT session), and **ho-06.6** (multi-root scan-management UI, pulled forward from post-v1). Numbering ratified: 06.1/06.2/06.3/06.4 as published, panel = 06.5, multi-root = 06.6. The old single ho-06 entry is replaced by per-successor entries; closed successors point to their `hos/` docs, not back-filled. Small non-gating item from 06.4: destructive-verb rust (delete/remove affordances → the `drift`/alarm color), tracked under Anticipated splits. No phase restructure._
 
+_Revision 2026-07-12: **ho-06.5 executed, gated, and closed** (branch `panel-chrome`, PR #15) — the right-side action panel + flat pālana grounds; the `ground*` tokens are spent, and confirmation dialogs proved untintable (they stay system-rendered — a platform constraint, recorded). Its gate surfaced the build's most basic missing verb: **there is no way to delete a scope or a shared entry anywhere — not the Workshop, not the CLI, not `SharibakoCore`** — despite the system design committing that deletion "only ever touches the vault." **ho-06.7 (Delete: the missing destructive verb)** is authored in response (forward-only): one cross-surface ho adding `deleteScope`/`deleteSharedEntry` to the Vault Core, a `sharibako delete` verb, and a Workshop Delete Scope affordance — destructive-rust's first real in-window consumer, closing the item 06.4/06.5 carried. It covers scope and shared deletion in Core + CLI; the GUI delete-shared affordance defers to ho-07 (no shared-entry surface exists in the Workshop yet). Numbering ratified: 06.7 (06.6 multi-root remains an owed address). The Phase-4 tail resequences to delete (06.7) → first-run (06.3) → multi-root (06.6). No phase restructure._
+
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
 ---
@@ -50,7 +52,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
 | 3. The Tool **(complete; hardened through ho-04.13)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7, **ho-04.8–04.13** | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback. Post-Checkpoint-1 hardening: ho-04.8–04.11 (Fable security/robustness sweep), ho-04.12 (Keychain + signal semantics), ho-04.13 (run → exec-replace). Two bugs owed hos (see below) |
-| 4. The Workshop | ho-05, **ho-06.1–06.6** | SwiftUI app: shell (05), responsiveness (06.1), three-state glyphs + heal (06.2), first-run + ingest (06.3, owed), palana color-token layer (06.4), right-side chrome/panel (06.5, next), multi-root management (06.6, owed) |
+| 4. The Workshop | ho-05, **ho-06.1–06.7** | SwiftUI app: shell (05), responsiveness (06.1), three-state glyphs + heal (06.2), first-run + ingest (06.3, owed), palana color-token layer (06.4), right-side chrome/panel (06.5, closed), multi-root management (06.6, owed), delete verb across Core/CLI/GUI (06.7) |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
 
@@ -437,6 +439,25 @@ The management UI for scan roots — add, remove, reconfigure the trees Sharibak
 
 **Possible split:** none anticipated — small, single-surface.
 
+### ho-06.7 — Delete: the missing destructive verb
+
+The build's most basic missing capability, surfaced at the 06.5 gate: a user cannot delete a scope or a shared entry from anywhere — not the Workshop, not the CLI, and — the real gap — not `SharibakoCore`. The system design commits that deletion "only ever touches the vault" (kamae-2), but the Vault Core operation that sentence describes was never among ho-01's nine. This ho adds it across all three surfaces at once: `deleteScope` + `deleteSharedEntry` in the Vault Core (filesystem-only, keyless — no Touch ID), a `sharibako delete` verb (confirmation-gated like `clean`, `--shared` for the shared pool, `--force` to orphan a linked shared entry), and a Workshop Delete Scope affordance — destructive-rust's first real in-window consumer, closing the item 06.4/06.5 carried. Forward-only response to the 06.5 gate finding; new vault behavior, not chrome.
+
+**Depends on:** ho-01 (Vault Core), ho-04 (CLI base + confirmation pattern), ho-06.5 (the panel that hosts the affordance + the rust token it spends)
+
+**What's in scope (light):**
+- Core: `deleteScope(_:)` removes the scope tree; `deleteSharedEntry(_:force:)` removes a shared entry, refusing when other scopes link it (new `sharedEntryLinked` error) unless `--force` orphans them
+- CLI: `sharibako delete <id>` / `--shared`, `--yes`, `--force` — confirmation, no biometry
+- GUI: Delete Scope in the action panel, `Color.drift` rust, system-rendered confirm dialog naming the blast radius
+- Blast radius per system design: only the vault; markers left as orphans, materialized `.env` left in place, git history retains (recoverable), `sync` commits (not auto)
+
+**What "done" means:**
+- A scope and a shared entry are deletable from Core and CLI; a scope is deletable from the Workshop; the linked-shared guard refuses-or-orphars correctly; nothing outside the vault is touched
+
+**What's out of scope:** the GUI delete-*shared* affordance (no shared-entry surface exists in the Workshop until ho-07's shared browser); cascade-unlink; history scrubbing
+
+**Decisions:** ratified before authoring — single cross-surface ho; both verbs; refuse-by-default + `--force` orphan; confirmation not Touch ID; GUI scope-delete only. Per-ho doc under `hos/ho-06.7-delete-verb.md`; three agent-task children by surface.
+
 **Phase boundary — replan checkpoint.** First-run + ingest + backup nudge (ho-06.3) are the moments non-expert usability succeeds or fails. Test with a real non-Andrew user *before* opening Phase 5. If first-run needs another pass, insert a further first-run-polish ho (next free decimal) rather than carrying the weakness into the linking work.
 
 ---
@@ -646,7 +667,7 @@ Candidates surfaced during the overview, by pattern:
 **Insertions likely from real-world data:**
 
 - **A small benchmarking or perf ho** if the vault grows large enough during dogfooding that scan / list / status operations feel slow. Inserts wherever the friction surfaces.
-- **Destructive-verb rust** (surfaced by ho-06.4): palana reserves the `alarm`/rust color for delete/remove affordances too; 06.4 wired rust to drift / errors / validation but left the delete/remove affordances neutral (out of migration scope). Non-gating — folded into ho-06.5's decisions, or a later polish pass.
+- **Destructive-verb rust** (surfaced by ho-06.4): palana reserves the `alarm`/rust color for delete/remove affordances too; 06.4 wired rust to drift / errors / validation but left the delete/remove affordances neutral (out of migration scope). **Resolved: the 06.5 gate found no in-window destructive affordance existed to wear it, so rust's first real consumer is ho-06.7's Workshop Delete Scope button.** (06.5 also proved confirmation dialogs are untintable — they stay system-rendered.)
 
 **Owed from Phase 3 dogfooding (bugs awaiting their own hos):**
 
@@ -700,7 +721,8 @@ Phase 4 — The Workshop   (numbers are addresses, not execution order)
 ├── ho-06.1 (responsiveness — async worker + scan cache)          ✓ PR #12
 ├── ho-06.2 (three-state glyphs + heal/drift surface)             ✓ PR #13
 ├── ho-06.4 (palana color-token layer)                            ✓ PR #14
-├── ho-06.5 (right-side chrome / panel)         ← NEXT (unblocked by 06.4)
+├── ho-06.5 (right-side chrome / panel)                           ✓ PR #15
+├── ho-06.7 (delete verb — Core + CLI + GUI)    ← NEXT (unblocked by 06.5)
 ├── ho-06.3 (first-run + age key + GUI ingest)  ── owed (Checkpoint-2 gate)
 └── ho-06.6 (multi-root scan management)         ── owed
         ▲
@@ -739,11 +761,11 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
-The next dandori session is **ho-06.5 — Right-side chrome / panel** — unblocked by ho-06.4's panel tokens and elevated by the 06.2 gate (the native-toolbar + overflow menu was ruled unacceptable). Phase 4 is well underway: ho-05, ho-06.1, ho-06.2, and ho-06.4 are closed and merged; **ho-06.3** (first-run + ingest, the Checkpoint-2 gate) and **ho-06.6** (multi-root management) remain owed after the panel.
+The next dandori session is **ho-06.7 — Delete: the missing destructive verb** — the 06.5 gate's owed finding, pulled to the head of the Phase-4 tail because deletion is a foundational capability the app shipped without. Phase 4 is well underway: ho-05, ho-06.1, ho-06.2, ho-06.4, and **ho-06.5** (PR #15) are closed; **ho-06.3** (first-run + ingest, the Checkpoint-2 gate) and **ho-06.6** (multi-root management) remain owed after delete.
 
 **Gate status.** Nothing blocks ho-06.5 — it is chrome over already-shipped behavior, and its surface tokens exist. Owed but non-gating for the panel: the first-run/ingest front door (ho-06.3, which the 15-minute criterion actually tests), multi-root management (ho-06.6), and the older Phase-3 carries — **non-atomic ingest** (robustness) and a **scriptable-`init`** followup. The `createVaultLayout` fresh-install bug was fixed in ho-04.14.
 
-_Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced panel (06.5) → first-run (06.3) → multi-root (06.6), though the decimal numbers are addresses, not execution order._
+_Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced delete (06.7) → first-run (06.3) → multi-root (06.6), with the panel (06.5) closed, though the decimal numbers are addresses, not execution order._
 
 ---
 
