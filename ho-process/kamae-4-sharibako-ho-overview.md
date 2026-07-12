@@ -744,3 +744,16 @@ The next dandori session is **ho-06.5 — Right-side chrome / panel** — unbloc
 **Gate status.** Nothing blocks ho-06.5 — it is chrome over already-shipped behavior, and its surface tokens exist. Owed but non-gating for the panel: the first-run/ingest front door (ho-06.3, which the 15-minute criterion actually tests), multi-root management (ho-06.6), and the older Phase-3 carries — **non-atomic ingest** (robustness) and a **scriptable-`init`** followup. The `createVaultLayout` fresh-install bug was fixed in ho-04.14.
 
 _Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced panel (06.5) → first-run (06.3) → multi-root (06.6), though the decimal numbers are addresses, not execution order._
+
+---
+
+## Build record (append-only)
+
+_State-summary-shaped entries appended at ho close (kamae-project-framing §2.4). Cold record; the section body above is reconciled by overview-collaborator passes, not here._
+
+### ho-06.5 — right-side action panel + flat grounds (closed 2026-07-11)
+
+- **COMPLETED** — ho-06.5 executed, gated, and closed same-day (branch `panel-chrome`). The forward-only replacement for 06.2's failed chrome: `ActionPanel.swift`, a collapsible right column on flat `panelGround` hosting every Workshop verb always-titled (Scope/Vault/Add groups), appearance control at its base, toolbar emptied to the toggle, collapse persisted. The window moved wholly onto flat palana grounds — vibrancy materials removed, 06.4's `ground*` tokens spent; the flat sidebar held at the gate (fallback never fired). Gate-fixes: confirmation dialogs proved untintable (platform constraint — they render out of hierarchy and take no tint; left system-rendered) and Edit Notes now authenticates on demand through the synchronous reveal intent. 731 tests, 94.78% coverage, both linters strict, zero CLI/Core files.
+- **NEXT** — ho-06.3 (first-run + age key + backup nudge + GUI ingest), after an overview pass marks 06.5 closed and places the delete-scope ho.
+- **ACTION ITEMS / BLOCKS** — new owed ho from the gate: **delete-scope across all three surfaces** (no delete verb exists anywhere — GUI, CLI, or Core; also destructive-rust's first real consumer). Still owed: ho-06.3, ho-06.6, the CLI ho, unlinked-markers UI verification.
+- **PROJECT LIFECYCLE** — dev
