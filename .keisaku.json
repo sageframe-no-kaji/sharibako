@@ -16,18 +16,24 @@
       "tech_stack": "Swift",
       "created": "2026-06-30",
       "last_updated": "2026-07-12",
+      "short_description": "A local, age-encrypted, git-backed vault for API keys and environment variables, organized the way work actually happens — by project and by machine.",
+      "substantive_description": [
+        "Secrets scatter — across the system keychain, .env files, shell config, and old chat transcripts — and the scatter is the problem Sharibako (舎利箱, a reliquary box) solves by giving them a storage shape that matches how work is actually organized. It holds API keys, environment variables, and service credentials as age-encrypted files in a git-backed vault, edited through a native Mac app or a cross-platform CLI. Two output verbs address different deployment contexts: `sharibako materialize` writes decrypted .env files for consumers that cannot be wrapped, and `sharibako run -- <cmd>` injects secrets into a child process's environment without ever touching disk. Secrets can be linked across projects, so rotating one propagates everywhere it is used. It is the secrets-governance layer of the Kṣetra-Ops suite, alongside Pālana and Forteller — power and responsibility over your own credentials, held in the open on your own machine rather than behind another black box.",
+        "Swift 6 for macOS 14+ (Apple Silicon), using swift-argument-parser, swift-log, and Yams, built as a core library, a CLI binary, and a SwiftUI app; open-source under GPL-3.0. In active development toward v1."
+      ],
       "state": {
         "stage": "dev",
-        "last": "**ho-06.5 (right-side action panel + flat palana grounds) EXECUTED, GATED, CLOSED 2026-07-11** (branch `panel-chrome`, PR opened at close). The forward-only replacement for 06.2's failed toolbar+overflow chrome: new `ActionPanel.swift` — a collapsible trailing column on flat `panelGround`, every Workshop verb always-titled in Scope/Vault/Add groups, System/Light/Dark control at the base (same `@AppStorage` as Settings); toolbar emptied to the panel toggle; collapse persists. **The whole window moved to flat palana grounds** (`ground` panes incl. the flattened sidebar, `groundDeep` status surface/footer/chips, `panelGround` for the .env preview) — the vibrancy materials are gone; the 06.4 `ground*` tokens are now SPENT. Two gate-fix rounds: (1) confirmation dialogs are untintable (rust ignored; roleless button rendered system-BLUE) → dialogs stay fully system-rendered, recorded as a platform constraint (operator: \"not thrilled, but OK\"); (2) **Edit Notes now authenticates on demand** via the synchronous `reveal` intent — prompts Touch ID when unrevealed, opens prefilled, never edits blind. 731 tests, 94.78% coverage (`ActionPanel` CI-excluded with justification), warnings-as-errors clean, both linters strict, zero CLI/Core files. Signed-install gate passed both appearances; sidebar fallback never fired.",
-        "next": "**ho-06.3** (first-run wizard, age-key gen + backup nudge, GUI ingest — the Checkpoint-2 gate) after a **K4 overview pass** that marks 06.5 closed and places the new owed **delete-scope ho** (see below).",
-        "as_of": "2026-07-11"
+        "last": "**ho-06.7 (Delete: the missing destructive verb) EXECUTED, GATED, CLOSED, MERGED 2026-07-12** — gate passed on the signed `/Applications` build (rust reads right on both destructive buttons, system dialogs acceptable, deletion feels safe). **PR #16 merged to `main` (`9afadef`); `delete-verb` and `panel-chrome` branches deleted.** ho-06.5 (PR #15) also merged this day. Working branch back on `main`, clean. **THREE verbs folded in (scope + shared + per-key — the last widened mid-build after dogfooding).** Core (in `VaultCore+Deletion.swift`, split out for the body-length ceiling): `deleteScope(_:)`, `deleteSharedEntry(_:force:)`, `deleteSecret(_:inScope:)` — all on the keyless `VaultCore(vaultURL:)`, filesystem-only, no age/no Touch ID; shared-delete guarded by `linkGraph` (new `VaultError.sharedEntryLinked(id:linkers:)`), `--force`/`force:` orphans the linkers (left dangling for heal/orphan); `deleteSecret` removes the key's `.age` or `.link` (a link-delete drops only the pointer). CLI: `sharibako delete <scope>` / `<scope> <key>` / `--shared` / `--yes` / `--force`, confirmation like `clean` (TTY-gated, exit 130 on decline), ErrorReporter names the linkers + unlink-or-force hint, `--json` success. GUI: rust-toned (`Color.drift`) **Delete Scope** button in the ActionPanel scope group AND **Delete Secret** in the detail pane — **destructive-rust's FIRST real in-window consumers, closing the 06.4/06.5 item**; each stages a pending deletion (`pendingScopeDeletion`/`pendingSecretDeletion`) → **system-rendered** confirm dialog (dialogs untintable, per the 06.5 gate) → keyless confirm intent (clears selection, reloads, announces). **GUI delete-SHARED still deferred to ho-07** (no shared-entry surface in the Workshop yet); Core + CLI carry it now. Blast radius = vault only (markers + materialized `.env` left in place, git retains/recoverable, `sync` commits — not auto). 759 tests (+28: 11 Core, 9 CLI, 8 GUI-model), warnings-as-errors + both linters clean; ActionPanel/WorkshopWindow/SecretDetail stay CI-excluded views. **K4 pass done** (06.5 marked closed/PR #15, 06.7 registered, tail resequenced delete → first-run → multi-root). Prior: ho-06.5 CLOSED 2026-07-11 (panel + flat grounds, PR #15 — still OPEN/unmerged).",
+        "next": "**ho-06.3** (first-run wizard + age-key gen + backup nudge + GUI ingest — the Checkpoint-2 gate; the ho the 15-minute first-version criterion actually tests). Branch it fresh off `main` (both 06.5 and 06.7 are merged — no stacking). Open decisions to resolve in its Think phase: backup-nudge UX (Deferred Decision #2), full first-run flow (Deferred Decision #9), vault-location default, default scan-root suggestion. Premise gate-validated at 06.1: CLI `init` is still the only repos-to-vault front door.",
+        "as_of": "2026-07-12"
       },
       "_keisaku": {
-        "generated_at": "2026-07-12T10:36:25",
+        "generated_at": "2026-07-13T10:31:22",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
           "contract": "ho-process/kamae-6-sharibako-state-memory.md",
+          "description": "metadata/description.md",
           "manifest": "Package.swift"
         },
         "derived_defaults": {
@@ -40,6 +46,11 @@
           "created": "2026-06-30",
           "tags": [
             "swift"
+          ],
+          "short_description": "A local, age-encrypted, git-backed vault for API keys and environment variables, organized the way work actually happens — by project and by machine.",
+          "substantive_description": [
+            "Secrets scatter — across the system keychain, .env files, shell config, and old chat transcripts — and the scatter is the problem Sharibako (舎利箱, a reliquary box) solves by giving them a storage shape that matches how work is actually organized. It holds API keys, environment variables, and service credentials as age-encrypted files in a git-backed vault, edited through a native Mac app or a cross-platform CLI. Two output verbs address different deployment contexts: `sharibako materialize` writes decrypted .env files for consumers that cannot be wrapped, and `sharibako run -- <cmd>` injects secrets into a child process's environment without ever touching disk. Secrets can be linked across projects, so rotating one propagates everywhere it is used. It is the secrets-governance layer of the Kṣetra-Ops suite, alongside Pālana and Forteller — power and responsibility over your own credentials, held in the open on your own machine rather than behind another black box.",
+            "Swift 6 for macOS 14+ (Apple Silicon), using swift-argument-parser, swift-log, and Yams, built as a core library, a CLI binary, and a SwiftUI app; open-source under GPL-3.0. In active development toward v1."
           ]
         },
         "contract_issues": []
