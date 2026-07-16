@@ -149,9 +149,16 @@ jobs:
           #     WorkshopModel's tested intents and disabled reasons (NOT
           #     excluded); the panel body is titled buttons and a Picker bound
           #     to @AppStorage, not headlessly drivable (ho-05 Decision 8).
+          #   FirstRunWizard — SwiftUI declarative body; the six-page
+          #     first-run wizard (ho-06.3 Decision 1). Every page's guard,
+          #     transition, and validation lives in
+          #     WorkshopModel+FirstRun.swift (NOT excluded, seam-injected so
+          #     no test touches the real Keychain); the view itself is
+          #     declarative panels plus NSSavePanel/NSOpenPanel calls, not
+          #     headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

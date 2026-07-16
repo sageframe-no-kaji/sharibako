@@ -272,6 +272,38 @@ final class WorkshopModel {
     /// the waymarking extension file can read it.
     let home: URL
 
+    /// The first-run wizard's own state (ho-06.3) — a nested `@Observable`
+    /// object (`WorkshopModel+FirstRun.swift`) rather than another dozen
+    /// top-level properties here: the wizard's page/key-mode/backup/root/
+    /// remote fields are cohesive to the `.noVault` window alone and would
+    /// otherwise crowd this already-long class for a state machine that only
+    /// exists before a vault does. `let`, not `private(set) var` — the
+    /// first-run intents mutate the instance's own fields; `WorkshopModel`
+    /// never reassigns it.
+    let firstRun = FirstRunState()
+
+    /// `true` once ``completeFirstRun()`` (`WorkshopModel+FirstRun.swift`) has
+    /// created the vault and flipped ``vaultState`` to `.open` — the named
+    /// seam AT-02 consumes to offer the first ingest immediately (ho-06.3
+    /// Decision 1 step 6); this ho does not build that invite. `internal`
+    /// (not `private(set)`) for the same cross-file-extension reason as
+    /// ``pendingScopeDeletion`` — its mutator lives in the first-run
+    /// extension file.
+    var firstRunCompleted = false
+
+    /// The injected (or live) environment.
+    ///
+    /// Retained for ``WorkshopModel/completeFirstRun()``'s git-identity probe
+    /// (`WorkshopModel+FirstRun.swift`, ho-06.3 Decision 8): that probe
+    /// shells `git config user.email`, whose global-config lookup is
+    /// sensitive to `HOME` — passing this through as `GUIShell.run`'s
+    /// `environmentOverrides` lets tests isolate it from the real developer
+    /// machine's own git identity (an injected-`HOME` test never resolves
+    /// against the live global gitconfig) while production, whose
+    /// `environment` defaults to the real `ProcessInfo`, sees no change in
+    /// behavior at all.
+    let processEnvironment: [String: String]
+
     /// Resolves the vault per `WorkshopConfig` precedence and loads its scopes.
     ///
     /// `environment` and `home` default to live process values; tests inject
@@ -284,6 +316,7 @@ final class WorkshopModel {
         devAgeKeyPath = WorkshopConfig.resolveDevAgeKeyURL(environment: environment)
         configURL = WorkshopConfig.defaultConfigURL(home: home)
         self.home = home
+        processEnvironment = environment
         scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
         if WorkshopConfig.isVaultDirectory(resolved) {
             vaultState = .open(vaultURL: resolved)
@@ -297,6 +330,19 @@ final class WorkshopModel {
 // MARK: - Scope listing and sidebar sections
 
 extension WorkshopModel {
+    /// Flips ``vaultState`` from `.noVault` to `.open` at `vaultURL` — the
+    /// first-run wizard's seam (``completeFirstRun()``,
+    /// `WorkshopModel+FirstRun.swift`) for the one mutation the v1
+    /// fixed-at-init posture allows outside `init`. `internal`, declared here
+    /// (not a public setter) so nothing else can silently rebind the vault
+    /// after launch; the extension file calls this rather than writing
+    /// ``vaultState`` directly, since `private(set)` is file-scoped and
+    /// `WorkshopModel+FirstRun.swift` is a different file (the established
+    /// cross-file-extension pattern).
+    func bindOpenedVault(at vaultURL: URL) {
+        vaultState = .open(vaultURL: vaultURL)
+    }
+
     /// Reloads the scope list from the open vault.
     ///
     /// A no-op in the `.noVault` state. Failures land in ``errorMessage``

@@ -12,16 +12,31 @@ import Foundation
 // Both surfaces read the same Keychain item, so a vault set up via the CLI
 // opens in the Workshop with no re-keying. The CLI's TempKeySignalGuard is NOT
 // ported — the GUI is not a signal-driven CLI; `release()` is the whole cleanup.
+//
+// Read-only through ho-06.2: the CLI owned key storage (`sharibako key
+// generate`/`import`). ho-06.3's first-run wizard ends that — the wizard is
+// now the GUI's own Keychain **write** path (Decision 5), landed below as
+// `GUIKeychainAgeKeyProvider.storeIdentity`/`itemExists`, driven by
+// `GUIAgeKeyBootstrap` (`GUIAgeKeyBootstrap.swift`).
 
 /// The Keychain service label used for all Sharibako items (same as the CLI's).
-private let keychainService = "sharibako"
+///
+/// `internal` (not `private`): `GUIAgeKeyBootstrap.swift`'s write path shares
+/// this constant rather than redeclaring it, so the service/account/access-group
+/// triple stays single-sourced across both the read path here and the write
+/// path there (ho-06.3 Decision 5).
+let keychainService = "sharibako"
 
 /// The Keychain account label that stores the age private key (same as the CLI's).
-private let keychainAccount = "sharibako.age-key"
+///
+/// `internal` for the same single-sourcing reason as ``keychainService``.
+let keychainAccount = "sharibako.age-key"
 
-// Keychain access group — must match the app's keychain-access-groups
-// entitlement and the CLI's, so both surfaces unlock the same key.
-private let keychainAccessGroup = "3N8F759K8D.net.sageframe.sharibako"
+/// Keychain access group — must match the app's keychain-access-groups
+/// entitlement and the CLI's, so both surfaces unlock the same key.
+///
+/// `internal` for the same single-sourcing reason as ``keychainService``.
+let keychainAccessGroup = "3N8F759K8D.net.sageframe.sharibako"
 
 /// A handle wrapping the URL of an age identity file for the duration of one operation.
 ///
@@ -72,6 +87,9 @@ enum AgeKeyAccessError: Error, Equatable {
     case keyFileNotFound(path: URL)
     /// The Keychain lookup returned an unexpected OSStatus.
     case keychainLoadFailed(osStatus: Int32)
+    /// The Keychain store (`SecItemAdd`) returned an unexpected OSStatus
+    /// (ho-06.3 Decision 5 — the wizard's write path).
+    case keychainStoreFailed(osStatus: Int32)
 }
 
 /// Hands the caller a pre-existing age key file directly.
@@ -147,22 +165,28 @@ struct GUIFileAgeKeyProvider: GUIAgeKeyProvider {
         }
     }
 
-    /// Retrieves the age private key from the macOS Keychain behind Touch ID.
+    /// Retrieves the age private key from the macOS Keychain behind Touch ID,
+    /// and — since ho-06.3 — stores one there too (the wizard's write path,
+    /// Decision 5).
     ///
-    /// Mirrors the CLI's `KeychainAgeKeyProvider.loadIdentity`: a
+    /// `loadIdentity` mirrors the CLI's `KeychainAgeKeyProvider.loadIdentity`: a
     /// `SecItemCopyMatching` query against the shared Sharibako item, with an
     /// `LAContext` carrying `reason` so the system prompt names why. The
     /// retrieved key is written to a `0600` temp file; `release()` best-effort
-    /// scrubs and deletes it. Read-only — the CLI owns key storage
-    /// (`sharibako key generate`/`import`).
+    /// scrubs and deletes it. `storeIdentity`/`itemExists` (below) mirror the
+    /// CLI's same-named methods and are driven by `GUIAgeKeyBootstrap`, never
+    /// called directly from a view.
     ///
     /// The `LAContext` is shared across every `GUIKeychainAgeKeyProvider`
     /// instance via ``GUIKeychainContextCache`` (ho-06.1 Decision 5): repeated
     /// key loads inside the 5-minute reuse window ride one Touch ID
     /// authentication instead of re-prompting per operation. The Keychain
     /// query itself — service, account, access group, `kSecReturnData` — is
-    /// unchanged; only the authentication context is cached.
-    struct GUIKeychainAgeKeyProvider: GUIAgeKeyProvider {
+    /// unchanged; only the authentication context is cached. Neither
+    /// `storeIdentity` nor `itemExists` touches this cache — writes need no
+    /// authentication, and the existence probe is deliberately non-authenticating
+    /// (see `itemExists` below).
+    struct GUIKeychainAgeKeyProvider: GUIAgeKeyProvider, GUIKeychainStore {
         /// Loads the shared age key item, triggering Touch ID (or password)
         /// unless a prior evaluation is still within the reuse window.
         @MainActor
@@ -192,6 +216,83 @@ struct GUIFileAgeKeyProvider: GUIAgeKeyProvider {
             let byteCount = data.count
             return AgeKeyHandle(url: tempURL) {
                 scrubAndDelete(at: tempURL, byteCount: byteCount)
+            }
+        }
+
+        /// Writes the age private key to the Keychain, replacing any existing item.
+        ///
+        /// Mirrors the CLI's `KeychainAgeKeyProvider.storeIdentity`: a
+        /// `SecAccessControl` requiring `.userPresence` so every future load
+        /// triggers Touch ID, and a delete-then-add so the write always lands
+        /// cleanly. Callers gate the overwrite decision themselves —
+        /// `GUIAgeKeyBootstrap` never calls this without first checking
+        /// ``itemExists()`` (ho-06.3 Decision 1 — never a second key).
+        ///
+        /// - Parameter contents: Raw bytes of the age private-key file.
+        /// - Throws: ``AgeKeyAccessError/keychainStoreFailed(osStatus:)`` when
+        ///   `SecAccessControlCreateWithFlags` or `SecItemAdd` returns an error status.
+        func storeIdentity(_ contents: Data) throws {
+            guard
+                let access = SecAccessControlCreateWithFlags(
+                    nil,
+                    kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                    .userPresence,
+                    nil
+                )
+            else {
+                throw AgeKeyAccessError.keychainStoreFailed(osStatus: errSecParam)
+            }
+
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
+            ]
+            _ = SecItemDelete(deleteQuery as CFDictionary)
+
+            let addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
+                kSecValueData as String: contents,
+                kSecAttrAccessControl as String: access,
+            ]
+            let status = SecItemAdd(addQuery as CFDictionary, nil)
+            guard status == errSecSuccess else {
+                throw AgeKeyAccessError.keychainStoreFailed(osStatus: status)
+            }
+        }
+
+        /// Returns `true` if a Sharibako age key item already exists in the Keychain.
+        ///
+        /// Mirrors the CLI's `KeychainAgeKeyProvider.itemExists` +
+        /// `KeychainProbe.exists(from:)` combined: an existence-only query (no
+        /// `kSecReturnData`, no authentication context) so it never triggers
+        /// Touch ID, classifying `errSecSuccess`/`errSecInteractionNotAllowed`
+        /// as present, `errSecItemNotFound` as absent, and any other status as
+        /// a genuine failure rather than a silent `false` — a false negative
+        /// here would let ``GUIAgeKeyBootstrap`` overwrite an existing key.
+        ///
+        /// - Throws: ``AgeKeyAccessError/keychainLoadFailed(osStatus:)`` for
+        ///   any status other than present or absent.
+        func itemExists() throws -> Bool {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: keychainService,
+                kSecAttrAccount as String: keychainAccount,
+                kSecAttrAccessGroup as String: keychainAccessGroup,
+                kSecMatchLimit as String: kSecMatchLimitOne,
+            ]
+            let status = SecItemCopyMatching(query as CFDictionary, nil)
+            switch status {
+            case errSecSuccess, errSecInteractionNotAllowed:
+                return true
+            case errSecItemNotFound:
+                return false
+            default:
+                throw AgeKeyAccessError.keychainLoadFailed(osStatus: status)
             }
         }
     }

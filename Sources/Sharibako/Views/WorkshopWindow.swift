@@ -3,7 +3,9 @@ import SwiftUI
 
 /// The Workshop's main window: a three-pane `NavigationSplitView` shell with
 /// the right-side action panel trailing it (ho-06.5 Decision 1), or the
-/// "no vault" empty state when the resolved path holds none (Decision 3).
+/// first-run wizard when the resolved path holds no vault yet (ho-06.3
+/// Decision 1 — superseding the ho-05 static "no vault" empty state, which
+/// stopped at naming the path with nowhere to go next).
 ///
 /// Every Workshop verb lives in `ActionPanel` — the forward-only replacement
 /// for the ho-06.2 toolbar + overflow chrome that failed its gate. The
@@ -51,17 +53,10 @@ struct WorkshopWindow: View {
     var body: some View {
         switch model.vaultState {
         case .noVault(let expectedPath):
-            ContentUnavailableView {
-                Label("No vault found", systemImage: "shippingbox")
-            } description: {
-                Text(
-                    "Sharibako looked for a vault at \(expectedPath.path) "
-                        + "and found none. Create one with `sharibako key generate` "
-                        + "or point SHARIBAKO_VAULT at an existing vault."
-                )
-                .textSelection(.enabled)
-            }
-            .background(Color.ground)
+            // ho-06.3 Decision 1: the first-run wizard replaces the ho-05
+            // static empty state. All branching lives in
+            // `WorkshopModel+FirstRun.swift`; this arm is pure wiring.
+            FirstRunWizard(expectedPath: expectedPath)
         case .open:
             HStack(spacing: 0) {
                 NavigationSplitView {
