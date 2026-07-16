@@ -210,6 +210,30 @@ struct WorkshopWindow: View {
                     Text(secretDeletionMessage(for: deletion))
                 }
             }
+            // Remove-stray-marker confirmation (ho-06.3 AT-03, Decision 7):
+            // the blast radius is INVERTED from every 06.7 dialog above — the
+            // file removed lives in the user's project directory, not the
+            // vault — so the copy names the full path and says the vault is
+            // untouched. Same platform constraint: system-rendered, no tint.
+            .confirmationDialog(
+                "Remove stray marker",
+                isPresented: .init(
+                    get: { model.pendingStrayMarkerRemoval != nil },
+                    set: { if !$0 { model.dismissStrayMarkerRemoval() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Remove Marker", role: .destructive) {
+                    model.confirmRemoveStrayMarker()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissStrayMarkerRemoval()
+                }
+            } message: {
+                if let removal = model.pendingStrayMarkerRemoval {
+                    Text(strayMarkerRemovalMessage(for: removal))
+                }
+            }
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -419,6 +443,19 @@ extension WorkshopWindow {
         """
         "\(deletion.key)" will be removed from scope "\(deletion.scopeID)". \
         Materialized .env files are left in place. The removal is committed on the next Sync.
+        """
+    }
+
+    // MARK: - Stray-marker removal dialog helper
+
+    /// The inverted-blast-radius copy (ho-06.3 Decision 7): unlike every
+    /// deletion above, this file lives in the user's own project directory,
+    /// not the vault — the message names the full path and says so plainly.
+    private func strayMarkerRemovalMessage(for removal: WorkshopModel.StrayMarkerRemoval) -> String {
+        """
+        "\(removal.markerURL.path)" will be deleted from your project directory. \
+        The vault is untouched — this only removes the marker referencing scope \
+        "\(removal.scope)".
         """
     }
 }

@@ -239,6 +239,16 @@ final class WorkshopModel {
     /// cross-file-extension reason as ``pendingScopeDeletion``.
     var pendingSecretDeletion: SecretDeletion?
 
+    /// A pending stray-marker removal awaiting confirmation, or `nil`
+    /// (ho-06.3 AT-03, Decision 7).
+    ///
+    /// Set by ``requestRemoveStrayMarker(_:)`` (`WorkshopModel+Orphans.swift`);
+    /// the window presents a system-rendered destructive confirmation naming
+    /// the marker's file path and calls ``confirmRemoveStrayMarker()`` on
+    /// approval or ``dismissStrayMarkerRemoval()`` on cancel. `internal` for
+    /// the same cross-file-extension reason as ``pendingSecretDeletion``.
+    var pendingStrayMarkerRemoval: StrayMarkerRemoval?
+
     /// The result of the last "Preview .env" action, or `nil` before one has
     /// run (ho-06.1 AT-03, Decision 5).
     ///

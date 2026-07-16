@@ -75,33 +75,79 @@ struct ScopeSidebar: View {
     ///
     /// Orphaned markers (a `.sharibako` pointing at a vault scope that doesn't
     /// exist) and malformed-marker scan failures (ho-04.11, Decision 2b).
-    /// Omitted entirely when there are none. Surfacing only — the rows
-    /// show the marker path (inline and in the tooltip); no remediation
-    /// actions, and no `.tag`, so selecting one never drives the scope-detail
-    /// panes with a non-scope id (remediation is ho-06.3).
+    /// Omitted entirely when there are none. No `.tag` on any row, so
+    /// selecting one never drives the scope-detail panes with a non-scope id.
+    /// Scan-failure rows stay surfacing-only; orphaned rows gain the two
+    /// remediation verbs (ho-06.3 AT-03, Decision 7).
     @ViewBuilder private var unlinkedSection: some View {
         let unlinked = model.unlinkedMarkers
         if !unlinked.isEmpty {
             Section("Unlinked markers") {
                 ForEach(unlinked) { marker in
-                    HStack(spacing: 6) {
-                        Image(systemName: marker.symbolName)
-                            .foregroundStyle(Color.inkSecondary)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(marker.title)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Text(marker.markerPath)
-                                .font(.caption)
-                                .foregroundStyle(Color.inkTertiary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    }
-                    .help(marker.helpText)
+                    unlinkedRow(for: marker)
                 }
             }
         }
+    }
+
+    /// One "Unlinked markers" row: the shared glyph/title/path presentation,
+    /// plus — for `.orphaned` markers only — the two remediation verbs.
+    @ViewBuilder
+    private func unlinkedRow(for marker: WorkshopModel.UnlinkedMarker) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: marker.symbolName)
+                    .foregroundStyle(Color.inkSecondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(marker.title)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(marker.markerPath)
+                        .font(.caption)
+                        .foregroundStyle(Color.inkTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            if case .orphaned = marker {
+                orphanRowActions(for: marker)
+            }
+        }
+        .help(marker.helpText)
+    }
+
+    /// The two verbs on an orphaned-marker row (Required Change 3).
+    ///
+    /// Create Scope from Marker (default ink — the constructive verb) and
+    /// Remove Stray Marker (rust-toned via `Color.drift` — the destructive
+    /// one, mirroring the panel's Delete Scope button). Always visible and
+    /// titled, never behind a hover reveal or a menu (the 06.2/06.5 lesson)
+    /// — a context menu could exist alongside these, but not instead.
+    private func orphanRowActions(for marker: WorkshopModel.UnlinkedMarker) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                Task { await model.createScopeFromMarker(marker) }
+            } label: {
+                Label("Create Scope from Marker", systemImage: "plus.circle")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .foregroundStyle(Color.ink)
+            .help("Bring \(marker.markerPath) into the vault as scope '\(marker.title)'")
+
+            Button {
+                model.requestRemoveStrayMarker(marker)
+            } label: {
+                Label("Remove Stray Marker", systemImage: "trash")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            .foregroundStyle(Color.drift)
+            .help("Delete \(marker.markerPath) — the vault is untouched")
+        }
+        .padding(.leading, 22)
     }
 
     // MARK: - Footer
