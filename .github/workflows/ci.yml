@@ -156,9 +156,15 @@ jobs:
           #     no test touches the real Keychain); the view itself is
           #     declarative panels plus NSSavePanel/NSOpenPanel calls, not
           #     headlessly drivable (ho-05 Decision 8).
+          #   IngestSheet — SwiftUI declarative body; the ingest flow's
+          #     scan-result/decision/commit sheet (ho-06.3 AT-02, Decision
+          #     6). Every branch (reconcile filter, nothing-to-import,
+          #     scope-collision, commit) lives in WorkshopModel+Ingest.swift
+          #     (NOT excluded); the view is declarative rows plus an
+          #     NSOpenPanel call, not headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard|IngestSheet"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

@@ -291,6 +291,17 @@ final class WorkshopModel {
     /// extension file.
     var firstRunCompleted = false
 
+    /// The GUI ingest flow's own state (ho-06.3 AT-02).
+    ///
+    /// A nested `@Observable` object (`WorkshopModel+Ingest.swift`) mirroring
+    /// ``firstRun``'s pattern: the scan proposal, per-key decisions, and
+    /// scope ID/type are cohesive to the ingest sheet alone and would
+    /// otherwise crowd this already-long class for a session that only
+    /// exists while the sheet is up. `let`, not `private(set) var` — the
+    /// ingest intents mutate the instance's own fields; `WorkshopModel`
+    /// never reassigns it.
+    let ingest = IngestState()
+
     /// The injected (or live) environment.
     ///
     /// Retained for ``WorkshopModel/completeFirstRun()``'s git-identity probe
@@ -341,6 +352,17 @@ extension WorkshopModel {
     /// cross-file-extension pattern).
     func bindOpenedVault(at vaultURL: URL) {
         vaultState = .open(vaultURL: vaultURL)
+    }
+
+    /// Replaces the cached scan report.
+    ///
+    /// The write seam `WorkshopModel+Ingest.swift`'s post-commit cache
+    /// refresh uses — `private(set)` is file-scoped (the same reason
+    /// ``bindOpenedVault(at:)`` exists above); declared here, not a public
+    /// setter, so nothing else can silently overwrite the cache outside a
+    /// real scan.
+    func updateScanReport(_ report: ScanReport) {
+        scanReport = report
     }
 
     /// Reloads the scope list from the open vault.

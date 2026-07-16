@@ -222,6 +222,21 @@ struct WorkshopWindow: View {
                     EnvPreviewSheet(preview: preview)
                 }
             }
+            // Ingest sheet (ho-06.3 AT-02, Decision 6): presented whenever
+            // `model.ingest.session` is non-nil, from any of its three entry
+            // points (the panel verb, the first-run wizard's finish
+            // hand-off, and — AT-03 — orphaned-marker rows). Dismissing via
+            // the system chrome (swipe/Escape) discards the session exactly
+            // like the sheet's own Cancel button — the `envPreview` sheet's
+            // dismiss-clears-state precedent.
+            .sheet(
+                isPresented: .init(
+                    get: { model.ingest.session != nil },
+                    set: { if !$0 { model.cancelIngest() } }
+                )
+            ) {
+                IngestSheet()
+            }
         }
     }
 

@@ -31,6 +31,16 @@ struct FirstRunWizard: View {
     /// precedent).
     @State private var isCreating = false
 
+    /// `.env`-bearing directories found under the chosen scan root — the
+    /// finish page's own read of the ingest hand-off (ho-06.3 AT-02,
+    /// Required Change 5).
+    ///
+    /// Computed by the finish page's `.task`, purely informational here (the
+    /// tested walk lives in `WorkshopModel+Ingest.swift`'s
+    /// `IngestCandidateScanner`); "Create Vault" doubles as the tap that
+    /// starts the first ingest once these are known — see ``createVault()``.
+    @State private var ingestCandidatePreview: [URL] = []
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -297,23 +307,66 @@ struct FirstRunWizard: View {
                 Text("Scanning: \(root.path)")
                     .foregroundStyle(Color.inkSecondary)
             }
+            ingestCandidateSummary
             if let error = model.firstRun.remoteURLError {
                 Text(error).foregroundStyle(Color.drift)
             }
             if let error = model.firstRun.errorMessage {
                 Text(error).foregroundStyle(Color.drift)
             }
-            Button(isCreating ? "Creating…" : "Create Vault") {
+            Button(createVaultButtonLabel) {
                 createVault()
             }
             .disabled(isCreating)
         }
+        // Informational preview only (Required Change 5's "the finish page
+        // lists them") — the walk itself needs no vault, so it can run
+        // before "Create Vault" is even tapped; the tap is what actually
+        // starts the first ingest, once the vault exists to ingest into.
+        .task {
+            if let root = model.firstRun.scanRoot {
+                ingestCandidatePreview = await model.findFirstRunIngestCandidates(under: root)
+            }
+        }
+    }
+
+    @ViewBuilder private var ingestCandidateSummary: some View {
+        if !ingestCandidatePreview.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(
+                    "Found \(ingestCandidatePreview.count) project(s) with a .env file — "
+                        + "Create Vault will offer to import the first one:"
+                )
+                .foregroundStyle(Color.inkSecondary)
+                ForEach(ingestCandidatePreview, id: \.path) { url in
+                    Text("• \(url.lastPathComponent)")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(Color.inkSecondary)
+                }
+            }
+        }
+    }
+
+    private var createVaultButtonLabel: String {
+        if isCreating { return "Creating…" }
+        return ingestCandidatePreview.isEmpty ? "Create Vault" : "Create Vault & Import"
     }
 
     private func createVault() {
         isCreating = true
         Task {
             await model.completeFirstRun()
+            if model.firstRunCompleted, let root = model.firstRun.scanRoot {
+                // The seam AT-02 consumes (Decision 1 step 6): candidates
+                // found → the invite leads straight into the ingest sheet,
+                // presented over `WorkshopWindow`'s now-`.open` arm (this
+                // view may already be off-screen by the time the scan
+                // resolves — the result lands on model state, not here; see
+                // `offerFirstRunIngestInvite`'s doc). None found → nothing
+                // further happens, which is simply the plain open Workshop
+                // the wizard hands off to.
+                await model.offerFirstRunIngestInvite(under: root)
+            }
             isCreating = false
         }
     }
