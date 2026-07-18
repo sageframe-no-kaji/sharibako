@@ -114,6 +114,11 @@ struct ScopeSidebar: View {
             }
         }
         .help(marker.helpText)
+        // Marker rows are not scopes: without this, the List's implicit
+        // row tagging leaks the marker's synthetic `orphaned:<path>` ID into
+        // `selectedScopeID` on click, which reads as a bogus scope downstream
+        // (ho-06.3 gate fix). The row's verbs stay tappable.
+        .selectionDisabled(true)
     }
 
     /// The two verbs on an orphaned-marker row (Required Change 3).

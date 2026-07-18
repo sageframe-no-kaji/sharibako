@@ -38,6 +38,10 @@ final class WorkshopModel {
         /// A Check-drift sweep is decrypting and comparing every `live_here`
         /// scope against its materialized `.env` (ho-06.2 AT-02, Decision 3).
         case checkingDrift
+        /// An ingest commit is encrypting decided keys into a scope (ho-06.3
+        /// gate fix: the status surface said "Materializing…" while the sheet
+        /// button said "Importing…" — one operation must wear one name).
+        case ingesting
 
         /// Progress text shown beside the indicator in the status surface.
         var label: String {
@@ -46,6 +50,7 @@ final class WorkshopModel {
             case .materializing: return "Materializing…"
             case .syncing: return "Syncing…"
             case .checkingDrift: return "Checking drift…"
+            case .ingesting: return "Importing…"
             }
         }
     }
@@ -416,8 +421,21 @@ extension WorkshopModel {
     ///
     /// Uses the no-encryption ``VaultCore/init(vaultURL:)`` seam — listing
     /// never decrypts. Failures land in ``errorMessage``.
+    ///
+    /// Ignores an identity outside the vault's identifier grammar (ho-06.3
+    /// gate fix: the sidebar's unlinked-marker rows were implicitly
+    /// selectable, leaking their synthetic `orphaned:<path>` row IDs into
+    /// ``selectedScopeID`` and on into `VaultCore.inspect`, which threw
+    /// `invalidIdentifier` at the user). The rows are selection-disabled now;
+    /// this guard keeps any future non-scope selection value from reaching
+    /// the vault. A grammar-valid but absent scope still surfaces its error —
+    /// a stale selection stays honest.
     func loadSecrets(for scopeID: String) {
         guard case .open(let vaultURL) = vaultState else { return }
+        guard VaultCore.isValidIdentifier(scopeID) else {
+            cachedSecrets = []
+            return
+        }
         do {
             guard let core = try? VaultCore(vaultURL: vaultURL) else { return }
             cachedSecrets = try core.inspect(scopeID)

@@ -309,6 +309,23 @@ struct WorkshopModelRevealTests {
         }
     }
 
+    @Test("loadSecrets ignores an out-of-grammar identity without a vault error")
+    func loadSecretsIgnoresSyntheticRowID() throws {
+        try WorkshopTestSupport.withTempVault { vault in
+            let model = WorkshopModel(
+                environment: ["SHARIBAKO_VAULT": vault.path],
+                home: URL(fileURLWithPath: "/Users/nobody")
+            )
+            // ho-06.3 gate fix: the unlinked-marker rows' synthetic
+            // `orphaned:<path>` IDs leaked into selection and reached
+            // VaultCore.inspect, throwing invalidIdentifier at the user.
+            // An out-of-grammar identity now clears silently instead.
+            model.loadSecrets(for: "orphaned:/Users/nobody/project/.sharibako")
+            #expect(model.secrets.isEmpty)
+            #expect(model.errorMessage == nil)
+        }
+    }
+
     @Test("reveal surfaces errorMessage when getValue fails (missing secret file)")
     func revealValueErrorSetsMessage() throws {
         try withEphemeralAgeKey { keyURL in

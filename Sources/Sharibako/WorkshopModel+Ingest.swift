@@ -227,7 +227,7 @@ extension WorkshopModel {
             return
         }
         ingest.errorMessage = nil
-        activity = .materializing
+        activity = .ingesting
         defer { activity = nil }
         let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
