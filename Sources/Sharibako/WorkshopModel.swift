@@ -798,6 +798,15 @@ extension WorkshopModel {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
+        // Re-read the config's roots every time (ho-06.3 gate fix): the list
+        // was loaded once at init, so a config.yaml edited while the app ran
+        // — by hand today, by the ho-06.6 management UI later — was invisible
+        // until a full relaunch, and Rescan read as doing nothing. Unless the
+        // tests injected roots directly (config absent), the file is truth.
+        let configRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+        if !configRoots.isEmpty {
+            scanRoots = configRoots
+        }
         if scanRoots.isEmpty {
             guard let panel = openPanel, let chosen = panel() else {
                 return

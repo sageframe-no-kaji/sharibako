@@ -362,6 +362,14 @@ extension WorkshopModel {
         guard case .open = vaultState else { return }
         activity = .scanning
         defer { activity = nil }
+        // Same live-config read as `rescan()` (ho-06.3 gate fix): a
+        // config.yaml edited while the app runs must reach the chooser
+        // without a relaunch. Injected test roots win only when the config
+        // file has none.
+        let configRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+        if !configRoots.isEmpty {
+            scanRoots = configRoots
+        }
         let roots = scanRoots
         ingest.candidates = await worker.run {
             IngestCandidateScanner.findUnboundCandidates(under: roots)

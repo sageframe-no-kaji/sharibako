@@ -141,6 +141,49 @@ struct WorkshopModelIngestChooserTests {
         }
     }
 
+    @Test("presentIngestChooser picks up roots added to config.yaml after launch")
+    func presentIngestChooserReloadsConfigRoots() async throws {
+        try await WorkshopTestSupport.withTempDirectory { home in
+            try await WorkshopTestSupport.withTempVault { vault in
+                let root = try Self.makeRoot(near: vault)
+                defer { try? FileManager.default.removeItem(at: root) }
+                try Self.writeEnv("A=1\n", in: root.appendingPathComponent("bento"))
+
+                // Model launches with NO roots; the config gains one later —
+                // the ho-06.3 gate's hand-edited-while-running scenario.
+                let model = WorkshopModel(
+                    environment: ["SHARIBAKO_VAULT": vault.path], home: home)
+                #expect(model.scanRoots.isEmpty)
+                try WorkshopConfig.persistScanRoot(root, configURL: model.configURL)
+
+                await model.presentIngestChooser()
+
+                #expect(model.scanRoots.map(\.path) == [root.path])
+                #expect(model.ingest.candidates?.map(\.lastPathComponent) == ["bento"])
+            }
+        }
+    }
+
+    @Test("rescan picks up roots added to config.yaml after launch")
+    func rescanReloadsConfigRoots() async throws {
+        try await WorkshopTestSupport.withTempDirectory { home in
+            try await WorkshopTestSupport.withTempVault { vault in
+                let root = try Self.makeRoot(near: vault)
+                defer { try? FileManager.default.removeItem(at: root) }
+
+                let model = WorkshopModel(
+                    environment: ["SHARIBAKO_VAULT": vault.path], home: home)
+                #expect(model.scanRoots.isEmpty)
+                try WorkshopConfig.persistScanRoot(root, configURL: model.configURL)
+
+                await model.rescan()
+
+                #expect(model.scanRoots.map(\.path) == [root.path])
+                #expect(model.statusMessage?.contains("in 1 root") == true)
+            }
+        }
+    }
+
     // MARK: - Chaining
 
     @Test("a chained commit re-presents the chooser with the remaining candidates")
