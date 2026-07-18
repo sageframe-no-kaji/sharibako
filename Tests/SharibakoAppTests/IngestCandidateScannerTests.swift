@@ -41,11 +41,28 @@ struct IngestCandidateScannerTests {
         }
     }
 
+    @Test("finds a nested project within the bounded depth")
+    func findsNestedProject() throws {
+        try WorkshopTestSupport.withTempDirectory { root in
+            // The gate's real shape: <root>/<org>/<area>/<project> (depth 3).
+            let nested = root.appendingPathComponent("edelmore")
+                .appendingPathComponent("apps")
+                .appendingPathComponent("diary")
+            try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+            try "NESTED=1\n".write(
+                to: nested.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+
+            let found = IngestCandidateScanner.findCandidates(under: root)
+
+            #expect(found.map(\.lastPathComponent) == ["diary"])
+        }
+    }
+
     @Test("does not descend past the bounded depth")
     func boundsDepth() throws {
         try WorkshopTestSupport.withTempDirectory { root in
             var deep = root
-            for component in ["a", "b", "c", "d"] {
+            for component in ["a", "b", "c", "d", "e", "f"] {
                 deep = deep.appendingPathComponent(component)
             }
             try FileManager.default.createDirectory(at: deep, withIntermediateDirectories: true)
@@ -55,6 +72,36 @@ struct IngestCandidateScannerTests {
             let found = IngestCandidateScanner.findCandidates(under: root)
 
             #expect(found.isEmpty)
+        }
+    }
+
+    @Test("does not descend into dependency forests like node_modules")
+    func skipsDependencyForests() throws {
+        try WorkshopTestSupport.withTempDirectory { root in
+            let buried = root.appendingPathComponent("web-app")
+                .appendingPathComponent("node_modules")
+                .appendingPathComponent("some-package")
+            try FileManager.default.createDirectory(at: buried, withIntermediateDirectories: true)
+            try "PACKAGE_ENV=1\n".write(
+                to: buried.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+
+            let found = IngestCandidateScanner.findCandidates(under: root)
+
+            #expect(found.isEmpty)
+        }
+    }
+
+    @Test("a .env.local alone qualifies a directory")
+    func envLocalQualifies() throws {
+        try WorkshopTestSupport.withTempDirectory { root in
+            let project = root.appendingPathComponent("local-only")
+            try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+            try "LOCAL=1\n".write(
+                to: project.appendingPathComponent(".env.local"), atomically: true, encoding: .utf8)
+
+            let found = IngestCandidateScanner.findCandidates(under: root)
+
+            #expect(found.map(\.lastPathComponent) == ["local-only"])
         }
     }
 

@@ -563,11 +563,24 @@ enum IngestScanPlanner {
 enum IngestCandidateScanner {
     /// Maximum depth below `root` to walk (`root` itself is depth 0).
     ///
-    /// Bounded so a wide scan root (a whole `~/Projects` with hundreds of
-    /// repos) resolves fast — the marker scan's own discipline
-    /// (`Materializer.scan`), mirrored rather than reused since that walk
-    /// looks for `.sharibako` and this one looks for `.env`.
-    static let maxDepth = 2
+    /// Deep enough for real vault layouts (`<root>/<org>/<area>/<project>` —
+    /// the gate found depth 2 missed `edelmore/apps/diary`-shaped paths that
+    /// the unbounded marker scan reaches), still bounded so a wide root
+    /// resolves fast; ``skippedDirectoryNames`` keeps the walk out of the
+    /// dependency forests that make unbounded walks slow.
+    static let maxDepth = 5
+
+    /// Directory names never descended into: dependency and build-product
+    /// forests that are huge, never hold the user's own projects, and would
+    /// dominate the walk's cost (dotfolders are skipped separately).
+    static let skippedDirectoryNames: Set<String> = [
+        "node_modules", "Pods", "vendor", "DerivedData",
+    ]
+
+    /// File names whose presence marks a directory as a candidate — the
+    /// value-bearing `.env` family `Materializer.ingest` reads (`.env.example`
+    /// alone carries no values, so it does not qualify a directory).
+    static let candidateEnvFileNames = [".env", ".env.local"]
 
     /// Returns every directory at or below `root` (within ``maxDepth``)
     /// that contains a `.env` file, sorted by path for stable display.
@@ -605,8 +618,10 @@ enum IngestCandidateScanner {
         _ directory: URL, depth: Int, fileManager: FileManager, results: inout [URL]
     ) {
         guard depth <= maxDepth else { return }
-        let envURL = directory.appendingPathComponent(".env")
-        if fileManager.fileExists(atPath: envURL.path) {
+        let hasEnvFile = candidateEnvFileNames.contains { name in
+            fileManager.fileExists(atPath: directory.appendingPathComponent(name).path)
+        }
+        if hasEnvFile {
             results.append(directory)
         }
         guard depth < maxDepth else { return }
@@ -618,8 +633,10 @@ enum IngestCandidateScanner {
             // Hidden directories (`.git`, dotfolders) have no reason to be
             // descended into on a `.env` search — the marker walk enumerates
             // everything because it must find `.sharibako` anywhere; this
-            // walk only wants ordinary project directories.
+            // walk only wants ordinary project directories. The named skip
+            // list keeps it out of dependency/build forests the same way.
             guard !child.lastPathComponent.hasPrefix(".") else { continue }
+            guard !skippedDirectoryNames.contains(child.lastPathComponent) else { continue }
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: child.path, isDirectory: &isDirectory),
                 isDirectory.boolValue
