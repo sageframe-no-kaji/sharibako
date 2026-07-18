@@ -113,6 +113,20 @@ enum FirstRunTestSupport {
         return WorkshopModel(environment: environment, home: home)
     }
 
+    /// A `.open` model bound to an existing `vault` (e.g. from
+    /// `WorkshopTestSupport.withTempVault`), resolved against a separate
+    /// `home` — the welcome-tour tests' fixture (ho-06.3 gate-fix round).
+    /// `home` is independent of `vault` so a test can assert against
+    /// `WorkshopConfig.defaultConfigURL(home:)` without that path coinciding
+    /// with anything the vault fixture itself wrote.
+    static func openVaultModel(
+        vault: URL, home: URL, environmentExtra: [String: String] = [:]
+    ) -> WorkshopModel {
+        var environment = ["SHARIBAKO_VAULT": vault.path]
+        environment.merge(environmentExtra) { _, new in new }
+        return WorkshopModel(environment: environment, home: home)
+    }
+
     /// Strips any trailing `/` from `url.path`.
     ///
     /// `URL(fileURLWithPath:)`/`appendingPathComponent(_:)` stat the

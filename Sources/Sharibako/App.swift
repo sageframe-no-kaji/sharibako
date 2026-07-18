@@ -41,6 +41,24 @@ struct SharibakoApp: App {
                 // scene root since scenes don't inherit environment from siblings.
                 .tint(Color.accentMoss)
         }
+        // The Help-menu re-entry into the first-run wizard (ho-06.3 gate-fix
+        // round — the ho's own "wizard re-entry" Discovery item, resolved on
+        // the practitioner's ratified instruction: opening the app should
+        // onboard, and clicking the onboarder later should give the same
+        // experience). `.before(.help)` keeps the system's built-in Help
+        // search field intact — `.replacing(.help)` would drop it for no
+        // reason — and matches the native idiom other Mac apps use for a
+        // "how does this app work" entry (Slack's "What's New", Xcode's
+        // "Welcome to Xcode"). The intent itself is the hard guard: a
+        // no-op without an open vault (`presentWelcomeTour()`,
+        // `WorkshopModel+FirstRun.swift`).
+        .commands {
+            CommandGroup(before: .help) {
+                Button("Welcome to Sharibako…") {
+                    model.presentWelcomeTour()
+                }
+            }
+        }
 
         // The appearance override's home (ho-06.2 AT-03 Decision 4). `Settings {}`
         // keys ⌘, itself and is the correct scene type — NOT a `WindowGroup`

@@ -1,11 +1,15 @@
 import SharibakoCore
 import SwiftUI
 
-/// The Workshop's main window: a three-pane `NavigationSplitView` shell with
-/// the right-side action panel trailing it (ho-06.5 Decision 1), or the
-/// first-run wizard when the resolved path holds no vault yet (ho-06.3
-/// Decision 1 — superseding the ho-05 static "no vault" empty state, which
-/// stopped at naming the path with nowhere to go next).
+/// The Workshop's main window.
+///
+/// A three-pane `NavigationSplitView` shell with the right-side action panel
+/// trailing it (ho-06.5 Decision 1), or the first-run wizard when the
+/// resolved path holds no vault yet (ho-06.3 Decision 1 — superseding the
+/// ho-05 static "no vault" empty state, which stopped at naming the path
+/// with nowhere to go next). The same wizard also re-opens as a sheet over
+/// the `.open` arm below — the Help-menu "Welcome to Sharibako…" command
+/// (ho-06.3 gate-fix round).
 ///
 /// Every Workshop verb lives in `ActionPanel` — the forward-only replacement
 /// for the ho-06.2 toolbar + overflow chrome that failed its gate. The
@@ -273,6 +277,26 @@ struct WorkshopWindow: View {
                 )
             ) {
                 IngestChooserSheet()
+            }
+            // Welcome tour (ho-06.3 gate-fix round): the Help-menu re-entry
+            // into the SAME wizard the fresh-machine path renders as main
+            // content — this time as a sheet, since a vault is already
+            // open. Presented purely off `model.firstRun.mode == .tour`
+            // (the `ingest.session` sheet's precedent); `expectedPath`
+            // carries the ALREADY-OPEN vault's real URL (not a
+            // not-yet-created one) so the tour's root/finish pages can
+            // state it plainly like the first-run pages do. The hard
+            // guards in `WorkshopModel+FirstRun.swift` — not this wiring —
+            // are what keep every tour-mode intent read-only.
+            .sheet(
+                isPresented: .init(
+                    get: { model.firstRun.mode == .tour },
+                    set: { if !$0 { model.dismissWelcomeTour() } }
+                )
+            ) {
+                if case .open(let vaultURL) = model.vaultState {
+                    FirstRunWizard(expectedPath: vaultURL)
+                }
             }
         }
     }

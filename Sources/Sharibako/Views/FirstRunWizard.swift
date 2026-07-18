@@ -1,17 +1,24 @@
 import AppKit
 import SwiftUI
 
-/// The wizard rendered whenever `WorkshopModel.vaultState` is `.noVault`
-/// (ho-06.3 Decision 1) — six ordered pages ending in a real vault: prereq
+/// The wizard rendered whenever `WorkshopModel.vaultState` is `.noVault`.
+///
+/// Six ordered pages ending in a real vault (ho-06.3 Decision 1): prereq
 /// check, age key generate-or-import, a verified backup nudge, initial scan
-/// root, an optional git remote, finish.
+/// root, an optional git remote, finish. The SAME view also renders the
+/// Help-menu welcome tour (ho-06.3 gate-fix round) over an already-open
+/// vault: `model.firstRun.mode == .tour` swaps each mutating page for its
+/// read-only, live-truth equivalent — one wizard, one set of pages, not a
+/// forked second flow.
 ///
 /// All branching logic lives in `WorkshopModel+FirstRun.swift` (tested);
 /// this view reads ``WorkshopModel/firstRun`` and calls its intents (Required
 /// Change 4, Do Not §5) — panel writes (the save/open panels) hand their
 /// chosen `URL` straight to an intent rather than deciding anything
 /// themselves. Calm pālana grounds throughout, no time bars or decoration
-/// (Required Change 4) — plain-talk copy names the stakes.
+/// (Required Change 4) — plain-talk copy names the stakes, in large,
+/// friendly type: a welcome moment up front, and a one-line explainer under
+/// every page's title.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8) — see `.github/workflows/ci.yml`'s `EXCLUDED` regex.
@@ -19,9 +26,12 @@ struct FirstRunWizard: View {
     @Environment(WorkshopModel.self)
     private var model
 
-    /// Where the vault will be created — `WorkshopWindow` passes the
-    /// `.noVault(expectedPath:)` associated value straight through so the
-    /// root and finish pages can state it plainly (Decision 3 — no chooser).
+    /// Where the vault will be created (`.firstRun` mode) or already lives
+    /// (`.tour` mode) — `WorkshopWindow` passes the `.noVault(expectedPath:)`
+    /// associated value straight through for the fresh-machine path
+    /// (Decision 3 — no chooser) and the `.open(vaultURL:)` associated value
+    /// for the tour, so the root and finish pages can state the real path
+    /// plainly either way.
     let expectedPath: URL
 
     /// `true` while ``WorkshopModel/completeFirstRun()`` is in flight.
@@ -72,16 +82,21 @@ struct FirstRunWizard: View {
 
     private var header: some View {
         HStack {
-            Text("Set Up Sharibako")
+            Text(model.firstRun.mode == .tour ? "Sharibako Tour" : "Set Up Sharibako")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.ink)
             Spacer()
-            Text(
-                "Step \(model.firstRun.page.rawValue + 1) of "
-                    + "\(WorkshopModel.FirstRunPage.allCases.count)"
-            )
-            .font(.caption)
-            .foregroundStyle(Color.inkTertiary)
+            // The step count is a first-run-only signal — the tour skips
+            // the backup page (Decision: never generates a key), so the
+            // page index would jump (2 of 6 → 4 of 6) and read as broken.
+            if model.firstRun.mode == .firstRun {
+                Text(
+                    "Step \(model.firstRun.page.rawValue + 1) of "
+                        + "\(WorkshopModel.FirstRunPage.allCases.count)"
+                )
+                .font(.caption)
+                .foregroundStyle(Color.inkTertiary)
+            }
         }
         .padding(20)
     }
@@ -104,11 +119,38 @@ struct FirstRunWizard: View {
         }
         .padding(20)
     }
+}
 
-    // MARK: - Page 1: Prereq
+// MARK: - Pages
+
+/// The six page bodies and their panel-driven helpers, split into an
+/// extension so the main `View` struct body stays under SwiftLint's
+/// `type_body_length` ceiling — the `WorkshopWindow`/its toolbar-and-dialogs
+/// extension precedent (`WorkshopWindow.swift`), which faced the identical
+/// pressure. `private` here is visible across every extension of this type
+/// declared in this same file (SE-0169), so the page views and their
+/// `private func` helpers below call each other exactly as if they were
+/// still one body.
+extension FirstRunWizard {
+    // MARK: - Page 1: Welcome + Prereq
 
     private var prereqPage: some View {
         VStack(alignment: .leading, spacing: 12) {
+            // The welcome moment (Decision 1 step 1) — same copy in both
+            // `.firstRun` and `.tour`, large and plain: what Sharibako is,
+            // no jargon, no marketing.
+            Text("Welcome to Sharibako")
+                .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(Color.ink)
+            Text(
+                "Sharibako keeps your projects' API keys and .env secrets in one "
+                    + "encrypted, git-backed box. Unlock it once with a single key, "
+                    + "and every project you add stays out of plain text until you "
+                    + "ask for it."
+            )
+            .font(.body)
+            .foregroundStyle(Color.inkSecondary)
+            Divider()
             Text("Before anything else, Sharibako needs age.")
                 .font(.headline)
                 .foregroundStyle(Color.ink)
@@ -144,25 +186,41 @@ struct FirstRunWizard: View {
 
     private var keyPage: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Text("Every secret in your vault is encrypted to one age key.")
+                .font(.headline)
+                .foregroundStyle(Color.ink)
+            Text("Lose the key, lose the vault — no reset, no support ticket.")
+                .foregroundStyle(Color.inkSecondary)
             switch model.firstRun.keyMode {
             case .existingKeyFound:
-                Label("You already have a key.", systemImage: "checkmark.circle.fill")
+                Label("You already have a key in the Keychain.", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(Color.inSync)
-                Text("Sharibako found an existing age key in the Keychain and will use it.")
+                Text("Sharibako found it and will use it — nothing more to do here.")
                     .foregroundStyle(Color.inkSecondary)
             case .notChosen, .generated, .imported:
-                Text("Every secret in your vault is encrypted to one age key.")
-                    .font(.headline)
-                    .foregroundStyle(Color.ink)
-                Text("Lose the key, lose the vault — the next page guides you through a backup.")
-                    .foregroundStyle(Color.inkSecondary)
-                HStack(spacing: 12) {
-                    Button("Generate a New Key") {
-                        model.generateFirstRunKey()
+                // `firstRunKeyPageOffersActions` is the model's computed
+                // flag (`mode == .firstRun && keyMode != .existingKeyFound`)
+                // — the tour never generates or imports (hard-guarded in
+                // `WorkshopModel+FirstRun.swift`), so this branch only ever
+                // renders the pointer copy while touring.
+                if model.firstRunKeyPageOffersActions {
+                    Text("Set one up now — the next page guides you through a backup.")
+                        .foregroundStyle(Color.inkSecondary)
+                    HStack(spacing: 12) {
+                        Button("Generate a New Key") {
+                            model.generateFirstRunKey()
+                        }
+                        Button("Import Existing Key…") {
+                            importExistingKey()
+                        }
                     }
-                    Button("Import Existing Key…") {
-                        importExistingKey()
-                    }
+                } else {
+                    Text(
+                        "No key found in this Mac's Keychain yet. Generate or import "
+                            + "one from Sharibako's first-run setup, or from the "
+                            + "sharibako CLI."
+                    )
+                    .foregroundStyle(Color.drift)
                 }
             }
             if let message = model.firstRun.errorMessage {
@@ -232,28 +290,48 @@ struct FirstRunWizard: View {
 
     private var rootPage: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Where do you keep your code?")
-                .font(.headline)
-                .foregroundStyle(Color.ink)
-            Text("Sharibako scans here for .env-bearing projects.")
-                .foregroundStyle(Color.inkSecondary)
-            if let root = model.firstRun.scanRoot {
-                Text(root.path)
+            if model.firstRun.mode == .tour {
+                Text("Your vault and where it looks for projects.")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("Read-only here — change the scan roots from the action panel.")
+                    .foregroundStyle(Color.inkSecondary)
+                Text(expectedPath.path)
                     .font(.system(.body, design: .monospaced))
+                if model.scanRoots.isEmpty {
+                    Text("No scan root configured yet.")
+                        .foregroundStyle(Color.inkTertiary)
+                } else {
+                    ForEach(model.scanRoots, id: \.path) { root in
+                        Text(root.path)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(Color.inkSecondary)
+                    }
+                }
             } else {
-                Text("No likely folder found — choose one.")
-                    .foregroundStyle(Color.drift)
+                Text("Where do you keep your code?")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("Sharibako scans here for .env-bearing projects.")
+                    .foregroundStyle(Color.inkSecondary)
+                if let root = model.firstRun.scanRoot {
+                    Text(root.path)
+                        .font(.system(.body, design: .monospaced))
+                } else {
+                    Text("No likely folder found — choose one.")
+                        .foregroundStyle(Color.drift)
+                }
+                Button("Choose a Different Folder…") {
+                    chooseScanRoot()
+                }
+                Divider()
+                Text("Your vault will live at \(expectedPath.path).")
+                    .font(.caption)
+                    .foregroundStyle(Color.inkTertiary)
             }
-            Button("Choose a Different Folder…") {
-                chooseScanRoot()
-            }
-            Divider()
-            Text("Your vault will live at \(expectedPath.path).")
-                .font(.caption)
-                .foregroundStyle(Color.inkTertiary)
         }
         .task {
-            if model.firstRun.scanRoot == nil {
+            if model.firstRun.mode == .firstRun, model.firstRun.scanRoot == nil {
                 model.suggestFirstRunScanRoot(home: model.home)
             }
         }
@@ -274,16 +352,40 @@ struct FirstRunWizard: View {
 
     private var remotePage: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Back this vault up to a git remote (optional).")
-                .font(.headline)
-                .foregroundStyle(Color.ink)
-            Text("The remote is the vault's real backup — leave this blank to skip for now.")
-                .foregroundStyle(Color.inkSecondary)
-            TextField("git@host:path or https://…", text: remoteURLBinding)
-                .textFieldStyle(.roundedBorder)
-            if let error = model.firstRun.remoteURLError {
-                Text(error).foregroundStyle(Color.drift)
+            if model.firstRun.mode == .tour {
+                Text("This vault's git remote.")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("The remote is the vault's real backup — shown here for reference.")
+                    .foregroundStyle(Color.inkSecondary)
+                Text(tourRemoteText)
+                    .font(.system(.body, design: .monospaced))
+            } else {
+                Text("Back this vault up to a git remote (optional).")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("The remote is the vault's real backup — leave this blank to skip for now.")
+                    .foregroundStyle(Color.inkSecondary)
+                TextField("git@host:path or https://…", text: remoteURLBinding)
+                    .textFieldStyle(.roundedBorder)
+                if let error = model.firstRun.remoteURLError {
+                    Text(error).foregroundStyle(Color.drift)
+                }
             }
+        }
+    }
+
+    /// The tour remote page's read-only text — ``WorkshopModel/remoteDescription``
+    /// unwrapped explicitly rather than switched over directly: the enum
+    /// carries its own `.none` case (configured-absent) distinct from the
+    /// optional's `nil` (not yet resolved), and switching straight over the
+    /// `RemoteDescription?` would let Swift's pattern sugar match `.none`
+    /// against the wrong one of those two.
+    private var tourRemoteText: String {
+        guard let remoteDescription = model.remoteDescription else { return "Checking…" }
+        switch remoteDescription {
+        case .configured(let url): return url
+        case .none: return "No remote configured."
         }
     }
 
@@ -298,33 +400,48 @@ struct FirstRunWizard: View {
 
     private var finishPage: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Ready to create your vault.")
-                .font(.headline)
-                .foregroundStyle(Color.ink)
-            Text(expectedPath.path)
-                .font(.system(.body, design: .monospaced))
-            if let root = model.firstRun.scanRoot {
-                Text("Scanning: \(root.path)")
+            if model.firstRun.mode == .tour {
+                Text("That's the tour.")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("Your vault, key, and remote are all set up — nothing changed here.")
                     .foregroundStyle(Color.inkSecondary)
+                Button("Done") {
+                    model.dismissWelcomeTour()
+                }
+            } else {
+                Text("Ready to create your vault.")
+                    .font(.headline)
+                    .foregroundStyle(Color.ink)
+                Text("One click creates the vault and its git repository at the path below.")
+                    .foregroundStyle(Color.inkSecondary)
+                Text(expectedPath.path)
+                    .font(.system(.body, design: .monospaced))
+                if let root = model.firstRun.scanRoot {
+                    Text("Scanning: \(root.path)")
+                        .foregroundStyle(Color.inkSecondary)
+                }
+                ingestCandidateSummary
+                if let error = model.firstRun.remoteURLError {
+                    Text(error).foregroundStyle(Color.drift)
+                }
+                if let error = model.firstRun.errorMessage {
+                    Text(error).foregroundStyle(Color.drift)
+                }
+                Button(createVaultButtonLabel) {
+                    createVault()
+                }
+                .disabled(isCreating)
             }
-            ingestCandidateSummary
-            if let error = model.firstRun.remoteURLError {
-                Text(error).foregroundStyle(Color.drift)
-            }
-            if let error = model.firstRun.errorMessage {
-                Text(error).foregroundStyle(Color.drift)
-            }
-            Button(createVaultButtonLabel) {
-                createVault()
-            }
-            .disabled(isCreating)
         }
         // Informational preview only (Required Change 5's "the finish page
         // lists them") — the walk itself needs no vault, so it can run
         // before "Create Vault" is even tapped; the tap is what actually
         // starts the first ingest, once the vault exists to ingest into.
+        // Skipped entirely in `.tour` — there is no candidate walk to run
+        // against a vault that already exists and has already been scanned.
         .task {
-            if let root = model.firstRun.scanRoot {
+            if model.firstRun.mode == .firstRun, let root = model.firstRun.scanRoot {
                 ingestCandidatePreview = await model.findFirstRunIngestCandidates(under: root)
             }
         }

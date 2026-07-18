@@ -7,6 +7,20 @@ import SharibakoCore
 /// ``WorkshopModel/firstRun`` and calls the intents below; no branching logic
 /// lives in the view (Required Change 4, Do Not §5).
 ///
+/// The SAME wizard also re-opens as a sheet over an already-open Workshop
+/// (ho-06.3 gate-fix round, resolving the ho's own "wizard re-entry"
+/// Discovery item on the practitioner's ratified instruction): a
+/// Help-menu command calls ``presentWelcomeTour()``, which flips
+/// ``FirstRunState/mode`` to ``FirstRunMode/tour``. Every page renders its
+/// same friendly explanation of what Sharibako is/does, but the pages that
+/// would otherwise MUTATE (generate/import a key, create the vault, git-init,
+/// set a remote, persist a scan root) render the informational equivalent
+/// instead — live truth, read-only. The mutating intents themselves carry a
+/// hard guard (`guard firstRun.mode == .firstRun else { return }`) so a
+/// tour can never write anything even if a future page wired a button wrong;
+/// the guard is the actual safety, the view's page content is just what a
+/// human sees.
+///
 /// Split out of `WorkshopModel.swift` the way every other feature's intents
 /// are (`WorkshopModel+Mutations.swift`, `+Heal.swift`, `+Waymarking.swift`)
 /// — the `Conduit`/`Conduit+Remote.swift` precedent. `FirstRunState` is a
@@ -25,6 +39,17 @@ extension WorkshopModel {
         case root
         case remote
         case finish
+    }
+
+    /// Which experience the wizard is rendering (ho-06.3 gate-fix round).
+    enum FirstRunMode: Equatable, Sendable {
+        /// The fresh-machine path: `.noVault` main-window content. Every
+        /// page can mutate — generate/import a key, create the vault.
+        case firstRun
+        /// The Help-menu re-entry over an already-open vault: every page
+        /// shows live truth, never mutates. Enforced by a hard guard on
+        /// each mutating intent, not by view omission alone.
+        case tour
     }
 
     /// How the key page resolved (Decision 1 step 2).
@@ -69,6 +94,10 @@ extension WorkshopModel {
         // `envPreview` are plain `var`. Views only ever read these; the
         // intents below are the only writers by convention, not by the
         // compiler.
+
+        /// Which experience is rendering — the fresh-machine flow or the
+        /// read-only Help-menu tour (ho-06.3 gate-fix round).
+        var mode: FirstRunMode = .firstRun
 
         /// The current page.
         var page: FirstRunPage = .prereq
@@ -163,10 +192,14 @@ extension WorkshopModel {
     ///
     /// A no-op when a key already exists (``FirstRunKeyMode/existingKeyFound``)
     /// — the view's button is disabled in that state; this is the defensive
-    /// guard (never a second key).
+    /// guard (never a second key). Also a no-op in ``FirstRunMode/tour`` —
+    /// the tour NEVER generates a key (hard guard, gate-fix round); the
+    /// tour's key page offers no Generate button at all, but the guard is
+    /// what actually makes the tour read-only, not the view's omission.
     ///
     /// - Parameter store: The Keychain write seam (see ``productionKeychainStore()``).
     func generateFirstRunKey(store: GUIKeychainStore = productionKeychainStore()) {
+        guard firstRun.mode == .firstRun else { return }
         guard firstRun.keyMode != .existingKeyFound else { return }
         do {
             let (identity, recipient) = try GUIAgeKeyBootstrap.generateToKeychain(store: store)
@@ -183,13 +216,14 @@ extension WorkshopModel {
     /// to the root page (Decision 1 step 2; Decision 2 — import needs no
     /// backup nudge, the file already lives outside the Keychain).
     ///
-    /// A no-op when a key already exists, the same guard as
-    /// ``generateFirstRunKey(store:)``.
+    /// A no-op when a key already exists, or in ``FirstRunMode/tour`` — the
+    /// same two guards as ``generateFirstRunKey(store:)``.
     ///
     /// - Parameters:
     ///   - url: The identity file the user picked.
     ///   - store: The Keychain write seam (see ``productionKeychainStore()``).
     func importFirstRunKey(from url: URL, store: GUIKeychainStore = productionKeychainStore()) {
+        guard firstRun.mode == .firstRun else { return }
         guard firstRun.keyMode != .existingKeyFound else { return }
         do {
             _ = try GUIAgeKeyBootstrap.importToKeychain(from: url, store: store)
@@ -201,12 +235,31 @@ extension WorkshopModel {
         }
     }
 
-    /// Advances from the key page — reachable only in the
-    /// ``FirstRunKeyMode/existingKeyFound`` state; generate and import both
-    /// advance the page themselves the moment they succeed.
+    /// Advances from the key page.
+    ///
+    /// Reachable only in the ``FirstRunKeyMode/existingKeyFound`` state;
+    /// generate and import both advance the page themselves the moment they
+    /// succeed. Always advances in ``FirstRunMode/tour``: the tour never
+    /// generates or imports, so there is nothing to gate on — an absent key
+    /// just means the tour's key page shows the "no key found" pointer
+    /// instead of blocking.
     func advanceFromKeyPage() {
+        if firstRun.mode == .tour {
+            firstRun.page = .root
+            return
+        }
         guard firstRun.keyMode == .existingKeyFound else { return }
         firstRun.page = .root
+    }
+
+    /// Whether the key page should offer Generate/Import actions.
+    ///
+    /// Never in ``FirstRunMode/tour`` (the tour is read-only) and never once
+    /// a key was already found (never a second key). The combination is real
+    /// branching logic, so it lives here rather than the view re-deriving
+    /// `mode == .firstRun && keyMode != .existingKeyFound` inline.
+    var firstRunKeyPageOffersActions: Bool {
+        firstRun.mode == .firstRun && firstRun.keyMode != .existingKeyFound
     }
 
     // MARK: - Backup page (Decision 2)
@@ -298,8 +351,11 @@ extension WorkshopModel {
     /// A root is optional in the type system but required to advance —
     /// ``suggestFirstRunScanRoot(home:)`` can come back empty on an unusual
     /// machine, and the wizard needs *some* root to reach ``completeFirstRun()``.
+    /// Always advances in ``FirstRunMode/tour`` — the tour's root page shows
+    /// the vault's already-configured roots and never sets ``FirstRunState/scanRoot``
+    /// at all, so gating on it would trap the tour on this page forever.
     func advanceFromRoot() {
-        guard firstRun.scanRoot != nil else { return }
+        guard firstRun.mode == .tour || firstRun.scanRoot != nil else { return }
         firstRun.page = .remote
     }
 
@@ -343,9 +399,9 @@ extension WorkshopModel {
     var firstRunCanContinue: Bool {
         switch firstRun.page {
         case .prereq: return firstRun.prerequisitesOK
-        case .key: return firstRun.keyMode == .existingKeyFound
+        case .key: return firstRun.mode == .tour || firstRun.keyMode == .existingKeyFound
         case .backup: return firstRun.backupVerified
-        case .root: return firstRun.scanRoot != nil
+        case .root: return firstRun.mode == .tour || firstRun.scanRoot != nil
         case .remote: return true
         case .finish: return false
         }
@@ -356,7 +412,10 @@ extension WorkshopModel {
     /// Stepping back from `.root` lands on `.key` for the import path (which
     /// skipped `.backup` going forward) and on `.backup` for the generate
     /// path — the backward step mirrors whichever forward step actually ran,
-    /// rather than a fixed `page - 1`.
+    /// rather than a fixed `page - 1`. In ``FirstRunMode/tour`` `.backup` is
+    /// never visited going forward (the tour never generates a key), so
+    /// stepping back from `.root` always lands on `.key`, the same shape as
+    /// the import path.
     func goToPreviousFirstRunPage() {
         switch firstRun.page {
         case .prereq:
@@ -366,7 +425,8 @@ extension WorkshopModel {
         case .backup:
             firstRun.page = .key
         case .root:
-            firstRun.page = firstRun.keyMode == .imported ? .key : .backup
+            let skippedBackup = firstRun.mode == .tour || firstRun.keyMode == .imported
+            firstRun.page = skippedBackup ? .key : .backup
         case .remote:
             firstRun.page = .root
         case .finish:
@@ -391,8 +451,14 @@ extension WorkshopModel {
     /// keeps "Create Vault" disabled until both hold; this is the defensive
     /// guard. Guards re-entry against ``WorkshopModel/activity`` like every
     /// other long intent, even though the work here is fast local git/file
-    /// I/O rather than worker-routed tree-walking.
+    /// I/O rather than worker-routed tree-walking. Also a no-op in
+    /// ``FirstRunMode/tour`` (hard guard, gate-fix round) — a tour only ever
+    /// runs against `.open` anyway (``presentWelcomeTour()`` requires it),
+    /// so the `.noVault` guard below would already catch it; this guard
+    /// makes the "tour never creates a vault or writes config.yaml"
+    /// invariant explicit and directly testable, not incidental.
     func completeFirstRun() async {
+        guard firstRun.mode == .firstRun else { return }
         guard activity == nil else { return }
         guard case .noVault(let expectedPath) = vaultState else { return }
         guard let scanRoot = firstRun.scanRoot else { return }
@@ -464,5 +530,50 @@ extension WorkshopModel {
             guard case .remoteURLRejected(_, let reason) = error else { throw error }
             firstRun.remoteURLError = "Remote rejected: \(reason)"
         }
+    }
+
+    // MARK: - Welcome tour (ho-06.3 gate-fix round)
+
+    /// Opens the welcome tour: the SAME wizard the fresh-machine path
+    /// renders as main content, this time as a sheet over an already-open
+    /// Workshop.
+    ///
+    /// The Help-menu re-entry point (`SharibakoApp`'s `.commands`),
+    /// resolving the ho's own "wizard re-entry" Discovery item on the
+    /// practitioner's ratified instruction — clicking the onboarder should
+    /// give the same experience as opening the app fresh.
+    ///
+    /// Resets every transient page field to its default and flips
+    /// ``FirstRunState/mode`` to ``FirstRunMode/tour``; `WorkshopWindow`
+    /// presents the sheet purely off `firstRun.mode == .tour` (the
+    /// `ingest.session`-driven sheet's precedent) — this intent is the only
+    /// way that flag becomes `true`.
+    ///
+    /// A no-op without an open vault: a machine with no vault yet already
+    /// sees this same wizard as the `.noVault` main-window content, never as
+    /// a sheet, and the tour has nothing live to show before a vault exists.
+    func presentWelcomeTour() {
+        guard case .open = vaultState else { return }
+        firstRun.page = .prereq
+        firstRun.prerequisitesOK = false
+        firstRun.keyMode = .notChosen
+        firstRun.pendingBackup = nil
+        firstRun.backupVerified = false
+        firstRun.scanRoot = nil
+        firstRun.remoteURLText = ""
+        firstRun.remoteURLError = nil
+        firstRun.errorMessage = nil
+        firstRun.mode = .tour
+    }
+
+    /// Closes the welcome tour sheet.
+    ///
+    /// Reached from the finish page's "Done" button and from the sheet's own
+    /// system dismissal (`WorkshopWindow`'s binding `set:` closure) alike —
+    /// every dismissal path funnels through this one intent, the
+    /// `cancelIngest()`/`dismissIngestChooser()` precedent.
+    func dismissWelcomeTour() {
+        firstRun.mode = .firstRun
+        firstRun.page = .prereq
     }
 }
