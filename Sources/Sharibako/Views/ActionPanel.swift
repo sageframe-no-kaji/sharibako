@@ -206,19 +206,21 @@ struct ActionPanel: View {
                 openWindow(id: SharibakoApp.addSharedEntryWindowID)
             }
 
-            // Ingest Project… (ho-06.3 AT-02, Decision 6): one of the ingest
-            // flow's three entry points, alongside the first-run wizard's
-            // finish hand-off and (AT-03) orphaned-marker rows. The picker's
-            // chosen directory hands straight to `beginIngest` — no
-            // branching here, the scan/reconcile/nothing-to-import logic all
-            // lives tested in `WorkshopModel+Ingest.swift`.
+            // Ingest Project… (ho-06.3 AT-02, Decision 6; chooser at the
+            // gate-fix round): one of the ingest flow's three entry points,
+            // alongside the first-run wizard's finish hand-off and (AT-03)
+            // orphaned-marker rows. Opens the candidate chooser — every
+            // .env-bearing project under the scan roots not yet in the
+            // vault — with Choose Other… inside it as the hand-picked
+            // fallback. No branching here; the walk and its filters live
+            // tested in `WorkshopModel+Ingest.swift`.
             actionButton(
                 "Ingest Project…",
                 systemImage: "square.and.arrow.down.on.square",
-                help: "Scan a directory for a .env file and bring it into the vault",
+                help: "Import .env-bearing projects found under your scan roots",
                 disabled: model.activity != nil
             ) {
-                ingestProject()
+                Task { await model.presentIngestChooser() }
             }
         }
     }
@@ -306,23 +308,5 @@ struct ActionPanel: View {
         else { return }
         NSWorkspace.shared.open(directory)
         model.announceJump(to: directory)
-    }
-
-    // MARK: - Ingest Project…
-
-    /// Opens a directory picker and hands the chosen directory to
-    /// `beginIngest` — the panel's entry point into the ingest sheet
-    /// (ho-06.3 AT-02, Decision 6).
-    ///
-    /// Cancelling the picker is a no-op.
-    private func ingestProject() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a project directory to scan for .env secrets"
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task { await model.beginIngest(directory: url) }
     }
 }

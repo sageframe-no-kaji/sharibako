@@ -63,6 +63,15 @@ extension WorkshopModel {
         /// scope-ID collision banner (Required Change 1).
         let existingScopeIDs: Set<String>
 
+        /// `true` when a successful commit should re-present the chooser.
+        ///
+        /// Set for sessions opened from the candidate chooser or the wizard
+        /// hand-off — the chooser returns with the remaining candidates, so
+        /// a whole scan root can be imported in one sitting (gate-fix round:
+        /// only the first candidate used to be reachable). Sessions from the
+        /// orphan rows or any future direct entry point do not chain.
+        let chainOnCommit: Bool
+
         /// `true` when the (possibly user-edited) ``scopeID`` names a scope
         /// that already exists — the CLI's collision confirmation (Decision 6).
         ///
@@ -99,6 +108,14 @@ extension WorkshopModel {
         /// keeps the session").
         var errorMessage: String?
 
+        /// The candidate chooser's list, or `nil` when it is not presented.
+        ///
+        /// Holds the `.env`-bearing directories under the scan roots not
+        /// yet bound to the vault (gate-fix round). An empty non-nil array
+        /// presents the chooser in its "nothing new found" state, with
+        /// Choose Other… still available.
+        var candidates: [URL]?
+
         init() {}
     }
 
@@ -120,7 +137,12 @@ extension WorkshopModel {
     /// A no-op while another activity is in flight or the vault is closed
     /// (the panel button is already disabled in that state — this is the
     /// defensive guard, the `materializeSelectedScope`/`sync` precedent).
-    func beginIngest(directory: URL) async {
+    ///
+    /// - Parameters:
+    ///   - directory: The project directory to scan.
+    ///   - chainOnCommit: `true` when the caller is the candidate chooser or
+    ///     the wizard hand-off — see ``IngestSession/chainOnCommit``.
+    func beginIngest(directory: URL, chainOnCommit: Bool = false) async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
@@ -133,7 +155,7 @@ extension WorkshopModel {
                 return try IngestScanPlanner.plan(
                     materializer: materializer, vault: core, directory: directory)
             }
-            applyIngestScanOutcome(outcome, directory: directory)
+            applyIngestScanOutcome(outcome, directory: directory, chainOnCommit: chainOnCommit)
             errorMessage = nil
         } catch {
             errorMessage = Self.message(for: error)
@@ -144,7 +166,9 @@ extension WorkshopModel {
     ///
     /// Split from ``beginIngest(directory:)`` so the awaited worker call
     /// stays a single expression (the `applyMaterializeResult` precedent).
-    private func applyIngestScanOutcome(_ outcome: IngestScanPlanner.Outcome, directory: URL) {
+    private func applyIngestScanOutcome(
+        _ outcome: IngestScanPlanner.Outcome, directory: URL, chainOnCommit: Bool
+    ) {
         switch outcome {
         case .nothingToImport:
             statusMessage = "No secrets found to import in \(directory.lastPathComponent)."
@@ -163,7 +187,8 @@ extension WorkshopModel {
                 scopeType: payload.scopeType,
                 isReconcile: payload.isReconcile,
                 sharedIDs: payload.sharedIDs,
-                existingScopeIDs: payload.existingScopeIDs
+                existingScopeIDs: payload.existingScopeIDs,
+                chainOnCommit: chainOnCommit
             )
             ingest.errorMessage = nil
         }
@@ -258,6 +283,19 @@ extension WorkshopModel {
             let markerURL = proposal.directory.appendingPathComponent(".sharibako")
             statusMessage = Self.ingestSummary(decisions: decisions, markerURL: markerURL)
             errorMessage = nil
+            // Chaining (gate-fix round): a chooser- or wizard-initiated
+            // import re-presents the chooser with whatever is left. The
+            // marker just written excludes this directory from the walk by
+            // construction, so the list shrinks by itself.
+            if session.chainOnCommit {
+                let roots = scanRoots
+                let remaining = await worker.run {
+                    IngestCandidateScanner.findUnboundCandidates(under: roots)
+                }
+                if !remaining.isEmpty {
+                    ingest.candidates = remaining
+                }
+            }
         } catch {
             handle.release()
             ingest.errorMessage = Self.message(for: error)
@@ -306,6 +344,47 @@ extension WorkshopModel {
             + "left alone \(leftAlone), skipped \(skipped) — marker at \(markerURL.path)"
     }
 
+    // MARK: - Candidate chooser (gate-fix round)
+
+    /// Walks every configured scan root for `.env`-bearing directories not
+    /// yet bound to the vault and presents the chooser
+    /// (`IngestChooserSheet`) — the panel's **Ingest Project…** entry point.
+    ///
+    /// Replaces the bare directory picker the verb first shipped with: at
+    /// the gate only the wizard's first candidate was reachable without
+    /// hand-picking every remaining project one folder at a time. Keyless
+    /// (a `.env` walk plus a `.sharibako` existence check per hit), so the
+    /// walk hops to ``worker`` like every scan. Found none → the chooser
+    /// still presents, in its "nothing new" state, with Choose Other…
+    /// available.
+    func presentIngestChooser() async {
+        guard activity == nil else { return }
+        guard case .open = vaultState else { return }
+        activity = .scanning
+        defer { activity = nil }
+        let roots = scanRoots
+        ingest.candidates = await worker.run {
+            IngestCandidateScanner.findUnboundCandidates(under: roots)
+        }
+    }
+
+    /// Closes the candidate chooser without importing anything.
+    func dismissIngestChooser() {
+        ingest.candidates = nil
+    }
+
+    /// Imports one chooser candidate: closes the chooser and opens the
+    /// ingest session on `directory`, chaining back to the chooser after a
+    /// successful commit (``IngestSession/chainOnCommit``).
+    ///
+    /// Also the path Choose Other… takes with a hand-picked directory — a
+    /// deliberate chain there too, so "pick one manually, then keep going"
+    /// stays one sitting.
+    func selectIngestCandidate(_ directory: URL) async {
+        ingest.candidates = nil
+        await beginIngest(directory: directory, chainOnCommit: true)
+    }
+
     // MARK: - Wizard hand-off (Required Change 5)
 
     /// Worker-routed shallow walk of `root` for `.env`-bearing directories —
@@ -322,9 +401,10 @@ extension WorkshopModel {
         await worker.run { IngestCandidateScanner.findCandidates(under: root) }
     }
 
-    /// Opens the ingest sheet on the first (sorted) `.env`-bearing candidate
-    /// found under `root`, or does nothing when none exist (Decision 1 step
-    /// 6, Required Change 5).
+    /// Invites the first import(s) after the wizard finishes: one candidate
+    /// opens the ingest sheet directly; several present the candidate
+    /// chooser; none does nothing (Decision 1 step 6, Required Change 5,
+    /// revised at the gate — only the first candidate used to be offered).
     ///
     /// Called from `FirstRunWizard`'s "Create Vault" flow once
     /// ``completeFirstRun()`` has flipped ``vaultState`` to `.open` — by
@@ -333,13 +413,18 @@ extension WorkshopModel {
     /// `WorkshopWindow` to its `.open` arm before this async chain finishes),
     /// so the result lands on ``ingest`` — model state `WorkshopWindow`
     /// reads reliably regardless of that timing — rather than on any
-    /// `FirstRunWizard`-local `@State` (a judgment call recorded in the ho's
-    /// Reflect: multiple candidates fall back to the panel verb for the
-    /// rest rather than a second picker layered over the vanishing wizard).
+    /// `FirstRunWizard`-local `@State`. Every import from here chains
+    /// (``IngestSession/chainOnCommit``) until the candidate list runs dry.
     func offerFirstRunIngestInvite(under root: URL) async {
-        let candidates = await findFirstRunIngestCandidates(under: root)
-        guard let first = candidates.first else { return }
-        await beginIngest(directory: first)
+        let candidates = await worker.run {
+            IngestCandidateScanner.findUnboundCandidates(under: [root])
+        }
+        guard !candidates.isEmpty else { return }
+        if candidates.count == 1, let only = candidates.first {
+            await beginIngest(directory: only, chainOnCommit: true)
+        } else {
+            ingest.candidates = candidates
+        }
     }
 }
 
@@ -490,6 +575,29 @@ enum IngestCandidateScanner {
         let fileManager = FileManager.default
         var results: [URL] = []
         walk(root, depth: 0, fileManager: fileManager, results: &results)
+        return results.sorted { $0.path < $1.path }
+    }
+
+    /// Runs ``findCandidates(under:)`` across several roots, keeping only
+    /// projects not yet in the vault.
+    ///
+    /// "Not yet in the vault" means no `.sharibako` marker in the directory
+    /// (the chooser's population; gate-fix round). Deduplicated by
+    /// standardized path (overlapping roots would list a project twice),
+    /// sorted for stable display.
+    static func findUnboundCandidates(under roots: [URL]) -> [URL] {
+        let fileManager = FileManager.default
+        var seen = Set<String>()
+        var results: [URL] = []
+        for root in roots {
+            for candidate in findCandidates(under: root) {
+                let standardized = candidate.standardizedFileURL
+                guard seen.insert(standardized.path).inserted else { continue }
+                let markerURL = standardized.appendingPathComponent(".sharibako")
+                guard !fileManager.fileExists(atPath: markerURL.path) else { continue }
+                results.append(standardized)
+            }
+        }
         return results.sorted { $0.path < $1.path }
     }
 

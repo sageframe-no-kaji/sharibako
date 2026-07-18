@@ -261,6 +261,19 @@ struct WorkshopWindow: View {
             ) {
                 IngestSheet()
             }
+            // Ingest candidate chooser (ho-06.3 gate-fix round): presented
+            // whenever `model.ingest.candidates` is non-nil — from the panel
+            // verb, the wizard hand-off with several candidates, and the
+            // post-commit chain. System dismissal (Escape) closes it exactly
+            // like its own Done button.
+            .sheet(
+                isPresented: .init(
+                    get: { model.ingest.candidates != nil },
+                    set: { if !$0 { model.dismissIngestChooser() } }
+                )
+            ) {
+                IngestChooserSheet()
+            }
         }
     }
 
