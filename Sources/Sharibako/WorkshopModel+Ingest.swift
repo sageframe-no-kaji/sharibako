@@ -275,7 +275,8 @@ extension WorkshopModel {
                     proposal, decisions: decisions, scopeID: scopeID, scopeType: scopeType)
             }
             handle.release()
-            await refreshScanCacheAfterIngestCommit()
+            let markerFileURL = proposal.directory.appendingPathComponent(".sharibako")
+            await spliceIngestMarkerIntoScanCache(markerURL: markerFileURL)
             loadScopes()
             selectedScopeID = scopeID
             ingest.session = nil
@@ -302,24 +303,31 @@ extension WorkshopModel {
         }
     }
 
-    /// Re-scans the configured roots after a commit so the sidebar glyphs
-    /// reflect the marker `acceptIngest` just wrote (Required Change 3).
+    /// Splices the marker a commit just wrote into the cached scan report so
+    /// the sidebar glyphs are right immediately (Required Change 3; reworked
+    /// at the gate).
     ///
-    /// A no-op with no configured roots — the `performLaunchScan` precedent.
-    /// Failures are swallowed here: the ingest itself already succeeded, and
-    /// the next Rescan (or launch) will pick up the fresh marker; there is
-    /// nothing actionable a scan failure at this point would tell the user
-    /// that a later scan wouldn't also surface.
-    private func refreshScanCacheAfterIngestCommit() async {
+    /// The first shape of this re-ran `Materializer.scan` over every root
+    /// after each commit — an unbounded walk through `.git`/`node_modules`
+    /// forests that made every chained import cost a full tree-walk of the
+    /// whole dev vault ("why is import SO SLOW"). The marker's path is known;
+    /// one file read replaces the walk — the orphan-removal side's
+    /// local-cache-filtering precedent, in reverse. Failures are swallowed:
+    /// the ingest already succeeded and the next Rescan or launch scan
+    /// self-corrects the cache.
+    private func spliceIngestMarkerIntoScanCache(markerURL: URL) async {
         guard case .open(let vaultURL) = vaultState else { return }
-        let roots = scanRoots
-        guard !roots.isEmpty else { return }
-        let report = try? await worker.run {
+        let marker = try? await worker.run {
             let core = try VaultCore(vaultURL: vaultURL)
-            return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            return try Materializer(vaultCore: core, vaultURL: vaultURL).loadMarker(at: markerURL)
         }
-        guard let report else { return }
-        updateScanReport(report)
+        guard let marker else { return }
+        let existing = scanReport ?? ScanReport(markers: [], failures: [])
+        var markers = existing.markers.filter {
+            $0.markerURL.standardizedFileURL.path != markerURL.standardizedFileURL.path
+        }
+        markers.append(marker)
+        updateScanReport(ScanReport(markers: markers, failures: existing.failures))
     }
 
     /// Mirrors `InitCommand.reportResult`'s summary line without importing

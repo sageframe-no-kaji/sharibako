@@ -191,9 +191,18 @@ struct IngestSheet: View {
                         .foregroundStyle(Color.inkTertiary)
                 }
                 Spacer()
-                Text("••••••••")
+                // Shown in the clear, deliberately (ho-06.3 gate finding):
+                // the value comes straight from the plaintext .env already
+                // readable in the project — masking it here protects nothing
+                // and hides exactly what the verdict judgment needs ("I can't
+                // always remember what is important or not").
+                Text(key.value)
                     .font(.system(.body, design: .monospaced))
-                    .foregroundStyle(Color.inkTertiary)
+                    .foregroundStyle(Color.inkSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 260, alignment: .trailing)
+                    .textSelection(.enabled)
             }
             Picker("Verdict", selection: verdictBinding(for: key, session: session)) {
                 Text("Import as scope-local").tag(DecisionKind.importAsLocal)
