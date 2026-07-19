@@ -173,10 +173,17 @@ extension WorkshopModel {
     /// Checks whether a Sharibako Keychain key already exists and updates
     /// the key mode in ``firstRun``.
     ///
-    /// Called when the key page appears.
+    /// Called when the key page appears. A hard no-op in
+    /// ``FirstRunMode/tour`` (gate-fix round, 2026-07-19): a key item
+    /// carrying a legacy ACL can raise a system authentication prompt even
+    /// from the no-auth existence query, and a read-only tour must never
+    /// prompt — the tour's key page renders
+    /// ``tourKeySourceDescription`` (what the app already knows) instead
+    /// of probing.
     ///
     /// - Parameter store: The Keychain probe seam (see ``productionKeychainStore()``).
     func checkExistingKeychainKey(store: GUIKeychainStore = productionKeychainStore()) {
+        guard firstRun.mode == .firstRun else { return }
         do {
             if try GUIAgeKeyBootstrap.keychainKeyExists(store: store) {
                 firstRun.keyMode = .existingKeyFound
@@ -250,6 +257,22 @@ extension WorkshopModel {
         }
         guard firstRun.keyMode == .existingKeyFound else { return }
         firstRun.page = .root
+    }
+
+    /// The tour key page's live-truth line (gate-fix round, 2026-07-19):
+    /// which key source this Workshop is actually running on, stated from
+    /// what the app already knows — never from a Keychain probe (see
+    /// ``checkExistingKeychainKey(store:)``'s tour guard). This also
+    /// corrects the tour's old "No key found" warning, which read as
+    /// misinformation while a `SHARIBAKO_AGE_KEY` file key was actively
+    /// decrypting the vault on screen.
+    var tourKeySourceDescription: String {
+        if let devAgeKeyPath {
+            return "This Workshop is running on a file-based key (the dev bypass): "
+                + "\(devAgeKeyPath.path)."
+        }
+        return "Your key lives in this Mac's Keychain — every decrypt asks for "
+            + "Touch ID or your password."
     }
 
     /// Whether the key page should offer Generate/Import actions.

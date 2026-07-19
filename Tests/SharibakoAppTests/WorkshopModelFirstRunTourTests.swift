@@ -222,6 +222,51 @@ struct WorkshopModelFirstRunTourTests {
         }
     }
 
+    // MARK: - The tour never probes the Keychain (gate-fix round, 2026-07-19)
+
+    @Test("checkExistingKeychainKey is a no-op in tour mode — the tour never probes the Keychain")
+    func keychainProbeNoOpInTourMode() throws {
+        try WorkshopTestSupport.withTempDirectory { home in
+            try WorkshopTestSupport.withTempVault { vault in
+                let model = FirstRunTestSupport.openVaultModel(vault: vault, home: home)
+                model.presentWelcomeTour()
+                model.firstRun.page = .key
+
+                // A store that WOULD report a key: the guard means the
+                // result never lands on keyMode.
+                let store = FakeKeychainStore()
+                store.existsResult = true
+                model.checkExistingKeychainKey(store: store)
+                #expect(model.firstRun.keyMode == .notChosen)
+
+                // A store that WOULD throw: the guard means no error
+                // surfaces either — the probe simply never runs.
+                let failingStore = FakeKeychainStore()
+                failingStore.existsError = AgeKeyAccessError.keychainLoadFailed(osStatus: -1)
+                model.checkExistingKeychainKey(store: failingStore)
+                #expect(model.firstRun.errorMessage == nil)
+            }
+        }
+    }
+
+    @Test("tourKeySourceDescription states the Keychain by default and the file path under a dev key")
+    func tourKeySourceDescriptionStatesLiveTruth() throws {
+        try WorkshopTestSupport.withTempDirectory { home in
+            try WorkshopTestSupport.withTempVault { vault in
+                let keychainModel = FirstRunTestSupport.openVaultModel(vault: vault, home: home)
+                #expect(keychainModel.tourKeySourceDescription.contains("Keychain"))
+
+                let keyPath = home.appendingPathComponent("scratch-key.txt").path
+                let fileKeyModel = FirstRunTestSupport.openVaultModel(
+                    vault: vault,
+                    home: home,
+                    environmentExtra: ["SHARIBAKO_AGE_KEY": keyPath]
+                )
+                #expect(fileKeyModel.tourKeySourceDescription.contains(keyPath))
+            }
+        }
+    }
+
     // MARK: - firstRunKeyPageOffersActions
 
     @Test("firstRunKeyPageOffersActions is false in tour mode regardless of keyMode")

@@ -123,6 +123,16 @@ struct FirstRunWizard: View {
                 }
                 .disabled(!model.firstRunCanContinue)
                 .keyboardShortcut(.defaultAction)
+            } else if model.firstRun.mode == .tour {
+                // The tour's Done lives in the footer button row like every
+                // other page-advancing control — it sat inside the page body
+                // on the first cut and read as content, not chrome (gate-fix
+                // round, 2026-07-19). Default action so Return closes the
+                // sheet the way it advances every earlier page.
+                Button("Done") {
+                    model.dismissWelcomeTour()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
@@ -223,12 +233,12 @@ extension FirstRunWizard {
                         }
                     }
                 } else {
-                    Text(
-                        "No key found in this Mac's Keychain yet. Generate or import "
-                            + "one from Sharibako's first-run setup, or from the "
-                            + "sharibako CLI."
-                    )
-                    .foregroundStyle(Color.drift)
+                    // Tour only (see `firstRunKeyPageOffersActions`): live
+                    // key-source truth, never a probe result — the tour's
+                    // key page must not touch the Keychain at all (gate-fix
+                    // round, 2026-07-19).
+                    Text(model.tourKeySourceDescription)
+                        .foregroundStyle(Color.inkSecondary)
                 }
             }
             if let message = model.firstRun.errorMessage {
@@ -414,9 +424,7 @@ extension FirstRunWizard {
                     .foregroundStyle(Color.ink)
                 Text("Your vault, key, and remote are all set up — nothing changed here.")
                     .foregroundStyle(Color.inkSecondary)
-                Button("Done") {
-                    model.dismissWelcomeTour()
-                }
+                // Done moved to the footer (gate-fix round, 2026-07-19).
             } else {
                 Text("Ready to create your vault.")
                     .font(.headline)
