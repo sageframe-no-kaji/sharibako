@@ -63,7 +63,15 @@ struct FirstRunWizard: View {
             Divider()
             footer
         }
-        .frame(minWidth: 560, minHeight: 520)
+        // FIXED size, not a minimum (ho-06.3 gate finding): under the
+        // scene's `.windowResizability(.contentSize)` this pins the window
+        // itself to one compact setup-assistant frame — no resize handles,
+        // no dead space at large sizes, no sheared-off footer at small ones
+        // (the old scene-level min 440 undercut this view's min 520 and let
+        // the window clip the Continue button). The tour sheet takes the
+        // same fixed size, which is what sheets want anyway. Long page
+        // content still scrolls inside the ScrollView above.
+        .frame(width: 640, height: 480)
         .background(Color.ground)
     }
 

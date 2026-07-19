@@ -298,6 +298,13 @@ struct WorkshopWindow: View {
                     FirstRunWizard(expectedPath: vaultURL)
                 }
             }
+            // The open Workshop's size floor, formerly scene-level in
+            // `App.swift` (ho-06.3 gate-fix round). It moved here so the
+            // `.noVault` arm's wizard can declare its own fixed compact frame
+            // instead of inheriting a three-pane window's minimum; under the
+            // scene's `.windowResizability(.contentSize)` the unbounded max
+            // is what keeps the open Workshop freely resizable.
+            .frame(minWidth: 720, maxWidth: .infinity, minHeight: 440, maxHeight: .infinity)
         }
     }
 
