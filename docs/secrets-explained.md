@@ -7,8 +7,7 @@ when the story changes, change it here first.
 
 Structure follows the `*, Actually` ethos: organized by what a person arrives
 *wondering*, not by product surface; layered so a reader can stop at a name, a
-definition, or the full theory; and built around **"actually" corrections** —
-the places where the naive model everyone carries is wrong, named and fixed.
+definition, or the full theory; and built around **"actually" corrections**—the places where the naive model everyone carries is wrong, named and fixed.
 
 ---
 
@@ -170,8 +169,7 @@ things.)*
 > **Rotate once, not eight times.**
 > A key shared across projects lives in the vault exactly once; projects link
 > to it. Change it in one place and every project picks up the new value.
-> Sharibako can also tell you which `.env` files have drifted from the vault —
-> and fix them.
+> Sharibako can also tell you which `.env` files have drifted from the vault—> and fix them.
 
 > **Or skip the file entirely.**
 > `sharibako run npm start` decrypts your secrets in memory, injects them into
@@ -209,8 +207,7 @@ and shared keys live once instead of eight times. The working file goes from
 *single point of failure* to *cache*.
 
 **What if someone steals my laptop?**
-FileVault (Mac full-disk encryption, on by default) is your protection there —
-for everything on the disk, `.env` files included. Sharibako adds that the
+FileVault (Mac full-disk encryption, on by default) is your protection there—for everything on the disk, `.env` files included. Sharibako adds that the
 vault's contents are ciphertext even *inside* the disk image, and your
 decryption key is in the Keychain, which the thief can't open without your
 fingerprint or password.
@@ -239,13 +236,11 @@ Drive, a printed copy, a password manager). Vault + key = everything;
 vault − key = nothing.
 
 **What happens if I lose the vault?**
-If you configured a remote: `git clone`, restore your key, materialize —
-you're back. If you never set a remote and the disk is gone, the vault is
+If you configured a remote: `git clone`, restore your key, materialize—you're back. If you never set a remote and the disk is gone, the vault is
 gone. Set the remote. It's one field in first-run.
 
 **Where does my key live day-to-day?**
-In the macOS Keychain, stored so that reading it requires user presence —
-Touch ID or your password. When Sharibako needs it, it asks, uses it, and
+In the macOS Keychain, stored so that reading it requires user presence—Touch ID or your password. When Sharibako needs it, it asks, uses it, and
 scrubs the temporary copy. A successful Touch ID is reused for five minutes so
 bulk operations don't prompt you per secret.
 
@@ -256,8 +251,7 @@ lets you decide per key: import it, mark it shared, leave it alone, or skip
 it.
 
 **Two of us share a project. Can we share the vault?**
-Two humans who trust each other can share the vault repo and the key —
-it works fine. What Sharibako doesn't have is *team features*: no per-person
+Two humans who trust each other can share the vault repo and the key—it works fine. What Sharibako doesn't have is *team features*: no per-person
 access, no audit log of who read what, no revoking one person. When you need
 those, you've outgrown the tool—use a team secret manager.
 
@@ -370,8 +364,7 @@ common family:
 Environment variables themselves are the actual interface: a process inherits
 a set of named strings from whatever launched it. `.env` files are just one
 way to populate them; a shell `export`, a launcher like direnv, a container
-runtime, or `sharibako run` are others. Programs can't tell which was used —
-that neutrality is why Sharibako can slot in without any project changes.
+runtime, or `sharibako run` are others. Programs can't tell which was used—that neutrality is why Sharibako can slot in without any project changes.
 
 ### The options for storing developer secrets
 
@@ -401,8 +394,7 @@ dependency, auth ceremony, cost), and exactly right for production. Sharibako
 deliberately does not compete here.
 
 **Encrypted-in-repo (SOPS, git-crypt, raw `age` by hand).** Closest cousin:
-ciphertext in git, plaintext at use. This is the right *architecture* —
-Sharibako shares it—delivered as composable primitives: no project binding,
+ciphertext in git, plaintext at use. This is the right *architecture*—Sharibako shares it—delivered as composable primitives: no project binding,
 no materialize/regenerate loop, no drift detection, no shared-key
 deduplication, no GUI, key custody is on you. If you'd enjoy assembling that
 from parts, you'd enjoy those tools; Sharibako is that architecture with the
