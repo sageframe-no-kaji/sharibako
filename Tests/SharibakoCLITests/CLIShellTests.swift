@@ -64,4 +64,19 @@ struct CLIShellTests {
         #expect(result.stdout.isEmpty)
         #expect(result.stderr.isEmpty)
     }
+
+    // MARK: - Non-UTF-8 output and an absent PATH
+
+    @Test("Output that is not valid UTF-8 decodes to an empty string, not a crash")
+    func nonUTF8OutputDecodesEmpty() throws {
+        let sh = try CLIShell.findExecutable("sh")
+        let result = try CLIShell.run(sh, ["-c", #"printf '\377'; printf '\376' >&2"#])
+        #expect(result.stdout.isEmpty)
+        #expect(result.stderr.isEmpty)
+    }
+
+    @Test("A nil PATH still searches the fixed fallback directories")
+    func nilPathFallsBackToFixedList() throws {
+        #expect(try CLIShell.findExecutable("env", pathVariable: nil).path.hasSuffix("/env"))
+    }
 }

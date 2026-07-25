@@ -198,4 +198,22 @@ struct ShellTests {
         }
         #expect(name == bogus)
     }
+
+    // MARK: - Non-UTF-8 output and an absent PATH
+
+    @Test("Output that is not valid UTF-8 decodes to an empty string, not a crash")
+    func nonUTF8OutputDecodesEmpty() throws {
+        let sh = try Shell.findExecutable("sh")
+        // Raw 0xFF/0xFE bytes are not valid UTF-8 in any position.
+        let result = try Shell.run(sh, ["-c", #"printf '\377'; printf '\376' >&2"#])
+        #expect(result.stdout.isEmpty)
+        #expect(result.stderr.isEmpty)
+    }
+
+    @Test("A nil PATH still searches the fixed fallback directories")
+    func nilPathFallsBackToFixedList() throws {
+        // `env` lives in /usr/bin, which is on the fallback list, so lookup
+        // succeeds even with no PATH at all.
+        #expect(try Shell.findExecutable("env", pathVariable: nil).path.hasSuffix("/env"))
+    }
 }
