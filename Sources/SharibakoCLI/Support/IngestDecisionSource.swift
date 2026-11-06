@@ -5,7 +5,7 @@ import SharibakoCore
 ///
 /// The concrete implementations shipped in this module are:
 /// - ``PlainIngestPrompt`` — line-based interactive TTY prompt.
-/// - ``ClassDefaultIngestDecisionSource`` — `init --yes` / non-TTY: every
+/// - ``ClassDefaultIngestDecisionSource`` — `init --yes`: every
 ///   line takes its ``SecretClassifier`` default, printed per key.
 /// - ``ScriptedIngestDecisionSource`` — deterministic double used by tests.
 protocol IngestDecisionSource {

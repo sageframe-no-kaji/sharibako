@@ -4,8 +4,10 @@ import Testing
 @testable import SharibakoCLI
 @testable import SharibakoCore
 
-/// `init --yes` and `init` without a terminal: the class defaults apply and
-/// each line's class is printed (ho-06.10 Decision 3).
+/// `init --yes` and `init` without a terminal (ho-06.10 Decision 3).
+///
+/// Under `--yes` the class defaults apply and each line's class is printed.
+/// Without a terminal and without `--yes`, `init` refuses and writes nothing.
 @Suite("InitCommand — --yes and non-TTY defaults")
 struct InitCommandYesTests {
     private static let mixedEnv = """
@@ -38,12 +40,54 @@ struct InitCommandYesTests {
         #expect(cmd.makeDecisionSource(isInteractive: false) is ClassDefaultIngestDecisionSource)
     }
 
-    @Test("without --yes: a terminal gets the prompt, no terminal gets the class defaults")
-    func noYesFollowsTerminal() throws {
+    @Test("without --yes: the prompt is used, terminal or not, and carries the TTY answer")
+    func noYesUsesPrompt() throws {
         let cmd = try InitCommand.parse([])
         #expect(!cmd.yes)
-        #expect(cmd.makeDecisionSource(isInteractive: true) is PlainIngestPrompt)
-        #expect(cmd.makeDecisionSource(isInteractive: false) is ClassDefaultIngestDecisionSource)
+        let interactive = cmd.makeDecisionSource(isInteractive: true) as? PlainIngestPrompt
+        let piped = cmd.makeDecisionSource(isInteractive: false) as? PlainIngestPrompt
+        #expect(interactive?.isInteractive() == true)
+        #expect(piped?.isInteractive() == false)
+    }
+
+    @Test("non-TTY without --yes refuses with notInteractiveTerminal and writes nothing")
+    func nonTTYWithoutYesRefuses() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: Self.mixedEnv) { projectDir in
+                let cmd = try makeCommand(vaultURL: vaultURL, keyURL: keyURL, yes: false)
+                #expect(throws: CLIError.notInteractiveTerminal) {
+                    try cmd._run(
+                        cwd: projectDir,
+                        decisionSource: cmd.makeDecisionSource(isInteractive: false)
+                    ) { nil }
+                }
+                #expect(!FileManager.default.fileExists(atPath: projectDir.appendingPathComponent(".sharibako").path))
+                #expect(try VaultCore(vaultURL: vaultURL).listScopes().isEmpty)
+            }
+        }
+    }
+
+    @Test("non-TTY with --yes commits the class defaults")
+    func nonTTYWithYesCommits() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: Self.mixedEnv) { projectDir in
+                let cmd = try makeCommand(vaultURL: vaultURL, keyURL: keyURL, yes: true)
+                // The production source for a non-TTY --yes run; swap only its print sink.
+                var source = try #require(
+                    cmd.makeDecisionSource(isInteractive: false) as? ClassDefaultIngestDecisionSource
+                )
+                var printed: [String] = []
+                source.print = { printed.append($0) }
+                try cmd._run(cwd: projectDir, decisionSource: source, lineReader: cmd.makeLineReader())
+
+                #expect(printed.count == 5)
+                let vault = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+                let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+                let marker = try materializer.loadMarker(at: projectDir.appendingPathComponent(".sharibako"))
+                let owned = Set(try vault.inspect(marker.scope).map(\.key))
+                #expect(owned == ["OPENAI_API_KEY", "DATABASE_URL", "CLOUDFLARE_ACCOUNT_ID"])
+            }
+        }
     }
 
     @Test("--yes answers no prompt, so every prompt takes its default")

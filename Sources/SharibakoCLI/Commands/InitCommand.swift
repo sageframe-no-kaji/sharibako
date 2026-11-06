@@ -9,8 +9,9 @@ import SharibakoCore
 /// each line with its class and asks once whether to take the defaults —
 /// protect the secrets, leave the settings alone — with per-key overrides
 /// (import as scope-local, link to shared, move to shared, leave alone, skip)
-/// when declined. Under `--yes`, or with no terminal on stdin, the defaults
-/// apply and each line's class is printed (ho-06.10 Decision 3). The chosen
+/// when declined. Under `--yes` the defaults apply and each line's class is
+/// printed (ho-06.10 Decision 3); without a terminal and without `--yes` it
+/// refuses rather than apply defaults nobody asked for. The chosen
 /// secrets are written to the vault and a `.sharibako` marker binds the
 /// directory to its scope.
 ///
@@ -39,12 +40,13 @@ struct InitCommand: AsyncParsableCommand {
             byte-for-byte untouched - it is the runtime artifact, not a duplicate \
             to clean up.
 
-            With --yes, or when stdin is not a terminal, 'init' takes the \
-            defaults without asking and prints one line per key before \
+            With --yes, 'init' takes the defaults without asking and prints \
+            one line per key before \
             committing: PROTECT or LEAVE, the key, and the reason. --yes also \
             takes the other prompts' defaults: the suggested scope ID (which \
             never names an existing scope), the default scope type, and \
-            generating an age key if none exists.
+            generating an age key if none exists. Without a terminal, 'init' \
+            requires --yes and refuses otherwise.
 
             If no age key exists yet 'init' offers to generate one inline \
             (suppress with --no-generate). Re-running 'init' in an \
@@ -102,11 +104,19 @@ struct InitCommand: AsyncParsableCommand {
 
     // MARK: - Internal for testing
 
-    /// The decision source for this run: the interactive prompt in a
-    /// terminal, the class defaults under `--yes` or without one.
+    /// The decision source for this run: the class defaults under `--yes`,
+    /// otherwise the interactive prompt.
+    ///
+    /// Without `--yes` the prompt's TTY guard decides: with no terminal it
+    /// refuses with ``CLIError/notInteractiveTerminal`` before anything is
+    /// written. A secrets tool never writes a vault and a claim file from a
+    /// script that did not ask — the CLI's consent grammar is that commands
+    /// which confirm interactively require `--yes` when stdin is not a terminal.
     func makeDecisionSource(isInteractive: Bool) -> any IngestDecisionSource {
-        if yes || !isInteractive { return ClassDefaultIngestDecisionSource() }
-        return PlainIngestPrompt()
+        if yes { return ClassDefaultIngestDecisionSource() }
+        var prompt = PlainIngestPrompt()
+        prompt.isInteractive = { isInteractive }
+        return prompt
     }
 
     /// The reader for the scope and key-generation prompts.

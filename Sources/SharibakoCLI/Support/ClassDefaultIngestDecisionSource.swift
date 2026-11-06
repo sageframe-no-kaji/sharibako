@@ -3,8 +3,8 @@ import SharibakoCore
 /// The non-interactive ``IngestDecisionSource``: every line takes its class
 /// default from ``SecretClassifier``, and each line's class is printed.
 ///
-/// Used by `init --yes` and by `init` when stdin is not a terminal (ho-06.10
-/// Decision 3). Secrets are imported as scope-local and settings are left
+/// Used by `init --yes` only (ho-06.10 Decision 3); without `--yes`, a run
+/// with no terminal refuses instead. Secrets are imported as scope-local and settings are left
 /// alone. A script cannot look at a review screen, so the source prints one
 /// line per key to stdout before anything is committed:
 ///
