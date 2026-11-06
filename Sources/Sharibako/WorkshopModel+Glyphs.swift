@@ -1,70 +1,23 @@
 import Foundation
 import SharibakoCore
 
-/// Three-state glyph reads for the sidebar (ho-06.2 AT-01, Decision 2).
+/// Unlinked-marker reads for the sidebar (ho-06.2 AT-01, Decision 2b).
 ///
 /// Every value here is computed from state `WorkshopModel.swift` already owns —
 /// the in-memory scan cache (``WorkshopModel/scanReport``) intersected with the
 /// loaded ``WorkshopModel/scopes``. Nothing here re-walks the tree
 /// (`Materializer.status` does, and is the exact cost the ho-06.1 scan cache
-/// exists to kill), decrypts, or touches an age key: glyph state is filesystem
-/// *presence*, not value comparison. Value comparison is drift — AT-02's
-/// `WorkshopModel+Heal.swift` — and is the reason glyphs are free and drift is
-/// not.
+/// exists to kill), decrypts, or touches an age key.
+///
+/// ho-06.9 folded this file's per-scope glyph (`GlyphState`) into
+/// ``WorkshopModel/ProjectStatus`` (`WorkshopModel+Projects.swift`); what
+/// stays is ``UnlinkedMarker`` — the payload of the Problem status — and its
+/// derivation, which the "Needs attention" section reads.
 ///
 /// Kept in its own file matching the `Conduit`/`Conduit+Remote.swift` split
 /// precedent so `WorkshopModel.swift` stays under SwiftLint's `file_length`
 /// ceiling.
 extension WorkshopModel {
-    /// Where a vault scope's secrets live from this machine's point of view,
-    /// computed from the scan cache (Decision 2a).
-    ///
-    /// A two-case enum — the third plan state, `orphaned`, is a property of a
-    /// *marker without a scope*, not of a scope row, so it is modelled
-    /// separately as an ``UnlinkedMarker`` rather than a third glyph case that
-    /// scope rows could never carry.
-    enum GlyphState: Equatable {
-        /// A marker for this scope sits in the configured scan roots — the
-        /// scope's `.env` can be materialized here.
-        case liveHere
-        /// The scope exists in the vault but no marker for it appears in the
-        /// scan roots — it lives on another machine (or hasn't been scanned).
-        case liveElsewhere
-
-        /// SF Symbol for the row's leading glyph.
-        ///
-        /// Distinction is carried by *shape*, not color alone (colorblind-safe,
-        /// Decision Discovery): a filled anchored pin for here, a hollow
-        /// outward arrow for elsewhere.
-        var symbolName: String {
-            switch self {
-            case .liveHere: return "mappin.circle.fill"
-            case .liveElsewhere: return "arrow.up.forward.circle"
-            }
-        }
-
-        /// The row's help tooltip naming the state.
-        var helpText: String {
-            switch self {
-            case .liveHere: return "Materialized here — a marker for this scope is in the scan roots"
-            case .liveElsewhere: return "Lives on another machine — no marker in the scan roots"
-            }
-        }
-    }
-
-    /// The glyph state for `scopeID`, read from the scan cache only (Decision 2a).
-    ///
-    /// `.liveHere` when ``scanReport`` holds a marker whose `scope` equals
-    /// `scopeID`; `.liveElsewhere` otherwise — including the cold-cache case
-    /// (``scanReport`` nil), which is the honest pre-scan answer: we have not
-    /// found a marker here. Synchronous, pure over current state, no worker, no
-    /// Touch ID. Only ever called for rows built from ``scopes``, so scope
-    /// membership is a given; the state is entirely about marker presence.
-    func glyphState(forScope scopeID: String) -> GlyphState {
-        let hasMarker = scanReport?.markers.contains { $0.scope == scopeID } ?? false
-        return hasMarker ? .liveHere : .liveElsewhere
-    }
-
     /// One row in the sidebar's "Unlinked markers" section (Decision 2b).
     ///
     /// Surfacing only — a marker the vault can't place, or a `.sharibako` that

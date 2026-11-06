@@ -49,8 +49,7 @@ struct WorkshopModelIngestTests {
             scopeType: .projectDev,
             isReconcile: false,
             sharedIDs: [],
-            existingScopeIDs: ["bento"],
-            chainOnCommit: false
+            existingScopeIDs: ["bento"]
         )
         #expect(base.isScopeCollision == true)
 
@@ -62,8 +61,7 @@ struct WorkshopModelIngestTests {
             scopeType: .projectDev,
             isReconcile: true,
             sharedIDs: [],
-            existingScopeIDs: ["bento"],
-            chainOnCommit: false
+            existingScopeIDs: ["bento"]
         )
         #expect(reconcileSession.isScopeCollision == false)
 

@@ -228,7 +228,7 @@ struct WorkshopWindow: View {
                 titleVisibility: .visible
             ) {
                 Button("Remove Marker", role: .destructive) {
-                    model.confirmRemoveStrayMarker()
+                    Task { await model.confirmRemoveStrayMarker() }
                 }
                 Button("Cancel", role: .cancel) {
                     model.dismissStrayMarkerRemoval()
@@ -251,9 +251,9 @@ struct WorkshopWindow: View {
                 }
             }
             // Ingest sheet (ho-06.3 AT-02, Decision 6): presented whenever
-            // `model.ingest.session` is non-nil, from any of its three entry
-            // points (the panel verb, the first-run wizard's finish
-            // hand-off, and — AT-03 — orphaned-marker rows). Dismissing via
+            // `model.ingest.session` is non-nil, from any of its entry points
+            // (ho-06.9 Decision 6: the Protect verbs and orphaned-marker
+            // rows). Dismissing via
             // the system chrome (swipe/Escape) discards the session exactly
             // like the sheet's own Cancel button — the `envPreview` sheet's
             // dismiss-clears-state precedent.
@@ -264,19 +264,6 @@ struct WorkshopWindow: View {
                 )
             ) {
                 IngestSheet()
-            }
-            // Ingest candidate chooser (ho-06.3 gate-fix round): presented
-            // whenever `model.ingest.candidates` is non-nil — from the panel
-            // verb, the wizard hand-off with several candidates, and the
-            // post-commit chain. System dismissal (Escape) closes it exactly
-            // like its own Done button.
-            .sheet(
-                isPresented: .init(
-                    get: { model.ingest.candidates != nil },
-                    set: { if !$0 { model.dismissIngestChooser() } }
-                )
-            ) {
-                IngestChooserSheet()
             }
             // Welcome tour (ho-06.3 gate-fix round): the Help-menu re-entry
             // into the SAME wizard the fresh-machine path renders as main

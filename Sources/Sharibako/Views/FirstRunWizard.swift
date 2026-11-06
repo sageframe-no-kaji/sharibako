@@ -47,8 +47,9 @@ struct FirstRunWizard: View {
     ///
     /// Computed by the finish page's `.task`, purely informational here (the
     /// tested walk lives in `WorkshopModel+Ingest.swift`'s
-    /// `IngestCandidateScanner`); "Create Vault" doubles as the tap that
-    /// starts the first ingest once these are known — see ``createVault()``.
+    /// `IngestCandidateScanner`). Nothing is offered from here (ho-06.9
+    /// Decision 5): the launch scan finds the same folders, and the window
+    /// opens on the first of them under "Not protected" (Decision 4).
     @State private var ingestCandidatePreview: [URL] = []
 
     var body: some View {
@@ -468,7 +469,7 @@ extension FirstRunWizard {
             VStack(alignment: .leading, spacing: 4) {
                 Text(
                     "Found \(ingestCandidatePreview.count) project(s) with a .env file — "
-                        + "Create Vault will offer to import the first one:"
+                        + "they'll be waiting under Not protected."
                 )
                 .foregroundStyle(Color.inkSecondary)
                 ForEach(ingestCandidatePreview, id: \.path) { url in
@@ -481,25 +482,16 @@ extension FirstRunWizard {
     }
 
     private var createVaultButtonLabel: String {
-        if isCreating { return "Creating…" }
-        return ingestCandidatePreview.isEmpty ? "Create Vault" : "Create Vault & Import"
+        isCreating ? "Creating…" : "Create Vault"
     }
 
     private func createVault() {
         isCreating = true
         Task {
+            // The hand-off is the window itself (ho-06.9 Decision 5): once
+            // the vault exists, `WorkshopWindow`'s `.open` arm runs the launch
+            // scan, which finds these folders and opens on the first one.
             await model.completeFirstRun()
-            if model.firstRunCompleted, let root = model.firstRun.scanRoot {
-                // The seam AT-02 consumes (Decision 1 step 6): candidates
-                // found → the invite leads straight into the ingest sheet,
-                // presented over `WorkshopWindow`'s now-`.open` arm (this
-                // view may already be off-screen by the time the scan
-                // resolves — the result lands on model state, not here; see
-                // `offerFirstRunIngestInvite`'s doc). None found → nothing
-                // further happens, which is simply the plain open Workshop
-                // the wizard hands off to.
-                await model.offerFirstRunIngestInvite(under: root)
-            }
             isCreating = false
         }
     }

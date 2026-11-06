@@ -391,7 +391,7 @@ struct WorkshopModelActionTests {
             #expect(!panelCalled)
             #expect(model.errorMessage == nil)
             // The action visibly concludes: a status line reports the result.
-            #expect(model.statusMessage?.hasPrefix("Scan found") == true)
+            #expect(model.statusMessage?.hasPrefix("Found") == true)
         }
     }
 

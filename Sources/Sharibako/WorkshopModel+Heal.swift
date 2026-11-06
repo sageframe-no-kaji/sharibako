@@ -22,7 +22,8 @@ extension WorkshopModel {
     ///
     /// Drifted when any owned key is `.fileValueDiffers`, `.fileMissing`, or
     /// `.fileLineCorrupted`; clean when every owned key is `.match`. Drives both
-    /// the sidebar badge and the Materialize-all-stale set.
+    /// the Out-of-date status (``projectStatus(forScope:)``) and the
+    /// Materialize-all-stale set.
     static func isDrifted(_ report: DriftReport) -> Bool {
         report.owned.contains { drift in
             switch drift {
@@ -32,7 +33,7 @@ extension WorkshopModel {
         }
     }
 
-    /// The number of drifted owned keys in a report — the badge tooltip count.
+    /// The number of drifted owned keys in a report — the Out-of-date count.
     static func driftedKeyCount(_ report: DriftReport) -> Int {
         report.owned.reduce(into: 0) { count, drift in
             switch drift {
@@ -75,45 +76,7 @@ extension WorkshopModel {
         }
     }
 
-    // MARK: - Badge + per-key reads (cache-only, synchronous)
-
-    /// The sidebar drift badge for `scopeID`, or `nil` when no check has run
-    /// for it — the row then shows only its AT-01 glyph, no badge.
-    enum DriftBadge: Equatable {
-        /// Every owned key is in sync as of the last check.
-        case clean
-        /// `keyCount` owned keys have drifted as of the last check.
-        case drifted(keyCount: Int)
-
-        /// SF Symbol — shape-distinct (colorblind-safe) from the AT-01 glyphs
-        /// and from each other.
-        var symbolName: String {
-            switch self {
-            case .clean: return "checkmark.seal"
-            case .drifted: return "exclamationmark.triangle.fill"
-            }
-        }
-
-        /// The badge's help tooltip.
-        var helpText: String {
-            switch self {
-            case .clean:
-                return "In sync — the materialized .env matches the vault as of the last check"
-            case .drifted(let keyCount):
-                return "\(keyCount) key\(keyCount == 1 ? "" : "s") drifted from the vault"
-            }
-        }
-    }
-
-    /// The cached drift badge for `scopeID`, read from ``driftReports`` only.
-    ///
-    /// `nil` before a Check-drift has run for the scope (no ambient badge,
-    /// Decision 3); `.clean` / `.drifted` from the cached report otherwise.
-    func driftBadge(forScope scopeID: String) -> DriftBadge? {
-        guard let report = driftReports[scopeID] else { return nil }
-        let count = Self.driftedKeyCount(report)
-        return count == 0 ? .clean : .drifted(keyCount: count)
-    }
+    // MARK: - Per-key reads (cache-only, synchronous)
 
     /// The cached drift report for `scopeID`, for the detail pane's per-key
     /// display; `nil` before a check has run for the scope.
@@ -133,9 +96,9 @@ extension WorkshopModel {
     }
 
     /// The `live_here` scopes a sweep would check — vault scopes with a marker
-    /// in the scan roots (AT-01's ``glyphState(forScope:)``).
+    /// in the scan roots (the projects whose folder is on this Mac).
     var liveHereScopes: [ScopeMetadata] {
-        scopes.filter { glyphState(forScope: $0.identity) == .liveHere }
+        scopes.filter { cachedMarker(forScope: $0.identity) != nil }
     }
 
     // MARK: - Check-drift sweep

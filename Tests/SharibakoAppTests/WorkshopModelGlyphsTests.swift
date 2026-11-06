@@ -4,10 +4,12 @@ import Testing
 @testable import Sharibako
 @testable import SharibakoCore
 
-/// ho-06.2 AT-01 tests: glyph state and the "Unlinked markers" derivation.
+/// ho-06.2 AT-01 tests: marker-presence status and the "Unlinked markers"
+/// derivation.
 ///
-/// `glyphState(forScope:)` over the scan cache, and the orphan + scan-failure
-/// derivation. All state is computed from cached data — the tests warm the
+/// `projectStatus(forScope:)`'s marker half over the scan cache (ho-06.9 folded
+/// the old `GlyphState` into it: live-here is Protected, live-elsewhere is No
+/// folder on this Mac), and the orphan + scan-failure derivation. All state is computed from cached data — the tests warm the
 /// cache through `performLaunchScan()` (the only writer of the `private(set)
 /// scanReport`), then assert the computed glyph/orphan state, never rendering.
 ///
@@ -53,10 +55,10 @@ struct WorkshopModelGlyphsTests {
         return root
     }
 
-    // MARK: - glyphState
+    // MARK: - Marker presence → status
 
-    @Test("glyphState is .liveHere when a marker for the scope is in the scan roots")
-    func glyphStateLiveHere() async throws {
+    @Test("status is Protected when a marker for the scope is in the scan roots")
+    func statusProtectedWithMarker() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let root = try Self.makeRoot(near: vault)
@@ -69,12 +71,12 @@ struct WorkshopModelGlyphsTests {
             )
             model.scanRoots = [root]
             await model.performLaunchScan()
-            #expect(model.glyphState(forScope: "kanyo-dev") == .liveHere)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
         }
     }
 
-    @Test("glyphState is .liveElsewhere when the scope has no marker in the roots")
-    func glyphStateLiveElsewhere() async throws {
+    @Test("status is No folder on this Mac when the scope has no marker in the roots")
+    func statusNoFolderWithoutMarker() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let root = try Self.makeRoot(near: vault)
@@ -88,21 +90,21 @@ struct WorkshopModelGlyphsTests {
             model.scanRoots = [root]
             await model.performLaunchScan()
             #expect(model.scanReport != nil)
-            #expect(model.glyphState(forScope: "kanyo-dev") == .liveElsewhere)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .noFolderHere)
         }
     }
 
-    @Test("glyphState is .liveElsewhere on a cold cache (no scan yet)")
-    func glyphStateColdCache() throws {
+    @Test("status is No folder on this Mac on a cold cache (no scan yet)")
+    func statusColdCache() throws {
         try WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
             let model = WorkshopModel(
                 environment: ["SHARIBAKO_VAULT": vault.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
             )
-            // No scan has run — the honest pre-scan answer is "elsewhere".
+            // No scan has run — the honest pre-scan answer is "no folder found".
             #expect(model.scanReport == nil)
-            #expect(model.glyphState(forScope: "kanyo-dev") == .liveElsewhere)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .noFolderHere)
         }
     }
 
@@ -133,8 +135,8 @@ struct WorkshopModelGlyphsTests {
                 return
             }
             #expect(scope == "ghost-scope")
-            // The valid marker's scope stays a normal live-here scope, not unlinked.
-            #expect(model.glyphState(forScope: "real-scope") == .liveHere)
+            // The valid marker's scope stays a normal protected project, not unlinked.
+            #expect(model.projectStatus(forScope: "real-scope") == .protected)
         }
     }
 
@@ -174,14 +176,7 @@ struct WorkshopModelGlyphsTests {
         }
     }
 
-    // MARK: - Pure glyph/marker presentation mappings
-
-    @Test("GlyphState carries a shape-distinct symbol and a naming tooltip per state")
-    func glyphStatePresentation() {
-        #expect(WorkshopModel.GlyphState.liveHere.symbolName != WorkshopModel.GlyphState.liveElsewhere.symbolName)
-        #expect(!WorkshopModel.GlyphState.liveHere.helpText.isEmpty)
-        #expect(!WorkshopModel.GlyphState.liveElsewhere.helpText.isEmpty)
-    }
+    // MARK: - Pure marker presentation mappings
 
     @Test("UnlinkedMarker exposes title, path, id, symbol, and help for both cases")
     func unlinkedMarkerPresentation() {

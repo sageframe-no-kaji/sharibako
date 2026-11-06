@@ -40,32 +40,24 @@ struct ScopeSidebar: View {
 
     // MARK: - Scope row
 
-    /// One scope row: a state glyph leading the name, then a trailing slot.
+    /// One scope row: a status glyph leading the name.
     ///
-    /// The glyph (``WorkshopModel/glyphState(forScope:)``, Decision 2a) leads
-    /// the name; the trailing slot is where AT-02 fills the drift badge. The
-    /// glyph's shape carries the state (colorblind-safe); the symbol name and
+    /// The glyph is the row's ``WorkshopModel/ProjectStatus`` (ho-06.9 AT-01,
+    /// which folded ho-06.2's marker glyph and drift badge into one status);
+    /// its shape carries the status (colorblind-safe), and the symbol name and
     /// tooltip text both come from the model (Decision 8 keeps the branching
-    /// out of the view).
+    /// out of the view). ho-06.9 AT-02 replaces this sidebar wholesale.
     @ViewBuilder
     private func scopeRow(for scope: ScopeMetadata) -> some View {
-        let state = model.glyphState(forScope: scope.identity)
+        let status = model.projectStatus(forScope: scope.identity)
         HStack(spacing: 6) {
-            Image(systemName: state.symbolName)
+            Image(systemName: status.symbolName)
                 .foregroundStyle(Color.inkSecondary)
-                .help(state.helpText)
+                .help(status.helpText)
             Text(scope.displayName ?? scope.identity)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 4)
-            // Drift badge (AT-02): rendered only after a Check-drift has run for
-            // this scope; before that the slot is empty and the row shows only
-            // its glyph (Decision 3 — no ambient badge, no launch-time Touch ID).
-            if let badge = model.driftBadge(forScope: scope.identity) {
-                Image(systemName: badge.symbolName)
-                    .foregroundStyle(Color.inkSecondary)
-                    .help(badge.helpText)
-            }
         }
     }
 

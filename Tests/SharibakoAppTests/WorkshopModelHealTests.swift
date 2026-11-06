@@ -123,18 +123,9 @@ struct WorkshopModelHealTests {
         #expect(WorkshopModel.driftKey(.fileLineCorrupted(key: "K")) == "K")
     }
 
-    @Test("DriftBadge carries a shape-distinct symbol and a naming tooltip per state")
-    func driftBadgePresentation() {
-        let clean = WorkshopModel.DriftBadge.clean
-        let drifted = WorkshopModel.DriftBadge.drifted(keyCount: 2)
-        #expect(clean.symbolName != drifted.symbolName)
-        #expect(!clean.helpText.isEmpty)
-        #expect(drifted.helpText.contains("2"))
-    }
-
     // MARK: - Cache reads before a check
 
-    @Test("driftBadge and driftReport are nil before any check has run")
+    @Test("no drift report and no Out-of-date status before any check has run")
     func cacheEmptyBeforeCheck() throws {
         try WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
@@ -142,7 +133,7 @@ struct WorkshopModelHealTests {
                 environment: ["SHARIBAKO_VAULT": vault.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
             )
-            #expect(model.driftBadge(forScope: "kanyo-dev") == nil)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .noFolderHere)
             #expect(model.driftReport(forScope: "kanyo-dev") == nil)
             #expect(model.driftReports.isEmpty)
         }
@@ -177,7 +168,7 @@ struct WorkshopModelHealTests {
         try await Self.withMaterializedScope { model, _, _ in
             await model.checkDrift()
             #expect(model.driftReports["kanyo-dev"] != nil)
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
             #expect(model.statusMessage == "Checked 1 scope — 0 drifted.")
             #expect(model.errorMessage == nil)
             #expect(model.activity == nil)
@@ -196,7 +187,7 @@ struct WorkshopModelHealTests {
                 return
             }
             #expect(WorkshopModel.isDrifted(report))
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .drifted(keyCount: 1))
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .outOfDate(keyCount: 1))
             #expect(model.statusMessage == "Checked 1 scope — 1 drifted.")
         }
     }
@@ -208,7 +199,7 @@ struct WorkshopModelHealTests {
         try await Self.withMaterializedScope { model, _, envURL in
             try "DB=postgres://tampered\n".write(to: envURL, atomically: true, encoding: .utf8)
             await model.checkDrift()
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .drifted(keyCount: 1))
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .outOfDate(keyCount: 1))
 
             // Reconcile: the UI routes Reconcile → materializeSelectedScope()
             // → drift confirmation → materializeSelectedScope(force: true).
@@ -226,7 +217,7 @@ struct WorkshopModelHealTests {
                 return
             }
             #expect(WorkshopModel.isDrifted(report) == false)
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
         }
     }
 
@@ -277,7 +268,7 @@ struct WorkshopModelHealTests {
             let contents = try String(contentsOf: envURL, encoding: .utf8)
             #expect(contents.contains("DB=postgres://vault"))
             // Refreshed to clean, not cleared (same gate finding as reconcile).
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
             #expect(model.statusMessage == "Reconciled 1 of 1 drifted scope.")
         }
     }

@@ -205,23 +205,6 @@ struct ActionPanel: View {
             ) {
                 openWindow(id: SharibakoApp.addSharedEntryWindowID)
             }
-
-            // Ingest Project… (ho-06.3 AT-02, Decision 6; chooser at the
-            // gate-fix round): one of the ingest flow's three entry points,
-            // alongside the first-run wizard's finish hand-off and (AT-03)
-            // orphaned-marker rows. Opens the candidate chooser — every
-            // .env-bearing project under the scan roots not yet in the
-            // vault — with Choose Other… inside it as the hand-picked
-            // fallback. No branching here; the walk and its filters live
-            // tested in `WorkshopModel+Ingest.swift`.
-            actionButton(
-                "Ingest Project…",
-                systemImage: "square.and.arrow.down.on.square",
-                help: "Import .env-bearing projects found under your scan roots",
-                disabled: model.activity != nil
-            ) {
-                Task { await model.presentIngestChooser() }
-            }
         }
     }
 

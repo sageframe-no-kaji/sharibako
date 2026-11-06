@@ -594,7 +594,7 @@ extension WorkshopModel {
     /// Reached from the finish page's "Done" button and from the sheet's own
     /// system dismissal (`WorkshopWindow`'s binding `set:` closure) alike —
     /// every dismissal path funnels through this one intent, the
-    /// `cancelIngest()`/`dismissIngestChooser()` precedent.
+    /// `cancelIngest()` precedent.
     func dismissWelcomeTour() {
         firstRun.mode = .firstRun
         firstRun.page = .prereq
