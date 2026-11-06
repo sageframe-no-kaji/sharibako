@@ -286,6 +286,9 @@ struct WorkshopModelConcurrencyTests {
         #expect(WorkshopModel.Activity.scanning.label == "Scanning…")
         #expect(WorkshopModel.Activity.materializing.label == "Materializing…")
         #expect(WorkshopModel.Activity.syncing.label == "Syncing…")
+        // ho-06.3 gate fix: the ingest commit must not borrow "Materializing…"
+        // — the status surface and the sheet button wear the same name.
+        #expect(WorkshopModel.Activity.ingesting.label == "Importing…")
     }
 
     @Test("sync clears activity on the error path")

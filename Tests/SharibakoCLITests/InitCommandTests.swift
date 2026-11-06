@@ -159,6 +159,28 @@ struct InitCommandTests {
         }
     }
 
+    @Test("scope ID: an out-of-grammar answer re-prompts until a valid one arrives")
+    func scopeIDRePromptsOnInvalidAnswer() throws {
+        try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in
+            try withProjectDir(env: "API=value\n") { projectDir in
+                let source = ScriptedIngestDecisionSource.allImportLocal()
+                // A path separator is out of the identifier grammar (ho-04.9),
+                // so the prompt repeats; the second answer is accepted.
+                var lineReaderQueue = ["../escape", "second-try", ""]
+                let lineReader = { () -> String? in
+                    lineReaderQueue.isEmpty ? nil : lineReaderQueue.removeFirst()
+                }
+                let cmd = try makeInitCommand(vaultURL: vaultURL, keyURL: keyURL)
+                try cmd._run(cwd: projectDir, decisionSource: source, lineReader: lineReader)
+
+                let markerURL = projectDir.appendingPathComponent(".sharibako")
+                let vault = try VaultCore(vaultURL: vaultURL)
+                let materializer = Materializer(vaultCore: vault, vaultURL: vaultURL)
+                #expect(try materializer.loadMarker(at: markerURL).scope == "second-try")
+            }
+        }
+    }
+
     @Test("scope ID collision: warns and reuses existing scope idempotently on confirmation")
     func scopeIDCollisionConfirmed() throws {
         try CLITestSupport.withEphemeralVaultAndFileKey { vaultURL, keyURL in

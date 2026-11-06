@@ -38,6 +38,10 @@ final class WorkshopModel {
         /// A Check-drift sweep is decrypting and comparing every `live_here`
         /// scope against its materialized `.env` (ho-06.2 AT-02, Decision 3).
         case checkingDrift
+        /// An ingest commit is encrypting decided keys into a scope (ho-06.3
+        /// gate fix: the status surface said "Materializing…" while the sheet
+        /// button said "Importing…" — one operation must wear one name).
+        case ingesting
 
         /// Progress text shown beside the indicator in the status surface.
         var label: String {
@@ -46,6 +50,7 @@ final class WorkshopModel {
             case .materializing: return "Materializing…"
             case .syncing: return "Syncing…"
             case .checkingDrift: return "Checking drift…"
+            case .ingesting: return "Importing…"
             }
         }
     }
@@ -239,6 +244,16 @@ final class WorkshopModel {
     /// cross-file-extension reason as ``pendingScopeDeletion``.
     var pendingSecretDeletion: SecretDeletion?
 
+    /// A pending stray-marker removal awaiting confirmation, or `nil`
+    /// (ho-06.3 AT-03, Decision 7).
+    ///
+    /// Set by ``requestRemoveStrayMarker(_:)`` (`WorkshopModel+Orphans.swift`);
+    /// the window presents a system-rendered destructive confirmation naming
+    /// the marker's file path and calls ``confirmRemoveStrayMarker()`` on
+    /// approval or ``dismissStrayMarkerRemoval()`` on cancel. `internal` for
+    /// the same cross-file-extension reason as ``pendingSecretDeletion``.
+    var pendingStrayMarkerRemoval: StrayMarkerRemoval?
+
     /// The result of the last "Preview .env" action, or `nil` before one has
     /// run (ho-06.1 AT-03, Decision 5).
     ///
@@ -272,6 +287,49 @@ final class WorkshopModel {
     /// the waymarking extension file can read it.
     let home: URL
 
+    /// The first-run wizard's own state (ho-06.3) — a nested `@Observable`
+    /// object (`WorkshopModel+FirstRun.swift`) rather than another dozen
+    /// top-level properties here: the wizard's page/key-mode/backup/root/
+    /// remote fields are cohesive to the `.noVault` window alone and would
+    /// otherwise crowd this already-long class for a state machine that only
+    /// exists before a vault does. `let`, not `private(set) var` — the
+    /// first-run intents mutate the instance's own fields; `WorkshopModel`
+    /// never reassigns it.
+    let firstRun = FirstRunState()
+
+    /// `true` once ``completeFirstRun()`` (`WorkshopModel+FirstRun.swift`) has
+    /// created the vault and flipped ``vaultState`` to `.open` — the named
+    /// seam AT-02 consumes to offer the first ingest immediately (ho-06.3
+    /// Decision 1 step 6); this ho does not build that invite. `internal`
+    /// (not `private(set)`) for the same cross-file-extension reason as
+    /// ``pendingScopeDeletion`` — its mutator lives in the first-run
+    /// extension file.
+    var firstRunCompleted = false
+
+    /// The GUI ingest flow's own state (ho-06.3 AT-02).
+    ///
+    /// A nested `@Observable` object (`WorkshopModel+Ingest.swift`) mirroring
+    /// ``firstRun``'s pattern: the scan proposal, per-key decisions, and
+    /// scope ID/type are cohesive to the ingest sheet alone and would
+    /// otherwise crowd this already-long class for a session that only
+    /// exists while the sheet is up. `let`, not `private(set) var` — the
+    /// ingest intents mutate the instance's own fields; `WorkshopModel`
+    /// never reassigns it.
+    let ingest = IngestState()
+
+    /// The injected (or live) environment.
+    ///
+    /// Retained for ``WorkshopModel/completeFirstRun()``'s git-identity probe
+    /// (`WorkshopModel+FirstRun.swift`, ho-06.3 Decision 8): that probe
+    /// shells `git config user.email`, whose global-config lookup is
+    /// sensitive to `HOME` — passing this through as `GUIShell.run`'s
+    /// `environmentOverrides` lets tests isolate it from the real developer
+    /// machine's own git identity (an injected-`HOME` test never resolves
+    /// against the live global gitconfig) while production, whose
+    /// `environment` defaults to the real `ProcessInfo`, sees no change in
+    /// behavior at all.
+    let processEnvironment: [String: String]
+
     /// Resolves the vault per `WorkshopConfig` precedence and loads its scopes.
     ///
     /// `environment` and `home` default to live process values; tests inject
@@ -284,6 +342,7 @@ final class WorkshopModel {
         devAgeKeyPath = WorkshopConfig.resolveDevAgeKeyURL(environment: environment)
         configURL = WorkshopConfig.defaultConfigURL(home: home)
         self.home = home
+        processEnvironment = environment
         scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
         if WorkshopConfig.isVaultDirectory(resolved) {
             vaultState = .open(vaultURL: resolved)
@@ -297,6 +356,30 @@ final class WorkshopModel {
 // MARK: - Scope listing and sidebar sections
 
 extension WorkshopModel {
+    /// Flips ``vaultState`` from `.noVault` to `.open` at `vaultURL` — the
+    /// first-run wizard's seam (``completeFirstRun()``,
+    /// `WorkshopModel+FirstRun.swift`) for the one mutation the v1
+    /// fixed-at-init posture allows outside `init`. `internal`, declared here
+    /// (not a public setter) so nothing else can silently rebind the vault
+    /// after launch; the extension file calls this rather than writing
+    /// ``vaultState`` directly, since `private(set)` is file-scoped and
+    /// `WorkshopModel+FirstRun.swift` is a different file (the established
+    /// cross-file-extension pattern).
+    func bindOpenedVault(at vaultURL: URL) {
+        vaultState = .open(vaultURL: vaultURL)
+    }
+
+    /// Replaces the cached scan report.
+    ///
+    /// The write seam `WorkshopModel+Ingest.swift`'s post-commit cache
+    /// refresh uses — `private(set)` is file-scoped (the same reason
+    /// ``bindOpenedVault(at:)`` exists above); declared here, not a public
+    /// setter, so nothing else can silently overwrite the cache outside a
+    /// real scan.
+    func updateScanReport(_ report: ScanReport) {
+        scanReport = report
+    }
+
     /// Reloads the scope list from the open vault.
     ///
     /// A no-op in the `.noVault` state. Failures land in ``errorMessage``
@@ -338,8 +421,21 @@ extension WorkshopModel {
     ///
     /// Uses the no-encryption ``VaultCore/init(vaultURL:)`` seam — listing
     /// never decrypts. Failures land in ``errorMessage``.
+    ///
+    /// Ignores an identity outside the vault's identifier grammar (ho-06.3
+    /// gate fix: the sidebar's unlinked-marker rows were implicitly
+    /// selectable, leaking their synthetic `orphaned:<path>` row IDs into
+    /// ``selectedScopeID`` and on into `VaultCore.inspect`, which threw
+    /// `invalidIdentifier` at the user). The rows are selection-disabled now;
+    /// this guard keeps any future non-scope selection value from reaching
+    /// the vault. A grammar-valid but absent scope still surfaces its error —
+    /// a stale selection stays honest.
     func loadSecrets(for scopeID: String) {
         guard case .open(let vaultURL) = vaultState else { return }
+        guard VaultCore.isValidIdentifier(scopeID) else {
+            cachedSecrets = []
+            return
+        }
         do {
             guard let core = try? VaultCore(vaultURL: vaultURL) else { return }
             cachedSecrets = try core.inspect(scopeID)
@@ -702,6 +798,15 @@ extension WorkshopModel {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
+        // Re-read the config's roots every time (ho-06.3 gate fix): the list
+        // was loaded once at init, so a config.yaml edited while the app ran
+        // — by hand today, by the ho-06.6 management UI later — was invisible
+        // until a full relaunch, and Rescan read as doing nothing. Unless the
+        // tests injected roots directly (config absent), the file is truth.
+        let configRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+        if !configRoots.isEmpty {
+            scanRoots = configRoots
+        }
         if scanRoots.isEmpty {
             guard let panel = openPanel, let chosen = panel() else {
                 return

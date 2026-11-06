@@ -55,6 +55,23 @@ struct HealCommandTests {
         #expect(result.owned[0].fileSha256 == "def")
     }
 
+    @Test("buildHealResult maps fileLineCorrupted drift without SHAs")
+    func buildFileLineCorruptedDrift() throws {
+        let report = DriftReport(
+            scopeID: "test",
+            path: URL(fileURLWithPath: "/tmp/.env"),
+            owned: [.fileLineCorrupted(key: "TOKEN")],
+            parseWarnings: []
+        )
+        let cmd = try HealCommand.parse([])
+        let result = cmd.buildHealResult(from: report)
+        #expect(result.owned[0].key == "TOKEN")
+        #expect(result.owned[0].status == "fileLineCorrupted")
+        // A corrupted line has no readable value, so neither side has a digest.
+        #expect(result.owned[0].vaultSha256 == nil)
+        #expect(result.owned[0].fileSha256 == nil)
+    }
+
     // MARK: - JSON structure
 
     @Test("heal --json emits a valid HealResult structure")

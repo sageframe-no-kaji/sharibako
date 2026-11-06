@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		5A0001012E100001005A0001 /* SharibakoCore in Frameworks */ = {isa = PBXBuildFile; productRef = 5A0001022E100002005A0001 /* SharibakoCore */; };
+		5A0001182E100018005A0001 /* Sharibako.icns in Resources */ = {isa = PBXBuildFile; fileRef = 5A0001172E100017005A0001 /* Sharibako.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		5A0001042E100004005A0001 /* Sharibako.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sharibako.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A0001052E100005005A0001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5A0001062E100006005A0001 /* Sharibako.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Sharibako.entitlements; sourceTree = "<group>"; };
+		5A0001172E100017005A0001 /* Sharibako.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = Sharibako.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -55,6 +57,7 @@
 			children = (
 				5A0001052E100005005A0001 /* Info.plist */,
 				5A0001062E100006005A0001 /* Sharibako.entitlements */,
+				5A0001172E100017005A0001 /* Sharibako.icns */,
 			);
 			path = Sharibako;
 			sourceTree = "<group>";
@@ -134,6 +137,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A0001182E100018005A0001 /* Sharibako.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

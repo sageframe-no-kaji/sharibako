@@ -1,9 +1,15 @@
 import SharibakoCore
 import SwiftUI
 
-/// The Workshop's main window: a three-pane `NavigationSplitView` shell with
-/// the right-side action panel trailing it (ho-06.5 Decision 1), or the
-/// "no vault" empty state when the resolved path holds none (Decision 3).
+/// The Workshop's main window.
+///
+/// A three-pane `NavigationSplitView` shell with the right-side action panel
+/// trailing it (ho-06.5 Decision 1), or the first-run wizard when the
+/// resolved path holds no vault yet (ho-06.3 Decision 1 — superseding the
+/// ho-05 static "no vault" empty state, which stopped at naming the path
+/// with nowhere to go next). The same wizard also re-opens as a sheet over
+/// the `.open` arm below — the Help-menu "Welcome to Sharibako…" command
+/// (ho-06.3 gate-fix round).
 ///
 /// Every Workshop verb lives in `ActionPanel` — the forward-only replacement
 /// for the ho-06.2 toolbar + overflow chrome that failed its gate. The
@@ -51,17 +57,10 @@ struct WorkshopWindow: View {
     var body: some View {
         switch model.vaultState {
         case .noVault(let expectedPath):
-            ContentUnavailableView {
-                Label("No vault found", systemImage: "shippingbox")
-            } description: {
-                Text(
-                    "Sharibako looked for a vault at \(expectedPath.path) "
-                        + "and found none. Create one with `sharibako key generate` "
-                        + "or point SHARIBAKO_VAULT at an existing vault."
-                )
-                .textSelection(.enabled)
-            }
-            .background(Color.ground)
+            // ho-06.3 Decision 1: the first-run wizard replaces the ho-05
+            // static empty state. All branching lives in
+            // `WorkshopModel+FirstRun.swift`; this arm is pure wiring.
+            FirstRunWizard(expectedPath: expectedPath)
         case .open:
             HStack(spacing: 0) {
                 NavigationSplitView {
@@ -215,6 +214,30 @@ struct WorkshopWindow: View {
                     Text(secretDeletionMessage(for: deletion))
                 }
             }
+            // Remove-stray-marker confirmation (ho-06.3 AT-03, Decision 7):
+            // the blast radius is INVERTED from every 06.7 dialog above — the
+            // file removed lives in the user's project directory, not the
+            // vault — so the copy names the full path and says the vault is
+            // untouched. Same platform constraint: system-rendered, no tint.
+            .confirmationDialog(
+                "Remove stray marker",
+                isPresented: .init(
+                    get: { model.pendingStrayMarkerRemoval != nil },
+                    set: { if !$0 { model.dismissStrayMarkerRemoval() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Remove Marker", role: .destructive) {
+                    model.confirmRemoveStrayMarker()
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissStrayMarkerRemoval()
+                }
+            } message: {
+                if let removal = model.pendingStrayMarkerRemoval {
+                    Text(strayMarkerRemovalMessage(for: removal))
+                }
+            }
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -227,6 +250,61 @@ struct WorkshopWindow: View {
                     EnvPreviewSheet(preview: preview)
                 }
             }
+            // Ingest sheet (ho-06.3 AT-02, Decision 6): presented whenever
+            // `model.ingest.session` is non-nil, from any of its three entry
+            // points (the panel verb, the first-run wizard's finish
+            // hand-off, and — AT-03 — orphaned-marker rows). Dismissing via
+            // the system chrome (swipe/Escape) discards the session exactly
+            // like the sheet's own Cancel button — the `envPreview` sheet's
+            // dismiss-clears-state precedent.
+            .sheet(
+                isPresented: .init(
+                    get: { model.ingest.session != nil },
+                    set: { if !$0 { model.cancelIngest() } }
+                )
+            ) {
+                IngestSheet()
+            }
+            // Ingest candidate chooser (ho-06.3 gate-fix round): presented
+            // whenever `model.ingest.candidates` is non-nil — from the panel
+            // verb, the wizard hand-off with several candidates, and the
+            // post-commit chain. System dismissal (Escape) closes it exactly
+            // like its own Done button.
+            .sheet(
+                isPresented: .init(
+                    get: { model.ingest.candidates != nil },
+                    set: { if !$0 { model.dismissIngestChooser() } }
+                )
+            ) {
+                IngestChooserSheet()
+            }
+            // Welcome tour (ho-06.3 gate-fix round): the Help-menu re-entry
+            // into the SAME wizard the fresh-machine path renders as main
+            // content — this time as a sheet, since a vault is already
+            // open. Presented purely off `model.firstRun.mode == .tour`
+            // (the `ingest.session` sheet's precedent); `expectedPath`
+            // carries the ALREADY-OPEN vault's real URL (not a
+            // not-yet-created one) so the tour's root/finish pages can
+            // state it plainly like the first-run pages do. The hard
+            // guards in `WorkshopModel+FirstRun.swift` — not this wiring —
+            // are what keep every tour-mode intent read-only.
+            .sheet(
+                isPresented: .init(
+                    get: { model.firstRun.mode == .tour },
+                    set: { if !$0 { model.dismissWelcomeTour() } }
+                )
+            ) {
+                if case .open(let vaultURL) = model.vaultState {
+                    FirstRunWizard(expectedPath: vaultURL)
+                }
+            }
+            // The open Workshop's size floor, formerly scene-level in
+            // `App.swift` (ho-06.3 gate-fix round). It moved here so the
+            // `.noVault` arm's wizard can declare its own fixed compact frame
+            // instead of inheriting a three-pane window's minimum; under the
+            // scene's `.windowResizability(.contentSize)` the unbounded max
+            // is what keeps the open Workshop freely resizable.
+            .frame(minWidth: 720, maxWidth: .infinity, minHeight: 440, maxHeight: .infinity)
         }
     }
 
@@ -409,6 +487,19 @@ extension WorkshopWindow {
         """
         "\(deletion.key)" will be removed from scope "\(deletion.scopeID)". \
         Materialized .env files are left in place. The removal is committed on the next Sync.
+        """
+    }
+
+    // MARK: - Stray-marker removal dialog helper
+
+    /// The inverted-blast-radius copy (ho-06.3 Decision 7): unlike every
+    /// deletion above, this file lives in the user's own project directory,
+    /// not the vault — the message names the full path and says so plainly.
+    private func strayMarkerRemovalMessage(for removal: WorkshopModel.StrayMarkerRemoval) -> String {
+        """
+        "\(removal.markerURL.path)" will be deleted from your project directory. \
+        The vault is untouched — this only removes the marker referencing scope \
+        "\(removal.scope)".
         """
     }
 }
