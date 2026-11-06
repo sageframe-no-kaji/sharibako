@@ -115,6 +115,6 @@ struct WorkshopModelGuardSweepTests {
         #expect(WorkshopModel.Activity.materializing.label == "Materializing…")
         #expect(WorkshopModel.Activity.syncing.label == "Syncing…")
         #expect(WorkshopModel.Activity.checkingDrift.label == "Checking drift…")
-        #expect(WorkshopModel.Activity.ingesting.label == "Importing…")
+        #expect(WorkshopModel.Activity.ingesting.label == "Protecting…")
     }
 }

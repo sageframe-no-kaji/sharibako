@@ -75,23 +75,23 @@ extension WorkshopModel {
         pendingStrayMarkerRemoval = nil
     }
 
-    /// Deletes the staged marker file and drops it from the cached scan
-    /// report so the orphan row leaves the section immediately.
+    /// Deletes the staged marker file, drops it from the cached scan report so
+    /// the row leaves "Needs attention" immediately, then re-runs the scan
+    /// quietly (ho-06.9 Decision 3).
     ///
     /// Touches only ``StrayMarkerRemoval/markerURL`` — no git, no vault
     /// write, the vault and the project's `.env` are both untouched (the
-    /// inverted blast radius, Required Change 2). The cache update is a
-    /// local filter of the already-loaded ``WorkshopModel/scanReport``
-    /// rather than a fresh filesystem walk — deleting one known file cannot
-    /// surface any marker a re-scan would have found, so paying for another
-    /// walk through ``WorkshopModel/worker`` buys nothing here (contrast
-    /// `refreshScanCacheAfterIngestCommit()` in `WorkshopModel+Ingest.swift`,
-    /// which must re-walk because a commit can *add* a marker a stale cache
-    /// wouldn't know about). Failure — the file is already gone, or
-    /// permissions refuse the removal — announces via
+    /// inverted blast radius, Required Change 2). The local filter is what
+    /// makes the row leave at once; the quiet rescan exists because Forget
+    /// *adds* a row too: with its claim file gone, a folder that still holds
+    /// a `.env` is a Not-protected candidate again, and only the candidate
+    /// walk can say so. The rescan announces nothing of its own — the
+    /// removal's line stands — and is skipped with no scan roots or while
+    /// another activity runs. Failure of the removal — the file is already
+    /// gone, or permissions refuse it — announces via
     /// ``WorkshopModel/errorMessage`` and leaves every other field
     /// untouched, matching the ho-06.7 trio's own failure posture.
-    func confirmRemoveStrayMarker() {
+    func confirmRemoveStrayMarker() async {
         guard let removal = pendingStrayMarkerRemoval else { return }
         pendingStrayMarkerRemoval = nil
         do {
@@ -112,5 +112,20 @@ extension WorkshopModel {
         statusMessage =
             "Removed stray marker for '\(removal.scope)' at \(removal.markerURL.path)."
         errorMessage = nil
+        await rescanQuietlyAfterForget()
+    }
+
+    /// The quiet half of Forget: one marker-and-candidate scan through the
+    /// shared hop, no status line, failures to ``WorkshopModel/errorMessage``.
+    private func rescanQuietlyAfterForget() async {
+        guard activity == nil, !scanRoots.isEmpty else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        activity = .scanning
+        defer { activity = nil }
+        do {
+            _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
     }
 }

@@ -4,9 +4,12 @@ import Testing
 @testable import Sharibako
 @testable import SharibakoCore
 
-/// Tests for `commitIngest()` and the first-run wizard's hand-off
-/// (`offerFirstRunIngestInvite`/`findFirstRunIngestCandidates`) — ho-06.3
-/// AT-02, `WorkshopModel+Ingest.swift`.
+/// Tests for `commitIngest()` and the first-run finish page's preview.
+///
+/// `findFirstRunIngestCandidates` — ho-06.3 AT-02,
+/// `WorkshopModel+Ingest.swift`. The wizard's ingest invite was retired in
+/// ho-06.9 (Decision 5); its successor, the launch selection, is tested in
+/// `WorkshopModelSelectionTests.swift`.
 ///
 /// See `WorkshopModelIngestTests.swift` for `beginIngest`, the
 /// decision/scope-editing intents, and `cancelIngest` (the split is
@@ -197,49 +200,6 @@ struct WorkshopModelIngestCommitTests {
             let found = await model.findFirstRunIngestCandidates(under: root)
 
             #expect(found.map(\.lastPathComponent) == ["bento"])
-        }
-    }
-
-    @Test("offerFirstRunIngestInvite opens the ingest sheet on the first candidate")
-    func offerFirstRunIngestInviteOpensSheet() async throws {
-        try await WorkshopTestSupport.withTempVault { vault in
-            let root = vault.deletingLastPathComponent().appendingPathComponent(
-                "roots-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: root) }
-            let project = root.appendingPathComponent("bento")
-            try Self.writeEnv("API_KEY=sk-live\n", in: project)
-
-            let model = WorkshopModel(
-                environment: ["SHARIBAKO_VAULT": vault.path],
-                home: URL(fileURLWithPath: "/Users/nobody")
-            )
-
-            await model.offerFirstRunIngestInvite(under: root)
-
-            #expect(
-                model.ingest.session?.directory.standardizedFileURL.path
-                    == project.standardizedFileURL.path)
-        }
-    }
-
-    @Test("offerFirstRunIngestInvite does nothing when no candidates exist")
-    func offerFirstRunIngestInviteNoCandidates() async throws {
-        try await WorkshopTestSupport.withTempVault { vault in
-            let root = vault.deletingLastPathComponent().appendingPathComponent(
-                "roots-\(UUID().uuidString)")
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: root) }
-
-            let model = WorkshopModel(
-                environment: ["SHARIBAKO_VAULT": vault.path],
-                home: URL(fileURLWithPath: "/Users/nobody")
-            )
-
-            await model.offerFirstRunIngestInvite(under: root)
-
-            #expect(model.ingest.session == nil)
-            #expect(model.statusMessage == nil)
         }
     }
 }

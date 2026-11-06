@@ -1,11 +1,16 @@
 import SharibakoCore
 import SwiftUI
 
-/// The GUI ingest flow's sheet (ho-06.3 Decision 6): scan result → per-key
-/// decision list → scope ID/type confirmation → commit, presented modally
-/// over the main window from three entry points — the action panel's
-/// **Ingest Project…** verb, the first-run wizard's finish hand-off, and —
-/// AT-03 — orphaned-marker rows.
+/// The Protect sheet (ho-06.3 Decision 6; reworded as Protect by ho-06.9
+/// Decision 6).
+///
+/// Scan result → per-key decision list → scope ID/type confirmation →
+/// commit, presented modally over the main window from the Protect verbs —
+/// the Not-protected page's Protect button, the action column's Protect, and
+/// a Problem page's Protect this folder. Its title,
+/// count line, and commit button speak the ten words; the verdict labels and
+/// the Scope ID / Scope type fields stay until ho-06.10 replaces the sheet
+/// with the review screen.
 ///
 /// All branching logic lives in `WorkshopModel+Ingest.swift` (tested): this
 /// view reads `model.ingest.session` and calls its intents (Do Not §4).
@@ -65,11 +70,11 @@ struct IngestSheet: View {
 
     private func header(_ session: WorkshopModel.IngestSession) -> some View {
         HStack {
-            Text("Import \(session.directory.lastPathComponent)")
+            Text("Protect \(session.directory.lastPathComponent)")
                 .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.ink)
             Spacer()
-            Text("\(session.proposal.detectedKeys.count) secret(s) detected")
+            Text(WorkshopModel.protectFoundCount(session.proposal.detectedKeys.count))
                 .font(.caption)
                 .foregroundStyle(Color.inkTertiary)
         }
@@ -295,7 +300,7 @@ struct IngestSheet: View {
             .keyboardShortcut(.cancelAction)
             .disabled(isCommitting)
             Spacer()
-            Button(isCommitting ? "Importing…" : "Import") {
+            Button(isCommitting ? "Protecting…" : "Protect") {
                 commit()
             }
             .keyboardShortcut(.defaultAction)

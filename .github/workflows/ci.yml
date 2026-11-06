@@ -105,7 +105,7 @@ jobs:
           #     justification: the Keychain path needs the signed app bundle +
           #     Touch ID, unreachable from a bare CI test binary).
           #     Dogfood-verified at the ho-05 signed-install gate.
-          #   WorkshopWindow, ScopeSidebar, Sources/Sharibako/App.swift —
+          #   WorkshopWindow, Sources/Sharibako/App.swift —
           #     SwiftUI View/App declarative bodies, which only execute inside
           #     a launched app; not headlessly drivable (ho-05 Decision 8).
           #     All branching they render lives in WorkshopModel and
@@ -162,15 +162,22 @@ jobs:
           #     scope-collision, commit) lives in WorkshopModel+Ingest.swift
           #     (NOT excluded); the view is declarative rows plus an
           #     NSOpenPanel call, not headlessly drivable (ho-05 Decision 8).
-          #   IngestChooserSheet — SwiftUI declarative body; the ingest
-          #     candidate chooser (ho-06.3 gate-fix round). The candidate
-          #     walk, marker filter, and chaining live in
-          #     WorkshopModel+Ingest.swift (NOT excluded); the view is a
-          #     declarative list plus an NSOpenPanel call, not headlessly
-          #     drivable (ho-05 Decision 8).
+          #   ProjectSidebar, ProjectHeader, NotProtectedPage, ProblemPage,
+          #     SharedSecretPage — SwiftUI declarative bodies; the
+          #     project-first sidebar, the header over a project's secret
+          #     list, and the three status pages (ho-06.9 AT-02, Decisions 8
+          #     and 9). Sections, statuses, glyph symbols and tints, every
+          #     count-aware string, and the selection's load dispatch live in
+          #     WorkshopModel+Projects.swift, WorkshopModel+Pages.swift, and
+          #     Color+Theme.swift (NOT excluded); the views only lay them out,
+          #     not headlessly drivable (ho-05 Decision 8).
+          #   OpenInFinder — the shared Open in Finder helper (ho-06.9 AT-02
+          #     Required Change 7). Its announce is WorkshopModel.announceJump
+          #     (NOT excluded, tested); the NSWorkspace call opens a real
+          #     Finder window, not headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ScopeSidebar|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard|IngestSheet|IngestChooserSheet"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ProjectSidebar|ProjectHeader|NotProtectedPage|ProblemPage|SharedSecretPage|OpenInFinder|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard|IngestSheet"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

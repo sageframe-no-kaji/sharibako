@@ -1,12 +1,16 @@
 import SharibakoCore
 import SwiftUI
 
-/// Center column of the Workshop: lists the selected scope's secrets.
+/// Center column of the Workshop: lists the selected project's secrets,
+/// beneath its `ProjectHeader` (ho-06.9 Decision 9).
 ///
 /// Each row shows the secret key plus a glyph distinguishing a direct
 /// `.value` (padlock) from a `.link` (link symbol). Selecting a row sets
 /// `model.selectedSecretKey` and triggers history loading in the parent.
-/// Shows an empty-state prompt when no scope is selected.
+/// Shows an empty-state prompt when no project is selected. The column's
+/// navigation title is set by `WorkshopWindow` for every kind of selection
+/// (``WorkshopModel/selectionTitle`` — the project's name, no longer its
+/// scope ID).
 ///
 /// Read-only in AT-02 — no add/edit/rotate buttons (those are AT-03).
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
@@ -21,24 +25,19 @@ struct SecretList: View {
                 secretList(for: scopeID)
             } else {
                 ContentUnavailableView(
-                    "No Scope Selected",
+                    "No project selected",
                     systemImage: "lock.rectangle.stack",
-                    description: Text("Pick a scope from the sidebar to view its secrets.")
+                    description: Text("Pick a project to see its secrets.")
                 )
             }
         }
         .background(Color.ground)
-        .navigationTitle(model.selectedScopeID ?? "Secrets")
     }
 
     @ViewBuilder
     private func secretList(for scopeID: String) -> some View {
         if model.secrets.isEmpty {
-            ContentUnavailableView(
-                "No Secrets",
-                systemImage: "lock.slash",
-                description: Text("This scope has no secrets yet.")
-            )
+            ContentUnavailableView("No secrets yet", systemImage: "lock.slash")
         } else {
             List(model.secrets, id: \.key, selection: selectionBinding(scopeID: scopeID)) { info in
                 SecretRow(info: info)

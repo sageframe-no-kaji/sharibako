@@ -197,7 +197,7 @@ struct SecretDetail: View {
                                 .foregroundStyle(WorkshopModel.isKeyDrifted(drift) ? Color.drift : Color.inkSecondary)
                         }
                     }
-                    if let badge = model.driftBadge(forScope: scopeID), badge != .clean {
+                    if case .outOfDate = model.projectStatus(forScope: scopeID) {
                         Button("Reconcile") {
                             Task { await model.materializeSelectedScope() }
                         }

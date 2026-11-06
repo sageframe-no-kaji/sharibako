@@ -340,8 +340,8 @@ extension ErrorReporter {
         case .notInteractiveTerminal:
             return ErrorReport(
                 code: .userError,
-                message: "`init` needs an interactive terminal; scriptable flags are a followup.",
-                remediation: nil
+                message: "`init` needs an interactive terminal to ask about each line.",
+                remediation: "Pass --yes to protect the secrets and leave the settings alone without asking."
             )
         case .promptRequiresTTY(let command, let flag):
             return ErrorReport(

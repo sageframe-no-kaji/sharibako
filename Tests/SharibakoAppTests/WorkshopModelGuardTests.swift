@@ -84,9 +84,10 @@ struct WorkshopModelGuardTests {
         let model = noVaultModel()
 
         await model.commitIngest()
-        await model.presentIngestChooser()
+        await model.loadCandidatePreview(for: URL(fileURLWithPath: "/tmp/nowhere"))
 
         #expect(model.ingest.session == nil)
+        #expect(model.candidatePreview == nil)
         #expect(model.errorMessage == nil)
     }
 
@@ -115,7 +116,6 @@ struct WorkshopModelGuardTests {
             await model.checkDrift()
             await model.confirmMaterializeAllStale()
             await model.commitIngest()
-            await model.presentIngestChooser()
 
             #expect(model.pendingScopeDeletion == nil)
             #expect(model.pendingSecretDeletion == nil)

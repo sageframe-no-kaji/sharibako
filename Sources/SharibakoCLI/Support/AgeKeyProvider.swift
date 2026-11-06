@@ -88,7 +88,8 @@ enum CLIError: Error, Equatable {
     case syncRejected
     /// `sync pull` encountered a merge conflict (merge aborted); files already printed to stderr.
     case syncConflict
-    /// `init` was invoked without an interactive terminal; non-interactive flags are a followup.
+    /// The interactive `init` prompt was reached without a terminal; `--yes`
+    /// is the non-interactive path.
     case notInteractiveTerminal
     /// A command needs an interactive confirmation but stdin is not a terminal
     /// and the named skip flag was absent (ho-04.11). Failing loudly beats the

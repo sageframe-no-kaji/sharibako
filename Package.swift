@@ -16,8 +16,13 @@ let package = Package(
             name: "sharibako",
             targets: ["SharibakoCLI"]
         ),
+        // Product named `SharibakoApp`, not `Sharibako`: with Swift 6.4's
+        // default build system the CLI product `sharibako` and an app product
+        // `Sharibako` share one intermediates folder on a case-insensitive
+        // disk and the link step fails. The *target* stays `Sharibako` — the
+        // Xcode project and `swift build --target Sharibako` are unaffected.
         .executable(
-            name: "Sharibako",
+            name: "SharibakoApp",
             targets: ["Sharibako"]
         ),
     ],

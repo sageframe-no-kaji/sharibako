@@ -145,7 +145,7 @@ struct WorkshopModelOrphansTests {
 
                 #expect(model.scopes.map(\.identity).contains("ghost-scope"))
                 #expect(model.unlinkedMarkers.isEmpty)
-                #expect(model.glyphState(forScope: "ghost-scope") == .liveHere)
+                #expect(model.projectStatus(forScope: "ghost-scope") == .protected)
             }
         }
     }
@@ -218,7 +218,7 @@ struct WorkshopModelOrphansTests {
             let orphan = try #require(model.unlinkedMarkers.first)
             model.requestRemoveStrayMarker(orphan)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.pendingStrayMarkerRemoval == nil)
             #expect(!FileManager.default.fileExists(atPath: markerURL.path))
@@ -258,7 +258,7 @@ struct WorkshopModelOrphansTests {
                 })
             model.requestRemoveStrayMarker(orphan)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.unlinkedMarkers.count == 1)
             guard case .failed = model.unlinkedMarkers.first else {
@@ -269,14 +269,14 @@ struct WorkshopModelOrphansTests {
     }
 
     @Test("confirmRemoveStrayMarker surfaces an error and stays consistent when the file is already gone")
-    func confirmAbsentSurfacesError() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func confirmAbsentSurfacesError() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let ghostURL = vault.appendingPathComponent("nowhere/.sharibako")
             let model = model(vault: vault)
             model.pendingStrayMarkerRemoval = WorkshopModel.StrayMarkerRemoval(
                 scope: "ghost-scope", markerURL: ghostURL)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.pendingStrayMarkerRemoval == nil)
             #expect(model.errorMessage != nil)
@@ -284,11 +284,11 @@ struct WorkshopModelOrphansTests {
     }
 
     @Test("confirmRemoveStrayMarker is a no-op with nothing staged")
-    func confirmNoOpWithoutStaged() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func confirmNoOpWithoutStaged() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let model = model(vault: vault)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.errorMessage == nil)
             #expect(model.statusMessage == nil)

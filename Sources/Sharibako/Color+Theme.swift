@@ -158,3 +158,32 @@ extension Color {
     /// The cooler data surface — the panel ho's primary surface.
     static var panelGround: Color { Theme.panelGround.color }
 }
+
+// MARK: - Status glyph tints (ho-06.9 Decision 8)
+
+extension WorkshopModel.ProjectStatus {
+    /// The palette token the status glyph wears (Decision 8).
+    ///
+    /// Shape carries the status and the token only reinforces it: Not
+    /// protected is quiet `inkSecondary`, Protected the affirmative `inSync`,
+    /// Out of date and Problem the rust alarm, No folder here the faintest
+    /// `inkTertiary`. Returned as a ``Palette`` rather than a `Color` so the
+    /// mapping is unit-tested by value — two dynamic `Color`s never compare
+    /// equal.
+    var glyphPalette: Palette {
+        switch self {
+        case .notProtected: return Theme.inkSecondary
+        case .protected: return Theme.inSync
+        case .outOfDate, .problem: return Theme.alarm
+        case .noFolderHere: return Theme.inkTertiary
+        }
+    }
+}
+
+extension WorkshopModel.ProjectEntry {
+    /// The row glyph's palette: its status's token, or `inkSecondary` for a
+    /// shared secret, whose placeholder status must not color it.
+    var glyphPalette: Palette {
+        isShared ? Theme.inkSecondary : status.glyphPalette
+    }
+}
