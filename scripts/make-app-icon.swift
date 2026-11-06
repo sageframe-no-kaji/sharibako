@@ -1,23 +1,26 @@
 import AppKit
-import QuartzCore
 
-// Renders the Sharibako SVG master onto Apple's macOS icon grid at native
-// resolution for every iconset size.
+// Renders the Sharibako SVG master to a full-bleed .iconset at native
+// resolution for every size.
 //
 // Usage, from the repo root:
 //
 //   swift scripts/make-app-icon.swift xcode/Sharibako/Sharibako.svg /tmp/Sharibako.iconset
 //   iconutil -c icns /tmp/Sharibako.iconset -o xcode/Sharibako/Sharibako.icns
 //
-// Every size is rasterised from the vector at its exact pixel dimensions —
-// nothing is ever upscaled from a smaller render, which is what made the
-// earlier .icns soft at Dock and Finder sizes.
+// FULL-BLEED, DELIBERATELY. Do not add a rounded-rect clip or a transparent
+// margin here — macOS applies its own rounding, shadow, and appearance.
 //
-// Grid (per Apple's macOS app icon template, 1024pt canvas):
-//   content square: 824pt, centred      -> 824/1024 of the canvas
-//   corner radius:  185.4pt              -> 185.4/1024 of the canvas
-// The SVG is a full-bleed square (cream ground + dark mark), so the rounded
-// rect is a clip, not a drawn background.
+// Shipping a pre-rounded icon (our own squircle inset on a transparent canvas,
+// per Apple's 824/1024 template) makes macOS 26 read the dark mark as a
+// separate foreground layer and extrude it: a bevel with specular highlights
+// that reads as emboss and mush at Dock size. Verified by experiment against
+// this same artwork — the only difference between the embossed render and the
+// clean one is whether the source was pre-rounded. A full-bleed opaque square
+// passes through untouched.
+//
+// Every size is rasterised from the vector at its exact pixel dimensions —
+// nothing is upscaled from a smaller render.
 
 let svgURL = URL(fileURLWithPath: CommandLine.arguments[1])
 let outDir = URL(fileURLWithPath: CommandLine.arguments[2])
@@ -27,11 +30,8 @@ guard let master = NSImage(contentsOf: svgURL) else {
     exit(1)
 }
 
-let contentRatio: CGFloat = 824.0 / 1024.0
-let radiusRatio: CGFloat = 185.4 / 1024.0
-
-/// Rasterises the SVG at exactly `px` × `px` pixels.
-func rasterise(_ image: NSImage, px: Int) -> CGImage? {
+/// Rasterises the SVG at exactly `px` × `px` pixels, edge to edge.
+func rasterise(_ image: NSImage, px: Int) -> Data? {
     guard
         let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
@@ -58,59 +58,10 @@ func rasterise(_ image: NSImage, px: Int) -> CGImage? {
         fraction: 1.0
     )
     NSGraphicsContext.restoreGraphicsState()
-    return rep.cgImage
+    return rep.representation(using: .png, properties: [:])
 }
 
-/// Composes `artwork` onto a transparent `canvas`-sized canvas, clipped to the
-/// grid's continuous-corner rounded rect.
-func compose(artwork: CGImage, canvas: Int) -> CGImage? {
-    let side = CGFloat(canvas)
-    let content = (side * contentRatio).rounded()
-    let origin = ((side - content) / 2).rounded()
-    let radius = side * radiusRatio
-
-    guard
-        let ctx = CGContext(
-            data: nil,
-            width: canvas,
-            height: canvas,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        )
-    else { return nil }
-    ctx.interpolationQuality = .high
-
-    let layer = CALayer()
-    layer.bounds = CGRect(x: 0, y: 0, width: content, height: content)
-    layer.anchorPoint = .zero
-    layer.contents = artwork
-    layer.contentsGravity = .resize
-    layer.cornerRadius = radius
-    layer.cornerCurve = .continuous
-    layer.masksToBounds = true
-    layer.contentsScale = 1
-
-    // `render(in:)` ignores `position`/`anchorPoint` — it draws the layer at
-    // the context's origin, so the centring translation has to be explicit.
-    ctx.saveGState()
-    ctx.translateBy(x: origin, y: origin)
-    layer.render(in: ctx)
-    ctx.restoreGState()
-    return ctx.makeImage()
-}
-
-func write(_ image: CGImage, to url: URL) throws {
-    let rep = NSBitmapImageRep(cgImage: image)
-    rep.size = NSSize(width: image.width, height: image.height)
-    guard let data = rep.representation(using: .png, properties: [:]) else {
-        throw NSError(domain: "makeicon", code: 1)
-    }
-    try data.write(to: url)
-}
-
-// name -> canvas pixel size
+// name -> pixel size
 let entries: [(String, Int)] = [
     ("icon_16x16.png", 16),
     ("icon_16x16@2x.png", 32),
@@ -126,16 +77,11 @@ let entries: [(String, Int)] = [
 
 try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
 
-for (name, canvas) in entries {
-    // Rasterise the vector at the exact pixel size the content occupies —
-    // never upscale a smaller render.
-    let contentPx = Int((CGFloat(canvas) * contentRatio).rounded())
-    guard let artwork = rasterise(master, px: contentPx),
-        let composed = compose(artwork: artwork, canvas: canvas)
-    else {
+for (name, px) in entries {
+    guard let data = rasterise(master, px: px) else {
         FileHandle.standardError.write(Data("failed at \(name)\n".utf8))
         exit(1)
     }
-    try write(composed, to: outDir.appendingPathComponent(name))
-    print("\(name)  canvas=\(canvas)  content=\(contentPx)")
+    try data.write(to: outDir.appendingPathComponent(name))
+    print("\(name)  \(px)x\(px)  full-bleed")
 }
