@@ -1,12 +1,12 @@
 ---
 created: 2026-06-30
-updated: 2026-07-11
+updated: 2026-11-05
 status: draft
 type: ho-overview
 project: sharibako
 stage: kamae-4
-kamae-chain: seed → system-design → injection-decision → readme → **ho-overview**
-builds-on: kamae-2-sharibako-system-design, kamae-2.1-sharibako-injection-decision, kamae-3-sharibako-readme
+kamae-chain: seed → system-design → injection-decision → ownership-decision → workshop-project-first → readme → **ho-overview**
+builds-on: kamae-2-sharibako-system-design, kamae-2.1-sharibako-injection-decision, kamae-2.3-sharibako-workshop-project-first, kamae-3-sharibako-readme
 next: per-ho dandori specs authored via ho-kamae-5
 ---
 
@@ -30,6 +30,8 @@ _Revision 2026-07-11 (second): **ho-06 body reconciled to its split; Phase-4 tai
 
 _Revision 2026-07-12: **ho-06.5 executed, gated, and closed** (branch `panel-chrome`, PR #15) — the right-side action panel + flat pālana grounds; the `ground*` tokens are spent, and confirmation dialogs proved untintable (they stay system-rendered — a platform constraint, recorded). Its gate surfaced the build's most basic missing verb: **there is no way to delete a scope or a shared entry anywhere — not the Workshop, not the CLI, not `SharibakoCore`** — despite the system design committing that deletion "only ever touches the vault." **ho-06.7 (Delete: the missing destructive verb)** is authored in response (forward-only): one cross-surface ho adding `deleteScope`/`deleteSharedEntry` to the Vault Core, a `sharibako delete` verb, and a Workshop Delete Scope affordance — destructive-rust's first real in-window consumer, closing the item 06.4/06.5 carried. It covers scope and shared deletion in Core + CLI; the GUI delete-shared affordance defers to ho-07 (no shared-entry surface exists in the Workshop yet). Numbering ratified: 06.7 (06.6 multi-root remains an owed address). The Phase-4 tail resequences to delete (06.7) → first-run (06.3) → multi-root (06.6). No phase restructure._
 
+_Revision 2026-11-05: **ho-06.3 closed on function (2026-07-25, merged as PR #17 on 2026-11-05) and its gate reframed Phase 4.** The front door works piece by piece and is unusable as a flow — the practitioner's verdict, *"it's working as it is, but how it is is wrong."* The cause is structural, not a defect list: the Workshop was built as a window onto the vault (scopes grouped by type, per kamae-2 §2) when the job is project-first (find my projects, protect their secrets, then browse, then use). That is now decided in **kamae-2.3 (the Workshop is project-first)**: project as the primary noun, one ten-word vocabulary for both surfaces, five project statuses each with a home, secret-or-setting as an engine rule that only sets defaults (line-by-line review never skipped), free-text tags. This revision places the arc that builds it: a **mock gate** (no ho) before any code, then **ho-06.9** (projects surface), **ho-06.10** (protect: classification rule in Core, bulk protect, one review, one Touch ID), **ho-06.11** (browse + use + the words, including the CLI rename with aliases), then **ho-06.6** (multi-root) which now has a surface to live in. `ho-06.8` was spent by a bookkeeping commit and stays dead. **Checkpoint 2 is amended forward-only:** no outside tester is available, so the criterion becomes the practitioner's narrated cold run on the scripted sandbox, then a beta release that asks for outside help. No phase restructure; v0.4 still closes Phase 4._
+
 The overview commits to the sequence, names the decisions each ho is responsible for resolving, and marks the three pause points where real evidence is supposed to revise the plan.
 
 ---
@@ -52,7 +54,7 @@ This is not a contract. It is the map. Per-ho dandori specs are the territory.
 | 1. The vault substrate | ho-01, ho-02 | Encrypted vault on disk with git sync. End-to-end vault operations, no user surface |
 | 2. The bridge | ho-03 | Markers, `.env` ingest, materialize, drift detection. Vault meets the user's filesystem |
 | 3. The Tool **(complete; hardened through ho-04.13)** | ho-04, ho-04.2, ho-04.3, ho-04.4, **ho-04.5**, ho-04.6, ho-04.7, **ho-04.8–04.13** | CLI usable for real personal work. First dogfooding moment. Ho-04.5 adds `sharibako run` (injection), `sharibako clean`, and the SECURITY.md draft; ho-04.2/04.4/04.6 build and rework interactive `init`; ho-04.3 signs the binary (Keychain biometry); ho-04.7 adds `run` feedback. Post-Checkpoint-1 hardening: ho-04.8–04.11 (Fable security/robustness sweep), ho-04.12 (Keychain + signal semantics), ho-04.13 (run → exec-replace). Two bugs owed hos (see below) |
-| 4. The Workshop | ho-05, **ho-06.1–06.7** | SwiftUI app: shell (05), responsiveness (06.1), three-state glyphs + heal (06.2), first-run + ingest (06.3, owed), palana color-token layer (06.4), right-side chrome/panel (06.5, closed), multi-root management (06.6, owed), delete verb across Core/CLI/GUI (06.7) |
+| 4. The Workshop | ho-05, **ho-06.1–06.11** | SwiftUI app: shell (05), responsiveness (06.1), three-state glyphs + heal (06.2), first-run + ingest (06.3, closed on function), palana color-token layer (06.4), right-side chrome/panel (06.5), delete verb across Core/CLI/GUI (06.7), **then the project-first arc per kamae-2.3: mock gate → projects surface (06.9) → protect (06.10) → browse + use + words (06.11) → multi-root (06.6)** |
 | 5. Linking UX | ho-07 | The parti-defining feature surfaced across both CLI and GUI |
 | 6. Release | ho-08, ho-09 | Bundling, notarization, Homebrew tap, website, v1.0 |
 
@@ -325,7 +327,9 @@ Split only if the ho spills a session. The pairing is deliberate — writing SEC
 
 ## Phase 4 — The Workshop
 
-The native Mac app. SwiftUI, Apple Silicon only, three-pane window (scopes / secrets / detail). ho-05 is the shell — window structure, scope navigation, secret editing, materialize and sync buttons. ho-06 is the polish that makes the GUI usable for non-experts, and it split into a run of focused hos as the work and the dogfood gates surfaced them: responsiveness (06.1), three-state glyphs + the heal/drift surface (06.2), the palana color-token layer (06.4), the right-side chrome/panel (06.5), and multi-root scan management (06.6) — with the first-run + ingest journey (06.3) still owed. By the end of the phase, the first-version success criterion (15-minute install-to-first-materialized-`.env`) is achievable in tests against a fresh, non-expert user persona; that gate is what 06.3 closes.
+The native Mac app. SwiftUI, Apple Silicon only, three-pane window. ho-05 is the shell — window structure, scope navigation, secret editing, materialize and sync buttons. ho-06 is the polish that makes the GUI usable for non-experts, and it split into a run of focused hos as the work and the dogfood gates surfaced them: responsiveness (06.1), three-state glyphs + the heal/drift surface (06.2), the first-run + ingest journey (06.3), the palana color-token layer (06.4), the right-side chrome/panel (06.5), and delete (06.7). All closed.
+
+**The 06.3 gate found the shape wrong, not the pieces.** Every surface works; the practitioner could not tell what state he was in or find the primary verb. kamae-2.3 decides the response: the Workshop is project-first. The rest of Phase 4 is that arc — a mock gate before any code, then ho-06.9 (projects surface), ho-06.10 (protect), ho-06.11 (browse + use + the words), and ho-06.6 (multi-root). No restyling, no new engine capability beyond the secret-or-setting rule, linking stays Phase 5. By the end of the phase, the first-version success criterion (fifteen minutes, install to a protected project with a written `.env`, unaided) is achievable; see Checkpoint 2 for how it is tested without an outside user.
 
 *Release on phase complete: v0.4 (GUI + CLI, full primary workflow)*
 
@@ -376,6 +380,8 @@ ho-06 was the densest planned ho and split, as anticipated, into a run of focuse
 
 ### ho-06.3 — First-run, age-key generation, GUI ingest
 
+**Closed on function 2026-07-25 (PR #17, merged 2026-11-05); see the build record. Decision 6 (ingest as a sheet) is superseded by kamae-2.3.** The entry below is the as-authored plan.
+
 The GUI's front door. A first-run wizard (where you keep code, where the vault lives, optional remote, age key generate-or-import, a backup-nudge screen a non-expert can succeed at) and the ingest journey as a real SwiftUI flow (scan a directory, present per-secret decisions, commit). Premise gate-validated at 06.1: the operator could not find the repos-to-vault path from the GUI — CLI `init` is still the only front door. This is the ho that closes the 15-minute first-version criterion (Checkpoint 2).
 
 **Depends on:** ho-05, ho-06.1 (async worker + scan cache), ho-06.2 (glyph/drift reads what ingest writes)
@@ -424,9 +430,9 @@ The forward-only replacement for 06.2's failed chrome. The 06.2 gate ruled the n
 
 ### ho-06.6 — Multi-root scan management
 
-The management UI for scan roots — add, remove, reconfigure the trees Sharibako scans. 06.2 shipped read-only footer visibility of all configured roots; the config field already accepts `[String]`. Pulled forward from the original post-v1 deferral because the operator wants more than one tree now. Lowest-urgency of the Phase-4 tail — after the panel and first-run.
+The management UI for scan roots — add, remove, reconfigure the trees Sharibako scans. 06.2 shipped read-only footer visibility of all configured roots; the config field already accepts `[String]`. Pulled forward from the original post-v1 deferral because the operator wants more than one tree now — three GitHub identities means three code roots on day one. Sequenced last in the project-first arc because 06.9–06.11 give it a surface to live in. **Also carries the per-vault vs per-Mac `scan_roots` decision** (06.3's Reflect: roots live in one global config file, so switching vaults keeps the wrong roots).
 
-**Depends on:** ho-06.3 (first-run sets the initial root; management extends it), ho-06.5 (where the roots UI likely lives in the chrome)
+**Depends on:** ho-06.3 (first-run sets the initial root), ho-06.9 (the projects surface the roots feed), ho-06.10 (Choose Other… registering a root)
 
 **What's in scope (light):**
 - Add / remove / reconfigure scan roots from the GUI, persisted to config
@@ -458,7 +464,43 @@ The build's most basic missing capability, surfaced at the 06.5 gate: a user can
 
 **Decisions:** ratified before authoring — single cross-surface ho; both verbs; refuse-by-default + `--force` orphan; confirmation not Touch ID; GUI scope-delete only. Per-ho doc under `hos/ho-06.7-delete-verb.md`; three agent-task children by surface.
 
-**Phase boundary — replan checkpoint.** First-run + ingest + backup nudge (ho-06.3) are the moments non-expert usability succeeds or fails. Test with a real non-Andrew user *before* opening Phase 5. If first-run needs another pass, insert a further first-run-polish ho (next free decimal) rather than carrying the weakness into the linking work.
+### The project-first arc (kamae-2.3) — mock gate, then ho-06.9 / 06.10 / 06.11
+
+The forward-only response to the 06.3 gate. Authoritative decisions are in `kamae-2.3-sharibako-workshop-project-first.md`; the entries below are the spine. Numbers are addresses: 06.8 is dead (spent by a bookkeeping commit), 06.6 runs after 06.11.
+
+**Mock gate (no ho, no code).** Wireframes of the kamae-2.3 window and the Protect review screen, walked by the practitioner against three scripted jobs — protect fourteen repos; find which projects use the OpenAI key; give one app its keys and run it. The gate passes when the practitioner can narrate every row, status, and verb without reading code. No dandori opens before it passes; if it fails, kamae-2.3 is wrong and that is cheap to learn here.
+
+### ho-06.9 — The projects surface
+
+The sidebar lists projects by status (Not protected · Protected · Out of date · Problem · No folder here), with a persistent Not-protected section and a count, a shared-secrets section, and a contextual action column (three or four verbs for the selection, Rescan and Sync for the vault; one **New…** verb replacing the three Add windows). Supersedes 06.3 Decision 6 — candidates stop living inside a sheet. Reuses the existing scan cache, glyph computation, `IngestSheet`, and orphan verbs.
+
+**Depends on:** the mock gate; ho-06.3 (the pieces it rehomes), ho-06.5 (the panel it makes contextual)
+
+**What "done" means:** every one of the five statuses has a visible home and its verbs; a fresh launch with unprotected projects opens on the Protect stage; nothing modal is required to see where you are. Gate: the practitioner's narrated cold run on the scripted sandbox.
+
+**Out of scope:** the classification rule and bulk protect (06.10); the vocabulary pass (06.11).
+
+### ho-06.10 — Protect
+
+The secret-or-setting classification rule in `SharibakoCore` (shape per kamae-2.3 §4; thresholds set here against a test corpus), used by both surfaces. Bulk protect: classify every line of every unprotected project, one review screen that lists every line including settings and cannot be bypassed, one Touch ID for the batch. Choosing a folder outside the roots registers the root. Attach a folder to a no-folder project (`Materializer.writeMarker`, uncalled by the GUI today). The one Core change of the arc, plus `ScopeType` → free string with suggestions (old values stay valid).
+
+**Depends on:** ho-06.9 (the surface the verbs live on)
+
+**What "done" means:** fourteen sandbox projects go from Not protected to Protected in one pass with one Touch ID; settings are left in plain text by default and visible in the review; the CLI's `init` uses the same rule and prints its defaults line by line under `--yes`.
+
+**Decisions required:** entropy/length thresholds; whether "secret or setting" is remembered in the claim file or in the vault's scope metadata.
+
+### ho-06.11 — Browse, use, and the words
+
+The project page: its secrets with their standing, settings shown as left alone, and both output paths — **Write .env** (the existing preview and drift refusal) and **Run** (the one line to copy). Per-project up-to-date check on selection inside the Touch ID reuse window; the whole-vault check stays as one verb. Every user-facing string in the Workshop moved to the ten words. The CLI renames to match (`protect`, `write`, `status`, …) with the old verbs as hidden aliases for one release; man pages regenerated; README vocabulary table and first-session vignette rewritten GUI-first.
+
+**Depends on:** ho-06.9, ho-06.10
+
+**What "done" means:** no string a user reads contains scope, marker, materialize, ingest, drift, reconcile, orphan, stale, live, elsewhere, waymark, heal, or recipient; `sharibako --help` and the Workshop use the same words; old CLI scripts still run.
+
+**Possible split:** 06.11a (Workshop page + strings) and 06.11b (CLI rename + docs) if the rename sprawls.
+
+**Phase boundary — replan checkpoint.** The project-first arc is where non-expert usability succeeds or fails. Checkpoint 2 (amended below) fires after ho-06.11, before ho-06.6 if the roots work is not needed for the test, and before Phase 5 in any case. If the cold run fails, insert a polish ho (next free decimal) rather than carrying the weakness into the linking work.
 
 ---
 
@@ -627,6 +669,8 @@ Three explicit pause points. At each one, the practitioner stops, evaluates prog
 
 **Why this is a checkpoint:** the linking UX in Phase 5 depends on the GUI's established idiom. If that idiom is weak, the linking UX will be weak on top of weakness. Insert a further first-run-polish ho (next free decimal) if user testing demands it.
 
+**Amended 2026-11-05 (forward-only).** The checkpoint fired early, at the 06.3 gate, on the practitioner's own run: the pieces work and the flow does not. The response is kamae-2.3 and the project-first arc (06.9–06.11), not a polish ho. **The criterion is re-based:** no outside non-expert tester is available, so Checkpoint 2 now passes when (1) the practitioner completes the scripted cold run on the sandbox vault (`docs/screenshots/CAPTURE.md`: fresh vault, six fake projects) from first launch to a written `.env`, narrating the status of every row and the meaning of every verb without consulting docs or code, and (2) a beta build is released with a request for outside testers; their findings insert polish hos at the next free decimal. The original fifteen-minute non-Andrew criterion stays on the books as what the beta is trying to prove.
+
 ### Checkpoint 3 — After ho-07 (linking UX complete)
 
 **What's true:** the MVP feature set is delivered. The parti — including the rotation-propagation feature — is visible everywhere it needs to be.
@@ -654,7 +698,7 @@ Candidates surfaced during the overview, by pattern:
 **Combined-scope hos likely to split:**
 
 - **ho-03 (Materializer)** → ho-03.1 (write path: markers + materialize + status + heal) and ho-03.2 (read path: ingest + `.env` parsing + name-matching) if ingest's decision matrix or `.env` parsing edge cases sprawl.
-- **ho-06 (GUI polish)** → **split as built**, and the original three-way guess undercounted. As built: ho-06.1 (responsiveness, closed PR #12), ho-06.2 (three-state glyphs + heal, closed PR #13), ho-06.3 (first-run + ingest, owed), ho-06.4 (palana color-token layer, closed PR #14), ho-06.5 (right-side chrome/panel, owed — next), ho-06.6 (multi-root management, owed). The palette (06.4) and chrome (06.5) hos were surfaced by the 06.2 gate and a theming pass, not predicted here.
+- **ho-06 (GUI polish)** → **split as built**, and the original three-way guess undercounted. As built: ho-06.1 (responsiveness, PR #12), ho-06.2 (three-state glyphs + heal, PR #13), ho-06.3 (first-run + ingest, PR #17, closed on function), ho-06.4 (palana color-token layer, PR #14), ho-06.5 (right-side chrome/panel, PR #15), ho-06.7 (delete, PR #16). Then the kamae-2.3 arc: ho-06.9 (projects surface), ho-06.10 (protect), ho-06.11 (browse + use + words), ho-06.6 (multi-root, last). 06.8 dead. The palette (06.4) and chrome (06.5) hos were surfaced by the 06.2 gate and a theming pass; the project-first arc by the 06.3 gate — none predicted here.
 - **ho-07 (Linking UX)** → ho-07.1 (CLI link/unlink), ho-07.2 (GUI link picker + shared-secret browser), ho-07.3 (rotation propagation surface). Splits naturally along surface lines.
 - **ho-08 (Bundling + signing)** → ho-08.1 (Mac DMG + notarization + Install CLI) and ho-08.2 (Homebrew tap + Linux `.tar.gz`). Different infrastructure, different verification.
 
@@ -722,11 +766,15 @@ Phase 4 — The Workshop   (numbers are addresses, not execution order)
 ├── ho-06.2 (three-state glyphs + heal/drift surface)             ✓ PR #13
 ├── ho-06.4 (palana color-token layer)                            ✓ PR #14
 ├── ho-06.5 (right-side chrome / panel)                           ✓ PR #15
-├── ho-06.7 (delete verb — Core + CLI + GUI)    ← NEXT (unblocked by 06.5)
-├── ho-06.3 (first-run + age key + GUI ingest)  ── owed (Checkpoint-2 gate)
-└── ho-06.6 (multi-root scan management)         ── owed
-        ▲
-        │  ◆ Replan Checkpoint 2 (first-version usability test) ── v0.4
+├── ho-06.7 (delete verb — Core + CLI + GUI)                      ✓ PR #16
+├── ho-06.3 (first-run + age key + GUI ingest)   ✓ PR #17 — closed on function
+│       ◆ Replan Checkpoint 2 — FIRED EARLY at the 06.3 gate → kamae-2.3
+│       ◇ Mock gate (no ho): wireframes walked against three scripted jobs
+├── ho-06.9  (projects surface — statuses with homes)  ← NEXT after the mock gate
+├── ho-06.10 (protect — classification rule in Core, bulk, one Touch ID)
+├── ho-06.11 (browse + use + the words; CLI rename with aliases)
+│       ◆ Replan Checkpoint 2, re-based: narrated cold run + beta release
+└── ho-06.6  (multi-root scan management + per-vault roots decision) ── v0.4
 
 Phase 5 — Linking UX
 └── ho-07 (link UX across CLI + GUI)
@@ -746,7 +794,7 @@ Dependencies:
 - ho-04.5 depends on ho-01 (Vault Core), ho-03 (scope resolution), ho-04 (CLI base + Keychain integration).
 - ho-04.7 depends on ho-04.5 (the `run` verb and its `SignalForwarder`).
 - ho-05 depends on the substrate (ho-01..ho-04) — ho-04's Keychain pattern is the model the GUI follows. The ho-04.x CLI-polish inserts (04.2/04.3/04.5/04.6/04.7) have no GUI counterpart in v1, so ho-05 does not depend on them.
-- ho-06.1 depends on ho-05; ho-06.2 on ho-06.1 (its scan cache); ho-06.4 on ho-05 (the app sources it recolors); ho-06.5 on ho-06.2 (the chrome it replaces) + ho-06.4 (the panel/surface tokens); ho-06.3 on ho-05 / ho-06.1 / ho-06.2; ho-06.6 on ho-06.3 (initial root) + ho-06.5 (where the roots UI lives).
+- ho-06.1 depends on ho-05; ho-06.2 on ho-06.1 (its scan cache); ho-06.4 on ho-05 (the app sources it recolors); ho-06.5 on ho-06.2 (the chrome it replaces) + ho-06.4 (the panel/surface tokens); ho-06.3 on ho-05 / ho-06.1 / ho-06.2; ho-06.9 on the mock gate + ho-06.3 + ho-06.5; ho-06.10 on ho-06.9; ho-06.11 on ho-06.9 + ho-06.10; ho-06.6 on ho-06.3 (initial root) + ho-06.9 + ho-06.10.
 - ho-07 depends on ho-04 (CLI base) and the ho-06.x GUI-polish base (ho-06.1 / ho-06.2 at minimum).
 - ho-08 depends on ho-05, ho-06 (the Mac app must build and run cleanly before signing matters).
 - ho-09 depends on ho-08.
@@ -761,11 +809,11 @@ Update this overview as the build proceeds. A ho that splits gets its successors
 
 When in doubt about a ho's scope: the overview's job is the spine (heading, narrative, dependencies, decisions, light scope, possible-split flag). The per-ho dandori spec's job is the operational depth (files to touch, exact tests, verification commands, commit format). If a question is about *what* the ho is, it belongs here. If a question is about *how* the ho gets executed, it belongs in the dandori spec.
 
-The next dandori session is **ho-06.7 — Delete: the missing destructive verb** — the 06.5 gate's owed finding, pulled to the head of the Phase-4 tail because deletion is a foundational capability the app shipped without. Phase 4 is well underway: ho-05, ho-06.1, ho-06.2, ho-06.4, and **ho-06.5** (PR #15) are closed; **ho-06.3** (first-run + ingest, the Checkpoint-2 gate) and **ho-06.6** (multi-root management) remain owed after delete.
+The next step is **the mock gate**, not a dandori session: wireframes of the kamae-2.3 window and the Protect review screen, walked by the practitioner. The next dandori session after it is **ho-06.9 — the projects surface**. Phase 4 to date: ho-05, ho-06.1, ho-06.2, ho-06.3, ho-06.4, ho-06.5, ho-06.7 all closed and merged. Owed: 06.9 → 06.10 → 06.11 → 06.6.
 
-**Gate status.** Nothing blocks ho-06.5 — it is chrome over already-shipped behavior, and its surface tokens exist. Owed but non-gating for the panel: the first-run/ingest front door (ho-06.3, which the 15-minute criterion actually tests), multi-root management (ho-06.6), and the older Phase-3 carries — **non-atomic ingest** (robustness) and a **scriptable-`init`** followup. The `createVaultLayout` fresh-install bug was fixed in ho-04.14.
+**Gate status.** Nothing blocks the mock gate. Older carries, still non-gating: **non-atomic ingest** (robustness), the **scriptable-`init`** / `git init` CLI followup (partly absorbed by 06.10's rule work and 06.11's rename — fold or keep separate at authoring), the app icon as an asset-catalog `AppIcon`, the `ci.yml` coverage exclusion-list decision, and the unverified 07-19 Keychain-probe anomaly.
 
-_Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced delete (06.7) → first-run (06.3) → multi-root (06.6), with the panel (06.5) closed, though the decimal numbers are addresses, not execution order._
+_Phase 0–3 dandori specs live under `agent-tasks/` and per-ho documents under `hos/`; closed hos are the historical record and are not reopened (forward-only). The Phase-4 tail is sequenced mock gate → 06.9 → 06.10 → 06.11 → 06.6; the decimal numbers are addresses, not execution order._
 
 ---
 
