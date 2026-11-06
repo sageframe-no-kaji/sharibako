@@ -33,7 +33,7 @@ struct WorkshopWindow: View {
     private var reduceMotion
 
     /// Leading inset shared by the status surface and the sidebar footer's
-    /// own horizontal padding (`ScopeSidebar`), so the status line's leading
+    /// own horizontal padding (`ProjectSidebar`), so the status line's leading
     /// edge reads as continuous with the sidebar column's section labels
     /// (AT-02 Decision 4) instead of spanning the full window edge-to-edge.
     /// 16 pt also keeps the bottom row's text clear of the window's rounded
@@ -64,22 +64,12 @@ struct WorkshopWindow: View {
         case .open:
             HStack(spacing: 0) {
                 NavigationSplitView {
-                    ScopeSidebar()
+                    ProjectSidebar()
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240)
                 } content: {
-                    SecretList()
-                        .onAppear {
-                            if let scopeID = model.selectedScopeID {
-                                model.loadSecrets(for: scopeID)
-                            }
-                        }
-                        .onChange(of: model.selectedScopeID) { _, newScopeID in
-                            if let scopeID = newScopeID {
-                                model.loadSecrets(for: scopeID)
-                            }
-                        }
+                    contentColumn
                 } detail: {
-                    SecretDetail()
+                    detailColumn
                 }
                 .toolbar {
                     toolbarContent
@@ -292,6 +282,61 @@ struct WorkshopWindow: View {
             // scene's `.windowResizability(.contentSize)` the unbounded max
             // is what keeps the open Workshop freely resizable.
             .frame(minWidth: 720, maxWidth: .infinity, minHeight: 440, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Columns (ho-06.9 Decision 9)
+
+    /// The content column, switched on the selection's kind: a project's
+    /// header over its secret list, or the page for a Not-protected,
+    /// Needs-attention, or Shared-secrets row.
+    ///
+    /// One `Group` hosts every kind (the Discovery lean), so the split view
+    /// keeps a single, stable content column and the sidebar selection is
+    /// never rebuilt. A page renders only while ``WorkshopModel/selectedEntry``
+    /// finds the row — a row that vanished under the selection (forgotten,
+    /// say) falls back to the empty state rather than leaving a stale page.
+    /// The `.task(id:)` re-runs on every selection change and routes through
+    /// ``WorkshopModel/loadContent(for:)`` (tested): the secrets for a
+    /// project, the keys-only preview for a folder not yet protected.
+    @ViewBuilder private var contentColumn: some View {
+        Group {
+            if let entry = model.selectedEntry {
+                switch entry.id {
+                case .project:
+                    VStack(spacing: 0) {
+                        ProjectHeader(entry: entry)
+                        SecretList()
+                    }
+                case .candidate(let directory):
+                    NotProtectedPage(entry: entry, directory: directory)
+                case .problem:
+                    if let marker = entry.problemMarker, let directory = entry.directory {
+                        ProblemPage(entry: entry, marker: marker, directory: directory)
+                    }
+                case .shared(let sharedID):
+                    SharedSecretPage(sharedID: sharedID)
+                }
+            } else {
+                ContentUnavailableView("Select a project", systemImage: "folder")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.ground)
+            }
+        }
+        .navigationTitle(model.selectionTitle)
+        .task(id: model.selection) {
+            await model.loadContent(for: model.selection)
+        }
+    }
+
+    /// The detail column: the selected secret for a project, as before; an
+    /// empty flat ground for every other kind, whose page lives in the
+    /// content column (the Discovery lean — no detail to show).
+    @ViewBuilder private var detailColumn: some View {
+        if case .project = model.selection {
+            SecretDetail()
+        } else {
+            Color.ground
         }
     }
 

@@ -467,11 +467,8 @@ extension FirstRunWizard {
     @ViewBuilder private var ingestCandidateSummary: some View {
         if !ingestCandidatePreview.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text(
-                    "Found \(ingestCandidatePreview.count) project(s) with a .env file — "
-                        + "they'll be waiting under Not protected."
-                )
-                .foregroundStyle(Color.inkSecondary)
+                Text(WorkshopModel.firstRunCandidateSummary(count: ingestCandidatePreview.count))
+                    .foregroundStyle(Color.inkSecondary)
                 ForEach(ingestCandidatePreview, id: \.path) { url in
                     Text("• \(url.lastPathComponent)")
                         .font(.system(.body, design: .monospaced))
