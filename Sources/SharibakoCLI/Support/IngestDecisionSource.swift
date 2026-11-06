@@ -3,10 +3,11 @@ import SharibakoCore
 /// Produces a per-key routing decision for every ``DetectedKey`` in a
 /// ``ProposedScope``.
 ///
-/// The two concrete implementations shipped in this module are:
+/// The concrete implementations shipped in this module are:
 /// - ``PlainIngestPrompt`` — line-based interactive TTY prompt.
-/// - ``ScriptedIngestDecisionSource`` — deterministic double used by tests
-///   and the deferred non-interactive init path.
+/// - ``ClassDefaultIngestDecisionSource`` — `init --yes` / non-TTY: every
+///   line takes its ``SecretClassifier`` default, printed per key.
+/// - ``ScriptedIngestDecisionSource`` — deterministic double used by tests.
 protocol IngestDecisionSource {
     /// Returns one ``KeyDecision`` per detected key, in proposal order.
     ///

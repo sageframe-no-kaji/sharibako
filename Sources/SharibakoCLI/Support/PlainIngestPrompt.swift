@@ -3,9 +3,12 @@ import SharibakoCore
 
 /// The plain line-based implementation of ``IngestDecisionSource``.
 ///
-/// Prints the detected keys, offers a one-keystroke "import all", and collects
-/// per-key exceptions through simple line prompts. No raw mode, no full-screen
-/// rendering — the idiomatic-CLI surface that supersedes ho-04.4's dashboard.
+/// Prints every detected line with its class from ``SecretClassifier``
+/// (secret or setting, and why), offers the one-keystroke default — protect
+/// the secrets, leave the settings alone — and collects per-key exceptions
+/// through simple line prompts whose own default is the line's class. No raw
+/// mode, no full-screen rendering — the idiomatic-CLI surface that supersedes
+/// ho-04.4's dashboard. The class only sets defaults (ho-06.10 Decision 3).
 ///
 /// All I/O seams are injectable so the branching logic can be tested without a
 /// terminal: inject `lineReader` to supply canned input and `print` to capture
@@ -30,28 +33,62 @@ struct PlainIngestPrompt: IngestDecisionSource {
 
     func decisions(for proposal: ProposedScope, sharedIDs: [String]) throws -> [KeyDecision] {
         guard isInteractive() else { throw CLIError.notInteractiveTerminal }
-        let keys = proposal.detectedKeys
-        printHeader(proposal: proposal)
+        let classified = proposal.classifiedKeys()
+        let secretCount = classified.filter(\.lineClass.isSecret).count
+        let settingCount = classified.count - secretCount
+        printHeader(scopeID: proposal.suggestedScopeID, secrets: secretCount, settings: settingCount)
         printContext(proposal: proposal)
-        printKeyList(keys: keys)
+        printKeyList(classified)
+        guard !classified.isEmpty else { return [] }
 
-        // Dominant case: import everything in one keystroke.
+        // Dominant case: accept every line's class default in one keystroke.
         print("")
-        let importAll = ask("Import all \(keys.count) as scope-local? [Y/n]")
-        if importAll.isEmpty || importAll.lowercased().hasPrefix("y") {
-            return keys.map { .importAsLocal(key: $0.key) }
+        let acceptAll = ask(Self.bulkQuestion(secrets: secretCount, settings: settingCount))
+        if acceptAll.isEmpty || acceptAll.lowercased().hasPrefix("y") {
+            return classified.map { $0.lineClass.defaultDecision(forKey: $0.key.key) }
         }
 
-        // Exceptions: which keys get handled differently; the rest are imported.
+        // Exceptions: which keys get handled differently; the rest keep their defaults.
         let exceptionIndices = parseIndices(
-            ask("Which to handle differently? numbers (e.g. 3,7), blank to import the rest:"),
-            count: keys.count
+            ask("Which to handle differently? numbers (e.g. 3,7), blank to keep the defaults:"),
+            count: classified.count
         )
         var overrides: [String: KeyDecision] = [:]
         for idx in exceptionIndices {
-            overrides[keys[idx].key] = promptChoice(for: keys[idx], sharedIDs: sharedIDs)
+            let entry = classified[idx]
+            overrides[entry.key.key] = promptChoice(for: entry.key, lineClass: entry.lineClass, sharedIDs: sharedIDs)
         }
-        return keys.map { overrides[$0.key] ?? .importAsLocal(key: $0.key) }
+        return classified.map { overrides[$0.key.key] ?? $0.lineClass.defaultDecision(forKey: $0.key.key) }
+    }
+
+    // MARK: - Wording
+
+    /// The one-keystroke question, zero-aware.
+    ///
+    /// Both classes present: "Protect 3 secrets and leave 2 settings alone?";
+    /// secrets only: "Protect 3 secrets?"; settings only: "Leave all 2
+    /// settings alone?" (or "Leave 1 setting alone?").
+    static func bulkQuestion(secrets: Int, settings: Int) -> String {
+        let question: String
+        if settings == 0 {
+            question = "Protect \(counted(secrets, "secret"))?"
+        } else if secrets == 0 {
+            question = settings == 1 ? "Leave 1 setting alone?" : "Leave all \(settings) settings alone?"
+        } else {
+            question = "Protect \(counted(secrets, "secret")) and leave \(counted(settings, "setting")) alone?"
+        }
+        return question + " [Y/n]"
+    }
+
+    /// `[secret] (reason)` / `[setting] (reason)` — how a line's class reads in the list.
+    static func classLabel(_ lineClass: LineClass) -> String {
+        let name = lineClass.isSecret ? "secret" : "setting"
+        return "[\(name)] (\(lineClass.reason.explanation))"
+    }
+
+    /// "1 secret", "3 secrets".
+    static func counted(_ count: Int, _ noun: String) -> String {
+        count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
     }
 
     // MARK: - Prompts
@@ -61,9 +98,15 @@ struct PlainIngestPrompt: IngestDecisionSource {
         return (lineReader() ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func promptChoice(for key: DetectedKey, sharedIDs: [String]) -> KeyDecision {
-        let answer = ask("\(key.key)  [i]mport [l]ink [m]ove [x]=leave [s]kip:").lowercased()
+    /// Per-key override; Enter (or anything unrecognised) keeps the class default.
+    private func promptChoice(for key: DetectedKey, lineClass: LineClass, sharedIDs: [String]) -> KeyDecision {
+        let enterMeans = lineClass.isSecret ? "import" : "leave"
+        let answer = ask(
+            "\(key.key)  \(Self.classLabel(lineClass))  [i]mport [l]ink [m]ove [x]=leave [s]kip, Enter = \(enterMeans):"
+        ).lowercased()
         switch answer.first {
+        case "i":
+            return .importAsLocal(key: key.key)
         case "l":
             return linkChoice(for: key, sharedIDs: sharedIDs)
         case "m":
@@ -74,7 +117,7 @@ struct PlainIngestPrompt: IngestDecisionSource {
         case "s":
             return .skip(key: key.key)
         default:
-            return .importAsLocal(key: key.key)
+            return lineClass.defaultDecision(forKey: key.key)
         }
     }
 
@@ -92,8 +135,8 @@ struct PlainIngestPrompt: IngestDecisionSource {
 
     // MARK: - Rendering
 
-    private func printHeader(proposal: ProposedScope) {
-        print("Scope: \(proposal.suggestedScopeID)  ·  \(proposal.detectedKeys.count) secret(s) detected")
+    private func printHeader(scopeID: String, secrets: Int, settings: Int) {
+        print("Scope: \(scopeID)  ·  \(Self.counted(secrets, "secret")), \(Self.counted(settings, "setting"))")
     }
 
     private func printContext(proposal: ProposedScope) {
@@ -105,11 +148,11 @@ struct PlainIngestPrompt: IngestDecisionSource {
         }
     }
 
-    private func printKeyList(keys: [DetectedKey]) {
+    private func printKeyList(_ classified: [(key: DetectedKey, lineClass: LineClass)]) {
         print("")
-        for (idx, key) in keys.enumerated() {
-            var line = "\(String(format: "%2d", idx + 1))  \(key.key)"
-            if let matched = key.nameMatchedSharedID {
+        for (idx, entry) in classified.enumerated() {
+            var line = "\(String(format: "%2d", idx + 1))  \(entry.key.key)  \(Self.classLabel(entry.lineClass))"
+            if let matched = entry.key.nameMatchedSharedID {
                 line += "  → matches shared '\(matched)'"
             }
             print(line)
