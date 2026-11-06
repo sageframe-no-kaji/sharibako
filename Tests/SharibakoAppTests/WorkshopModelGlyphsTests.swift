@@ -178,21 +178,16 @@ struct WorkshopModelGlyphsTests {
 
     // MARK: - Pure marker presentation mappings
 
-    @Test("UnlinkedMarker exposes title, path, id, symbol, and help for both cases")
+    @Test("UnlinkedMarker exposes path and id for both cases")
     func unlinkedMarkerPresentation() {
         let markerURL = URL(fileURLWithPath: "/tmp/proj/.sharibako")
         let orphan = WorkshopModel.UnlinkedMarker.orphaned(scope: "ghost", markerURL: markerURL)
-        #expect(orphan.title == "ghost")
         #expect(orphan.markerPath == markerURL.path)
         #expect(orphan.id == "orphaned:\(markerURL.path)")
-        #expect(!orphan.symbolName.isEmpty)
-        #expect(orphan.helpText.contains("ghost"))
 
         let failure = WorkshopModel.UnlinkedMarker.failed(markerURL: markerURL, reason: "bad yaml")
-        #expect(failure.title == "Malformed marker")
         #expect(failure.markerPath == markerURL.path)
         #expect(failure.id == "failed:\(markerURL.path)")
-        #expect(failure.symbolName != orphan.symbolName)
-        #expect(failure.helpText.contains("bad yaml"))
+        #expect(failure.id != orphan.id)
     }
 }

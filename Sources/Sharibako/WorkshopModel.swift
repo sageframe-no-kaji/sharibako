@@ -490,19 +490,6 @@ extension WorkshopModel {
             errorMessage = Self.message(for: error)
         }
     }
-
-    /// The sidebar's sections: one per `ScopeType` holding scopes, in fixed
-    /// display order, with empty sections omitted.
-    var scopeSections: [ScopeSection] {
-        Self.sectionOrder.compactMap { type in
-            let matching = scopes.filter { $0.type == type }
-            guard !matching.isEmpty else { return nil }
-            return ScopeSection(type: type, scopes: matching)
-        }
-    }
-
-    /// Fixed sidebar ordering of the five scope categories.
-    static let sectionOrder: [ScopeType] = [.projectDev, .projectProd, .service, .machine, .other]
 }
 
 // MARK: - Secret listing (AT-02)
@@ -1014,36 +1001,6 @@ extension WorkshopModel {
             return "Git error: \(stderr.prefix(120))"
         default:
             return "Vault error: \(vaultError)"
-        }
-    }
-}
-
-// MARK: - Sidebar section type
-
-/// One sidebar section: a scope category and its member scopes.
-struct ScopeSection: Equatable, Identifiable {
-    /// The category this section groups.
-    let type: ScopeType
-
-    /// Scopes of that category, in vault order (sorted by identity).
-    let scopes: [ScopeMetadata]
-
-    /// Stable identity for SwiftUI lists.
-    var id: String { type.rawValue }
-
-    /// The section header text.
-    var title: String {
-        switch type {
-        case .projectDev:
-            return "Projects — dev"
-        case .projectProd:
-            return "Projects — prod"
-        case .service:
-            return "Services"
-        case .machine:
-            return "Machines"
-        case .other:
-            return "Other"
         }
     }
 }

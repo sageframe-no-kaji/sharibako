@@ -244,6 +244,160 @@ extension WorkshopModel {
         return "\(found); \(protected)."
     }
 
+    // MARK: - Action column (Decision 7)
+
+    /// One verb in the action column's selection group (Decision 7), named in
+    /// kamae-2.3 §2's ten words.
+    ///
+    /// The panel renders whatever ``selectionVerbs`` lists, in order; the
+    /// title, symbol, and destructive flag travel with the verb so the view
+    /// only lays them out and routes the tap.
+    enum SelectionVerb: Hashable, Identifiable, CaseIterable {
+        /// Protect a Not-protected folder (the Protect sheet).
+        case protect
+        /// Write a project's secrets back into its `.env`.
+        case writeEnv
+        /// Show what Write .env would put in the file, and where.
+        case previewEnv
+        /// Open the selected row's folder in Finder.
+        case openInFinder
+        /// Delete a project and its secrets from the vault (destructive).
+        case deleteProject
+        /// Protect a Problem folder under the project its claim file names.
+        case protectFolder
+        /// Remove a Problem folder's claim file (destructive).
+        case forgetFolder
+
+        /// Stable identity for `ForEach`.
+        var id: Self { self }
+
+        /// The button's always-visible title.
+        var title: String {
+            switch self {
+            case .protect: return "Protect"
+            case .writeEnv: return "Write .env"
+            case .previewEnv: return "Preview .env"
+            case .openInFinder: return "Open in Finder"
+            case .deleteProject: return "Delete project"
+            case .protectFolder: return "Protect this folder"
+            case .forgetFolder: return "Forget this folder"
+            }
+        }
+
+        /// The button's SF Symbol.
+        var systemImage: String {
+            switch self {
+            case .protect, .protectFolder: return "lock.shield"
+            case .writeEnv: return "arrow.down.doc"
+            case .previewEnv: return "doc.text.magnifyingglass"
+            case .openInFinder: return "arrow.up.forward.square"
+            case .deleteProject: return "trash"
+            case .forgetFolder: return "minus.circle"
+            }
+        }
+
+        /// Whether the verb wears pālana rust (`Color.drift`) — the two that
+        /// remove something.
+        var isDestructive: Bool {
+            self == .deleteProject || self == .forgetFolder
+        }
+    }
+
+    /// The disabled reason for a project with no folder on this Mac
+    /// (Decision 7): Write .env, Preview .env, and Open in Finder all need one.
+    static let noFolderHereReason = "No folder on this Mac — attach one in a later version"
+
+    /// The selection group's verbs, in display order, by the selected row's
+    /// kind and status — Decision 7's table.
+    ///
+    /// Empty when nothing is selected, the selected row has vanished, or a
+    /// shared secret is selected (no verbs this ho); the panel omits the
+    /// whole group then. A No-folder-here project keeps all four verbs —
+    /// three of them disabled by ``writeDisabledReason``.
+    var selectionVerbs: [SelectionVerb] {
+        guard let entry = selectedEntry else { return [] }
+        switch entry.id {
+        case .candidate:
+            return [.protect, .openInFinder]
+        case .project:
+            return [.writeEnv, .previewEnv, .openInFinder, .deleteProject]
+        case .problem:
+            guard case .problem(.orphaned) = entry.status else { return [.openInFinder] }
+            return [.protectFolder, .forgetFolder, .openInFinder]
+        case .shared:
+            return []
+        }
+    }
+
+    /// Why Write .env, Preview .env, and a project's Open in Finder cannot
+    /// run, or `nil` when they can.
+    ///
+    /// Wraps the marker checks ``previewDisabledReason`` and
+    /// ``jumpDisabledReason`` make, in the ten words: no project selected;
+    /// not scanned yet; or no folder on this Mac (the No-folder-here status,
+    /// and any project whose claim file the scan did not find).
+    var writeDisabledReason: String? {
+        guard let scopeID = selectedScopeID else { return "Select a project first" }
+        guard cachedMarker(forScope: scopeID) != nil else {
+            return scanReport == nil
+                ? "Not scanned yet — rescan to find this project's folder"
+                : Self.noFolderHereReason
+        }
+        return nil
+    }
+
+    /// Why `verb` cannot run on the current selection, or `nil` when it can.
+    ///
+    /// Says nothing about ``activity`` — the panel disables every verb while
+    /// one is in flight, on top of this.
+    func disabledReason(for verb: SelectionVerb) -> String? {
+        switch verb {
+        case .writeEnv, .previewEnv:
+            return writeDisabledReason
+        case .openInFinder:
+            guard selectedEntry?.directory == nil else { return nil }
+            return writeDisabledReason ?? Self.noFolderHereReason
+        case .protect, .deleteProject, .protectFolder, .forgetFolder:
+            return nil
+        }
+    }
+
+    /// The tooltip for `verb`: its disabled reason when it has one, else what
+    /// it does, plainly.
+    func help(for verb: SelectionVerb) -> String {
+        if let reason = disabledReason(for: verb) { return reason }
+        switch verb {
+        case .protect:
+            return "Read this folder's .env and move its secrets into the vault"
+        case .writeEnv:
+            return "Put this project's secrets back into its .env, touching only its own lines"
+        case .previewEnv:
+            return "Show exactly what Write .env would put in the file, and where"
+        case .openInFinder:
+            return "Open this folder in Finder"
+        case .deleteProject:
+            return "Delete this project and its secrets from the vault — its folder and .env are left in place"
+        case .protectFolder:
+            return "Bring this folder's .env into the vault as \(selectedEntry?.name ?? "its project")"
+        case .forgetFolder:
+            return "Remove this folder's claim file — the vault and the .env are untouched"
+        }
+    }
+
+    /// Whether the drift cache holds an out-of-date project — the gate on
+    /// VAULT's Write all out of date (Decision 7). `false` until a Check all
+    /// has found something.
+    var hasOutOfDateProjects: Bool {
+        driftReports.values.contains { Self.isDrifted($0) }
+    }
+
+    /// The New… menu's secret item: "Secret in <project>" while a project is
+    /// selected (the item's target), else "Secret" (the item is disabled).
+    var newSecretMenuTitle: String {
+        guard let entry = selectedEntry, entry.scopeID != nil else { return "Secret" }
+        return "Secret in \(entry.name)"
+    }
+
     // MARK: - Section rows
 
     /// Not protected: one row per ``candidates`` folder, in the scanner's

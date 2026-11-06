@@ -41,41 +41,12 @@ extension WorkshopModel {
             }
         }
 
-        /// The row's primary label: the orphaned scope name, or a fixed
-        /// "Malformed marker" for a load failure.
-        var title: String {
-            switch self {
-            case .orphaned(let scope, _): return scope
-            case .failed: return "Malformed marker"
-            }
-        }
-
         /// The marker's on-disk path, shown inline and in the tooltip so the
         /// orphan is fully surfaced without any action (Decision 2b).
         var markerPath: String {
             switch self {
             case .orphaned(_, let markerURL): return markerURL.path
             case .failed(let markerURL, _): return markerURL.path
-            }
-        }
-
-        /// SF Symbol for the row's leading glyph — shape-distinct from the two
-        /// scope-row glyphs.
-        var symbolName: String {
-            switch self {
-            case .orphaned: return "questionmark.circle"
-            case .failed: return "exclamationmark.triangle"
-            }
-        }
-
-        /// The row's help tooltip: the marker path, plus the failure reason for
-        /// a load failure.
-        var helpText: String {
-            switch self {
-            case .orphaned(let scope, let markerURL):
-                return "Marker references scope '\(scope)', which the vault does not have\n\(markerURL.path)"
-            case .failed(let markerURL, let reason):
-                return "\(markerURL.path)\n\(reason)"
             }
         }
     }

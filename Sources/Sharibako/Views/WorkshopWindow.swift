@@ -465,7 +465,7 @@ extension WorkshopWindow {
             } label: {
                 Label("Actions", systemImage: "sidebar.trailing")
             }
-            .help(actionPanelCollapsed ? "Show the actions panel" : "Hide the actions panel")
+            .help(actionPanelCollapsed ? "Show the actions column" : "Hide the actions column")
         }
     }
 
