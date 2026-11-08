@@ -465,23 +465,45 @@ extension WorkshopModel {
 
     // MARK: - Candidate preview (Decision 9)
 
-    /// What a Not-protected folder's `.env` holds, keys only.
+    /// One line of a Not-protected folder's `.env`, with its class.
+    ///
+    /// The value is shown: it already sits in plain text on disk, and the
+    /// page's job is to show what Protect would take in (ho-06.9 gate
+    /// finding — masking a plaintext file's values was theater).
+    struct PreviewLine: Equatable, Sendable {
+        /// The `.env` key.
+        let key: String
+        /// The plaintext value as it stands in the file.
+        let value: String
+        /// Secret or setting, with the rule that decided it (ho-06.10 AT-01).
+        let lineClass: LineClass
+
+        /// The class and its reason, in plain words: "secret — key ends in
+        /// KEY", "setting — looks like a number".
+        var classLabel: String {
+            "\(lineClass.isSecret ? "secret" : "setting") — \(lineClass.reason.explanation)"
+        }
+    }
+
+    /// What a Not-protected folder's `.env` holds.
     struct CandidatePreview: Equatable {
         /// The folder previewed.
         let directory: URL
-        /// The keys with values, in file order — never the values.
-        let keys: [String]
+        /// The lines with values, in file order, each with its class.
+        let lines: [PreviewLine]
         /// Lines the parser could not read, as "<file> line N: <reason>".
         let warnings: [String]
+
+        /// The keys, in file order.
+        var keys: [String] { lines.map(\.key) }
     }
 
-    /// Loads a keys-only preview of a Not-protected folder for its page.
+    /// Loads a preview of a Not-protected folder's `.env` for its page.
     ///
     /// Keyless by construction: ``Materializer/ingest(directory:)`` only
-    /// parses `.env`-family files, and the worker closure maps its proposal
-    /// down to key names and warning reasons before returning — no value
-    /// crosses back to the main actor (the page masks every value anyway).
-    /// Deliberately not gated on ``activity`` and sets none: it is a quick
+    /// parses `.env`-family files; nothing is decrypted. Each line comes back
+    /// with its plaintext value (already on disk in plain text) and its
+    /// secret-or-setting class from ``SecretClassifier``. Deliberately not gated on ``activity`` and sets none: it is a quick
     /// read the page fires on selection, and the launch selection can pick a
     /// folder while the launch scan's activity is still winding down; the
     /// serial ``worker`` already orders it after any scan. The result lands
@@ -490,15 +512,18 @@ extension WorkshopModel {
     func loadCandidatePreview(for directory: URL) async {
         guard case .open(let vaultURL) = vaultState else { return }
         do {
-            let (keys, warnings) = try await worker.run {
+            let (lines, warnings) = try await worker.run {
                 let core = try VaultCore(vaultURL: vaultURL)
                 let proposal = try Materializer(vaultCore: core, vaultURL: vaultURL).ingest(directory: directory)
                 let warnings = proposal.parseWarnings.map {
                     "\($0.file.lastPathComponent) line \($0.lineNumber): \($0.reason)"
                 }
-                return (proposal.detectedKeys.map(\.key), warnings)
+                let lines = proposal.detectedKeys.map {
+                    PreviewLine(key: $0.key, value: $0.value, lineClass: $0.lineClass)
+                }
+                return (lines, warnings)
             }
-            storeCandidatePreview(CandidatePreview(directory: directory, keys: keys, warnings: warnings))
+            storeCandidatePreview(CandidatePreview(directory: directory, lines: lines, warnings: warnings))
         } catch {
             errorMessage = Self.message(for: error)
         }

@@ -246,8 +246,8 @@ struct WorkshopModelSelectionTests {
 
     // MARK: - Candidate preview
 
-    @Test("the candidate preview lists keys and parse warnings, never values")
-    func candidatePreviewKeysOnly() async throws {
+    @Test("the candidate preview lists every line with its value, class, and parse warnings")
+    func candidatePreviewLines() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
             let root = try ProjectsTestSupport.makeRoot(near: vault)
             defer { try? FileManager.default.removeItem(at: root) }
@@ -264,9 +264,11 @@ struct WorkshopModelSelectionTests {
             #expect(preview.keys == ["STRIPE_SECRET_KEY", "PORT"])
             #expect(preview.warnings.count == 1)
             #expect(preview.warnings.first?.hasPrefix(".env line 3:") == true)
-            let everything = preview.keys.joined() + preview.warnings.joined()
-            #expect(!everything.contains("sk_live_abc"))
-            #expect(!everything.contains("3000"))
+            #expect(preview.lines.map(\.value) == ["sk_live_abc", "3000"])
+            #expect(preview.lines[0].lineClass.isSecret)
+            #expect(!preview.lines[1].lineClass.isSecret)
+            #expect(preview.lines[0].classLabel.hasPrefix("secret — "))
+            #expect(preview.lines[1].classLabel.hasPrefix("setting — "))
         }
     }
 

@@ -210,15 +210,18 @@ struct WorkshopWindow: View {
             // vault — so the copy names the full path and says the vault is
             // untouched. Same platform constraint: system-rendered, no tint.
             .confirmationDialog(
-                "Remove stray marker",
+                "Forget this folder?",
                 isPresented: .init(
                     get: { model.pendingStrayMarkerRemoval != nil },
                     set: { if !$0 { model.dismissStrayMarkerRemoval() } }
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Remove Marker", role: .destructive) {
-                    Task { await model.confirmRemoveStrayMarker() }
+                Button("Forget Folder", role: .destructive) {
+                    // Read the pending removal NOW, synchronously: the dialog's
+                    // dismissal clears it before the Task body runs.
+                    let removal = model.pendingStrayMarkerRemoval
+                    Task { await model.confirmRemoveStrayMarker(removal) }
                 }
                 Button("Cancel", role: .cancel) {
                     model.dismissStrayMarkerRemoval()

@@ -91,8 +91,15 @@ extension WorkshopModel {
     /// gone, or permissions refuse it — announces via
     /// ``WorkshopModel/errorMessage`` and leaves every other field
     /// untouched, matching the ho-06.7 trio's own failure posture.
-    func confirmRemoveStrayMarker() async {
-        guard let removal = pendingStrayMarkerRemoval else { return }
+    /// `removal` is passed in by the confirmation button, read synchronously
+    /// at the tap: SwiftUI dismisses a `confirmationDialog` through its
+    /// `isPresented` binding *before* the button's `Task` body runs, and that
+    /// dismissal clears ``pendingStrayMarkerRemoval`` — so a body that read
+    /// the pending value itself found `nil` and silently did nothing (the
+    /// ho-06.9 gate: "Forget this folder didn't remove it"). Falls back to
+    /// the pending value for callers that are not racing a dialog.
+    func confirmRemoveStrayMarker(_ removal: StrayMarkerRemoval? = nil) async {
+        guard let removal = removal ?? pendingStrayMarkerRemoval else { return }
         pendingStrayMarkerRemoval = nil
         do {
             try FileManager.default.removeItem(at: removal.markerURL)

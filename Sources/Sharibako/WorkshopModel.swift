@@ -996,11 +996,29 @@ extension WorkshopModel {
         case .markerNotFound:
             return "No .sharibako marker found for this scope in the configured scan roots."
         case .ageInvocationFailed(_, let stderr):
-            return "Encryption failed: \(stderr.prefix(120))"
+            return Self.ageFailureMessage(stderr: stderr)
         case .gitInvocationFailed(_, let stderr):
             return "Git error: \(stderr.prefix(120))"
         default:
             return "Vault error: \(vaultError)"
         }
+    }
+
+    /// The message for an `age` failure, by what `age` actually said.
+    ///
+    /// `age` is used for both directions, and the ho-06.9 gate showed a
+    /// decrypt failure ("no identity matched any of the recipients") wearing an
+    /// "Encryption failed" label. The recipient mismatch gets plain words — it
+    /// means this vault's secrets were encrypted to a different key than the
+    /// one in use, which is the one thing the user can act on.
+    static func ageFailureMessage(stderr: String) -> String {
+        let text = stderr.lowercased()
+        if text.contains("no identity matched") {
+            return "This key cannot read these secrets — they were encrypted to a different key than the one in use."
+        }
+        if text.contains("decrypt") || text.contains("identity") {
+            return "Decryption failed: \(stderr.prefix(120))"
+        }
+        return "Encryption failed: \(stderr.prefix(120))"
     }
 }

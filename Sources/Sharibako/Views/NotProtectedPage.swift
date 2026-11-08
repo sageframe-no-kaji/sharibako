@@ -3,9 +3,10 @@ import SwiftUI
 /// The page for a Not-protected row (ho-06.9 Decision 9): a folder under the
 /// scan roots with a `.env` and nothing in the vault yet.
 ///
-/// Shows what Protect would take in — the `.env`'s keys, never a value; each
-/// one is masked as `••••••••` — and offers the one verb, Protect, which opens
-/// the Protect sheet (Decision 6). The preview is
+/// Shows what Protect would take in — every `.env` line with its value (it is
+/// plain text on disk already) and its secret-or-setting class with the
+/// reason — and offers the one verb, Protect, which opens the Protect sheet
+/// (Decision 6). The preview is
 /// ``WorkshopModel/candidatePreview``, loaded keyless on the worker by the
 /// content column's `.task(id:)`; until it lands the page says it is reading.
 /// Every count-aware string comes from `WorkshopModel+Pages.swift` (tested).
@@ -54,25 +55,36 @@ struct NotProtectedPage: View {
         .background(Color.ground)
     }
 
-    /// The keys of the folder's `.env`, in file order, each value masked.
+    /// The lines of the folder's `.env`, with value and class.
+    ///
+    /// In file order: key, value, and the class with its reason. Secrets read
+    /// in full ink, settings quieter.
     ///
     /// Any lines the parser could not read follow, in the rust alarm.
     private func keyList(_ preview: WorkshopModel.CandidatePreview) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(WorkshopModel.envLineCount(preview.keys.count))
+            Text(WorkshopModel.envLineCount(preview.lines.count))
                 .font(.headline)
                 .foregroundStyle(Color.ink)
-            ForEach(preview.keys, id: \.self) { key in
-                HStack {
-                    Text(key)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.ink)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 16)
-                    Text("••••••••")
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundStyle(Color.inkTertiary)
+            ForEach(preview.lines, id: \.key) { line in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(line.key)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(Color.ink)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 16)
+                        Text(line.value.isEmpty ? "(empty)" : line.value)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(line.lineClass.isSecret ? Color.ink : Color.inkSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                    }
+                    Text(line.classLabel)
+                        .font(.caption)
+                        .foregroundStyle(line.lineClass.isSecret ? Color.inkSecondary : Color.inkTertiary)
                 }
             }
             ForEach(preview.warnings, id: \.self) { warning in
