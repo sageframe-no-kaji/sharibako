@@ -367,10 +367,18 @@ enum ProjectChecker {
         var matches: [String: String] = [:]
         for info in try core.inspect(marker.scope) where info.kind == .value {
             let value = try core.getValue(info.key, inScope: marker.scope)
-            if let id = sharedValues.filter({ $0.value == value }).keys.min() {
+            if let id = sharedID(matching: value, in: sharedValues) {
                 matches[info.key] = id
             }
         }
         return Checked(report: report, matches: matches)
+    }
+
+    /// The shared secret whose value is `value`, or `nil`.
+    ///
+    /// The first by ID when several are. The one comparison Check all and
+    /// Protect share (ho-06.10 AT-05).
+    static func sharedID(matching value: String, in sharedValues: [String: String]) -> String? {
+        sharedValues.filter { $0.value == value }.keys.min()
     }
 }

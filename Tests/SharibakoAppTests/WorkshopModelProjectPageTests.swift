@@ -33,7 +33,8 @@ struct WorkshopModelProjectPageTests {
             status: status,
             lineClass: lineClass,
             reason: lineClass?.reason.explanation,
-            choice: inVault ? nil : (choice ?? (status == .setting ? .leaveAsSetting : .protectLocal))
+            choice: inVault ? nil : (choice ?? (status == .setting ? .leaveAsSetting : .protectLocal)),
+            recommended: inVault ? nil : (status == .setting ? .leaveAsSetting : .protectLocal)
         )
     }
 
@@ -63,13 +64,15 @@ struct WorkshopModelProjectPageTests {
         let states: [WorkshopModel.ProjectHeaderState] = [
             .unprotected(count: 2), .protected(upToDate: nil), .protected(upToDate: true),
             .protected(upToDate: false, differing: 1), .protected(upToDate: false, differing: 3), .empty,
+            .notProtected(count: 3), .nothingToProtect(settings: 4),
         ]
-        #expect(states.map(\.offersProtect) == [true, false, false, false, false, false])
-        #expect(states.map(\.alarmClause) == [nil, nil, nil, "1 line differs", "3 lines differ", nil])
+        #expect(states.map(\.offersProtect) == [true, false, false, false, false, false, true, false])
+        #expect(states.map(\.alarmClause) == [nil, nil, nil, "1 line differs", "3 lines differ", nil, nil, nil])
         #expect(
             states.map(\.steadyLabel) == [
                 "2 secrets not protected", "Protected", "Protected · up to date", "Protected", "Protected",
-                "No lines",
+                "No lines", "Project not protected — 3 secrets in plain text",
+                "No secrets to protect — 4 settings in .env",
             ])
         // The two parts always rebuild the whole label.
         for state in states {
@@ -79,9 +82,17 @@ struct WorkshopModelProjectPageTests {
         #expect(
             states.map(\.markPalette) == [
                 Theme.alarm, Theme.inSync, Theme.inSync, Theme.inSync, Theme.inSync, Theme.inkTertiary,
+                Theme.alarm, Theme.inkTertiary,
             ])
         #expect(
-            states.map(\.labelPalette) == [Theme.ink, Theme.ink, Theme.ink, Theme.ink, Theme.ink, Theme.inkTertiary])
+            states.map(\.labelPalette) == [
+                Theme.ink, Theme.ink, Theme.ink, Theme.ink, Theme.ink, Theme.inkTertiary, Theme.ink, Theme.ink,
+            ])
+        #expect(
+            states.map(\.symbolName) == [
+                "xmark.octagon.fill", "checkmark.circle.fill", "checkmark.circle.fill", "checkmark.circle.fill",
+                "checkmark.circle.fill", "circle.dashed", "xmark.octagon.fill", "minus.circle",
+            ])
     }
 
     // MARK: - One line (pure)
@@ -116,10 +127,15 @@ struct WorkshopModelProjectPageTests {
         #expect(WorkshopModel.lineValueText(for: Self.line("K", .missingFromEnv)) == WorkshopModel.maskedValue)
     }
 
-    @Test("a caption gives the recommendation off the vault and where the vault holds it otherwise")
+    @Test("a caption tags the recommendation and its reason off the vault, and where the vault holds it otherwise")
     func lineCaptions() {
-        #expect(WorkshopModel.lineCaption(for: Self.line("API_KEY", .notProtected)) == "secret — key ends in KEY")
-        #expect(WorkshopModel.lineCaption(for: Self.line("PORT", .setting)).hasPrefix("setting — "))
+        #expect(
+            WorkshopModel.lineCaption(for: Self.line("API_KEY", .notProtected))
+                == "Recommended: protect — key ends in KEY")
+        #expect(
+            WorkshopModel.lineCaption(for: Self.line("PORT", .setting))
+                == "Recommended: leave as setting — \(LineClass.setting(.number).reason.explanation)")
+        #expect(WorkshopModel.recommendationTag(for: Self.line("K", .protected(kind: .value))) == nil)
         #expect(WorkshopModel.lineCaption(for: Self.line("K", .protected(kind: .value))) == "in the vault")
         #expect(
             WorkshopModel.lineCaption(for: Self.line("K", .protected(kind: .link(sharedID: "anthropic"))))
@@ -274,7 +290,14 @@ struct WorkshopModelProjectPageTests {
                     .protectLocal, .useShared(id: "anthropic"), .useShared(id: "openai-api-key"),
                     .makeShared(id: "openai-api-key-2"), .leaveAsSetting,
                 ])
-            #expect(model.lineChoiceTitle(.useShared(id: "anthropic")) == "Use shared secret anthropic")
+            #expect(model.lineChoiceTitle(.useShared(id: "anthropic"), for: secret) == "Use shared secret anthropic")
+            // The classifier's default is the one marked.
+            #expect(secret.recommended == .protectLocal)
+            #expect(
+                model.lineChoiceTitle(.protectLocal, for: secret) == "Protect for this project (recommended)")
+            let setting = try #require(model.projectLines.first { $0.key == "PORT" })
+            #expect(
+                model.lineChoiceTitle(.leaveAsSetting, for: setting) == "Leave in .env as a setting (recommended)")
             #expect(model.sharedSubPickerID(for: secret) == nil)
 
             // A chosen name stays the option's name.
@@ -312,8 +335,8 @@ struct WorkshopModelProjectPageTests {
                 model.lineChoiceOptions(for: line) == [
                     .protectLocal, .useShared(id: "a1"), .makeShared(id: "token"), .leaveAsSetting,
                 ])
-            #expect(model.lineChoiceTitle(.useShared(id: "a1")) == "Use a shared secret")
-            #expect(model.lineChoiceTitle(.protectLocal) == "Protect for this project")
+            #expect(model.lineChoiceTitle(.useShared(id: "a1"), for: line) == "Use a shared secret")
+            #expect(model.lineChoiceTitle(.protectLocal, for: line) == "Protect for this project (recommended)")
             #expect(model.sharedSubPickerID(for: line) == nil)
 
             model.setLineChoice(.useShared(id: "c3"), forKey: "TOKEN")

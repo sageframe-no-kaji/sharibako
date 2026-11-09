@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Parts shared by the content column's pages (ho-06.9 AT-02, moved here by
 /// ho-06.10 AT-03 when the Not-protected page went): the title block, the
-/// quiet Open in Finder link, and the pane-local error.
+/// quiet Open in Finder link, the pane-local error, and the shared-secret
+/// popover the page's rows and the detail pane both open (ho-06.10 AT-05).
 ///
 /// Every string comes from `WorkshopModel` (tested); these views only lay
 /// them out.
@@ -90,5 +91,85 @@ struct PaneErrorView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The shared-secret form on a protected line, as a popover at the click
+/// (ho-06.10 AT-05) — from the line's right-click menu or from the detail
+/// pane's button, never inline beneath the detail pane's sections.
+///
+/// **Make it a shared secret**: the name field, starting on the suggested
+/// name. **Use shared secret…**: the picker of the vault's shared secrets.
+/// Beneath either, the validation note — what is wrong with the entry, in
+/// the alarm token, or what the one button will do — and the one button.
+/// Clicking outside or pressing Escape closes it with nothing done.
+///
+/// Every word and rule is a `WorkshopModel` read or intent
+/// (`WorkshopModel+Verbs.swift`, tested); this view only lays them out.
+///
+/// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
+/// (ho-05 Decision 8).
+struct LineSharePopover: View {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    var body: some View {
+        if let form = model.lineShareForm {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(form.key)
+                    .font(.headline.monospaced())
+                    .foregroundStyle(Color.ink)
+                switch form.kind {
+                case .useShared:
+                    Picker("Shared secret", selection: sharedIDBinding) {
+                        ForEach(model.sharedIDs, id: \.self) { id in
+                            Text(id)
+                                .tag(id)
+                        }
+                    }
+                    .fixedSize()
+                case .makeShared:
+                    TextField("Shared secret name", text: sharedIDBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .onSubmit(submit)
+                }
+                if let problem = model.lineShareFormProblem {
+                    Text(problem)
+                        .font(.callout)
+                        .foregroundStyle(Color.drift)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text(WorkshopModel.lineShareFormHint(form.kind))
+                        .font(.callout)
+                        .foregroundStyle(Color.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    Spacer()
+                    Button(WorkshopModel.lineShareFormAction(form.kind), action: submit)
+                        .primaryActionButton()
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(model.lineShareFormProblem != nil || model.activity != nil)
+                }
+            }
+            .padding(14)
+            .frame(width: 300)
+            .background(Color.ground)
+        }
+    }
+
+    /// Submits the form when its entry is valid.
+    private func submit() {
+        guard model.lineShareFormProblem == nil, model.activity == nil else { return }
+        model.submitLineShareForm()
+    }
+
+    /// The form's shared-secret ID, read from and written to the model.
+    private var sharedIDBinding: Binding<String> {
+        Binding(
+            get: { model.lineShareForm?.sharedID ?? "" },
+            set: { model.lineShareForm?.sharedID = $0 }
+        )
     }
 }

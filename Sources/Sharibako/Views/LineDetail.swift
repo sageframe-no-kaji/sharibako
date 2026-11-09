@@ -101,7 +101,7 @@ struct LineDetail: View {
                 )
             ) {
                 ForEach(model.lineChoiceOptions(for: line), id: \.self) { choice in
-                    Text(model.lineChoiceTitle(choice))
+                    Text(model.lineChoiceTitle(choice, for: line))
                         .tag(choice)
                 }
             }

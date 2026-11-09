@@ -15,6 +15,10 @@ import SwiftUI
 /// `LineDetail`, chosen by ``WorkshopModel/detailPane``). Every line and the
 /// page's sidebar row carry right-click menus (Decision 8).
 ///
+/// The page never renders an empty body (ho-06.10 AT-05, the blank-page
+/// finding): the title block always shows, and while the lines are being
+/// read the list area says "Reading…".
+///
 /// There is no sheet: the page is the review (Decision 6). Every word,
 /// symbol, count, tint, and which verbs a line offers are `WorkshopModel`
 /// and `Color+Theme.swift` reads, tested there; ``perform(_:on:)`` only maps
@@ -49,7 +53,10 @@ struct ProjectPage: View {
 
     // MARK: - Header
 
-    /// The title block, the state row, and any pane error beneath it.
+    /// The title block, the state row once the lines are read, and any
+    /// pane error beneath it.
+    ///
+    /// The title block renders unconditionally.
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             PageTitle(entry: entry, directory: entry.directory, showsStatus: false)
@@ -67,13 +74,6 @@ struct ProjectPage: View {
                         protectButton
                     }
                 }
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Reading .env…")
-                        .foregroundStyle(Color.inkSecondary)
-                }
             }
             if let error = model.paneError(in: .page) {
                 PaneErrorView(error: error)
@@ -83,12 +83,13 @@ struct ProjectPage: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The mark and the words for where the project stands.
+    /// The mark and the words for where the project stands — one line, the
+    /// mark at 20 pt (ho-06.10 AT-05).
     private var stateLabel: some View {
         let state = model.headerState
-        return HStack(alignment: .center, spacing: 10) {
+        return HStack(alignment: .center, spacing: 8) {
             Image(systemName: state.symbolName)
-                .font(.system(size: 28))
+                .font(.system(size: 20))
                 .foregroundStyle(state.markPalette.color)
             Text(state.steadyLabel)
                 .font(.title3)
@@ -121,7 +122,14 @@ struct ProjectPage: View {
     @ViewBuilder
     private func lines(selection: Binding<String?>) -> some View {
         if !model.areLinesLoaded {
-            Color.ground
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(WorkshopModel.readingLinesLabel)
+                    .foregroundStyle(Color.inkSecondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else if model.projectLines.isEmpty {
             ContentUnavailableView(
                 "No lines",
@@ -192,6 +200,18 @@ struct ProjectPage: View {
         .contextMenu {
             lineMenu(line)
         }
+        // Make it a shared secret / Use shared secret… from the right-click
+        // menu open at the row (ho-06.10 AT-05), never inline beneath the
+        // detail pane.
+        .popover(
+            isPresented: Binding(
+                get: { model.isLineShareFormOpen(at: .line, forKey: line.key) },
+                set: { if !$0 { model.cancelLineShareForm() } }
+            ),
+            arrowEdge: .trailing
+        ) {
+            LineSharePopover()
+        }
     }
 
     /// A line's right-click menu: the verbs from
@@ -237,9 +257,9 @@ struct ProjectPage: View {
         case .useMatchedShared(let id):
             model.requestUseShared(id, forKey: line.key)
         case .useSharedSecret:
-            model.openLineShareForm(.useShared, forKey: line.key)
+            model.openLineShareForm(.useShared, forKey: line.key, anchor: .line)
         case .makeSharedSecret:
-            model.openLineShareForm(.makeShared, forKey: line.key)
+            model.openLineShareForm(.makeShared, forKey: line.key, anchor: .line)
         case .deleteSecret:
             model.requestDeleteLine(key: line.key)
         }

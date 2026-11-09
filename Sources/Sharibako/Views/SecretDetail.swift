@@ -313,9 +313,11 @@ struct SecretDetail: View {
 ///
 /// Always visible: **Use shared secret…** (a picker of the vault's shared
 /// secrets; the switch is confirmed, since the line's own value is
-/// discarded) and **Make it a shared secret** (a name field, one Touch ID).
-/// When the last Check all found a shared secret with the same value, it
-/// says so and offers that one directly.
+/// discarded) and **Make it a shared secret** (a name, one Touch ID). Each
+/// opens its form as a popover anchored to its own button (ho-06.10 AT-05),
+/// never inline beneath this pane's sections. When the last Check all found
+/// a shared secret with the same value, it says so and offers that one
+/// directly.
 ///
 /// Every word, default, and rule is a `WorkshopModel` read or intent
 /// (`WorkshopModel+Verbs.swift`, tested).
@@ -345,67 +347,36 @@ private struct SharedSecretSection: View {
                 .help("This project uses \(id) from now on; its own copy of the value is discarded")
             }
 
-            if let form = model.lineShareForm, form.key == key {
-                formView(form)
-            } else {
-                HStack(spacing: 12) {
-                    if !model.sharedIDs.isEmpty {
-                        Button("Use shared secret…") {
-                            model.openLineShareForm(.useShared, forKey: key)
-                        }
-                        .disabled(model.activity != nil)
-                        .help("Have this project use one of the vault's shared secrets instead of its own value")
-                    }
-                    Button("Make it a shared secret") {
-                        model.openLineShareForm(.makeShared, forKey: key)
+            HStack(spacing: 12) {
+                if !model.sharedIDs.isEmpty {
+                    Button("Use shared secret…") {
+                        model.openLineShareForm(.useShared, forKey: key)
                     }
                     .disabled(model.activity != nil)
-                    .help("Save this value as a shared secret other projects can use — one Touch ID")
-                }
-            }
-        }
-    }
-
-    /// The open form: the picker or the name field, then its action.
-    private func formView(_ form: WorkshopModel.LineShareForm) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            switch form.kind {
-            case .useShared:
-                Picker("Shared secret", selection: sharedIDBinding) {
-                    ForEach(model.sharedIDs, id: \.self) { id in
-                        Text(id)
-                            .tag(id)
+                    .help("Have this project use one of the vault's shared secrets instead of its own value")
+                    .popover(isPresented: formBinding(.useShared), arrowEdge: .bottom) {
+                        LineSharePopover()
                     }
                 }
-                .fixedSize()
-            case .makeShared:
-                TextField("Shared secret name", text: sharedIDBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-            }
-            HStack {
-                Button("Cancel") {
-                    model.cancelLineShareForm()
+                Button("Make it a shared secret") {
+                    model.openLineShareForm(.makeShared, forKey: key)
                 }
-                .buttonStyle(.borderless)
-                Spacer()
-                Button(WorkshopModel.lineShareFormAction(form.kind)) {
-                    model.submitLineShareForm()
+                .disabled(model.activity != nil)
+                .help("Save this value as a shared secret other projects can use — one Touch ID")
+                .popover(isPresented: formBinding(.makeShared), arrowEdge: .bottom) {
+                    LineSharePopover()
                 }
-                .primaryActionButton()
-                .disabled(form.sharedID.isEmpty || model.activity != nil)
             }
         }
-        .padding(10)
-        .background(Color.groundDeep)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
-    /// The form's shared-secret ID, read from and written to the model.
-    private var sharedIDBinding: Binding<String> {
+    /// Whether the popover for `kind` is open on this pane's button.
+    ///
+    /// Closing it cancels the form.
+    private func formBinding(_ kind: WorkshopModel.LineShareKind) -> Binding<Bool> {
         Binding(
-            get: { model.lineShareForm?.sharedID ?? "" },
-            set: { model.lineShareForm?.sharedID = $0 }
+            get: { model.isLineShareFormOpen(at: .detail, forKey: key, kind: kind) },
+            set: { if !$0 { model.cancelLineShareForm() } }
         )
     }
 }

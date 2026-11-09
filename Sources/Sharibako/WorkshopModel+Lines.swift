@@ -107,6 +107,9 @@ extension WorkshopModel {
         let reason: String?
         /// What Protect will do with the line; `nil` for a line in the vault.
         let choice: LineChoice?
+        /// The classifier's default choice — the one the page marks
+        /// "recommended" (ho-06.10 AT-05); `nil` for a line in the vault.
+        let recommended: LineChoice?
 
         /// The recommendation and its reason as the page's caption shows it —
         /// "secret — key ends in KEY" — or `nil` for a line in the vault.
@@ -116,10 +119,18 @@ extension WorkshopModel {
         }
     }
 
-    /// The page header's state (Decision 6).
+    /// The page header's state (Decision 6; words reshaped by ho-06.10
+    /// AT-05).
     enum ProjectHeaderState: Equatable {
-        /// `count` secrets sit in `.env` in plain text.
+        /// Nothing is in the vault and `count` secrets sit in `.env` in plain
+        /// text.
+        case notProtected(count: Int)
+        /// Some lines are in the vault, and `count` secrets still sit in
+        /// `.env` in plain text.
         case unprotected(count: Int)
+        /// Nothing is in the vault and every line is a setting — `settings`
+        /// of them.
+        case nothingToProtect(settings: Int)
         /// Every secret is in the vault. `upToDate` is `nil` until a check
         /// has run, `false` when the last check found `differing` lines.
         ///
@@ -130,12 +141,20 @@ extension WorkshopModel {
         /// The project has no lines at all.
         case empty
 
-        /// The header's words: "3 secrets not protected", "Protected",
-        /// "Protected · up to date", "Protected · 2 lines differ", "No lines".
+        /// The header's words: "Project not protected — 3 secrets in plain
+        /// text", "3 secrets not protected", "No secrets to protect — 4
+        /// settings in .env", "Protected", "Protected · up to date",
+        /// "Protected · 2 lines differ", "No lines".
         var label: String {
             switch self {
+            case .notProtected(let count):
+                let secrets = count == 1 ? "1 secret" : "\(count) secrets"
+                return "Project not protected — \(secrets) in plain text"
             case .unprotected(let count):
                 return count == 1 ? "1 secret not protected" : "\(count) secrets not protected"
+            case .nothingToProtect(let settings):
+                let lines = settings == 1 ? "1 setting" : "\(settings) settings"
+                return "No secrets to protect — \(lines) in .env"
             case .protected(nil, _):
                 return "Protected"
             case .protected(true?, _):
@@ -148,11 +167,13 @@ extension WorkshopModel {
         }
 
         /// The header's mark: the red octagon while anything is exposed, the
-        /// green check once nothing is (the view picks the palette token).
+        /// green check once nothing is, a quiet minus when there is nothing
+        /// to protect (the view picks the palette token).
         var symbolName: String {
             switch self {
-            case .unprotected: return "xmark.octagon.fill"
+            case .notProtected, .unprotected: return "xmark.octagon.fill"
             case .protected: return "checkmark.circle.fill"
+            case .nothingToProtect: return "minus.circle"
             case .empty: return "circle.dashed"
             }
         }
@@ -214,6 +235,23 @@ extension WorkshopModel {
         projectLines.filter { $0.choice?.protects == true }.count
     }
 
+    /// What the window's lines load is keyed on: the selection and
+    /// ``WorkshopModel/linesGeneration`` (ho-06.10 AT-05).
+    struct LinesLoadID: Hashable {
+        /// The selection whose lines are wanted.
+        let selection: Selection?
+        /// How many times the lines have been cleared so far.
+        let generation: Int
+    }
+
+    /// The window's lines-load key: it changes whenever the lines are
+    /// cleared, even when the selection comes back to the same row inside
+    /// one view update, so a cleared page is always read again (the
+    /// blank-page finding, ho-06.10 AT-05).
+    var linesLoadID: LinesLoadID {
+        LinesLoadID(selection: selection, generation: linesGeneration)
+    }
+
     /// `true` while the selection is a folder the vault does not know yet.
     var isCandidate: Bool {
         if case .candidate = selection { return true }
@@ -233,15 +271,20 @@ extension WorkshopModel {
 
     /// The page header's state (Decision 6).
     ///
-    /// Unprotected while any secret sits in `.env` in plain text; else no
-    /// lines at all is ``ProjectHeaderState/empty``; else protected, with
-    /// the up-to-date clause from the last check when one has run for the
-    /// selected project (never for a folder the vault does not know).
+    /// While any secret sits in `.env` in plain text: not protected when
+    /// nothing is in the vault, else unprotected. Otherwise: no lines at all
+    /// is ``ProjectHeaderState/empty``; only settings and nothing in the
+    /// vault is ``ProjectHeaderState/nothingToProtect(settings:)``; else
+    /// protected, with the up-to-date clause from the last check when one
+    /// has run for the selected project (never for a folder the vault does
+    /// not know).
     var headerState: ProjectHeaderState {
         let lines = projectLines
         let exposed = lines.filter { $0.status == .notProtected }.count
-        if exposed > 0 { return .unprotected(count: exposed) }
+        let anyInVault = lines.contains { $0.status.isInVault }
+        if exposed > 0 { return anyInVault ? .unprotected(count: exposed) : .notProtected(count: exposed) }
         if lines.isEmpty { return .empty }
+        if !anyInVault { return .nothingToProtect(settings: lines.count) }
         guard let scopeID = selectedScopeID, let report = driftReports[scopeID] else {
             return .protected(upToDate: nil)
         }
@@ -282,7 +325,8 @@ extension WorkshopModel {
                 status: lineClass.isSecret ? .notProtected : .setting,
                 lineClass: lineClass,
                 reason: lineClass.reason.explanation,
-                choice: flip ?? defaultChoice(for: detected)
+                choice: flip ?? defaultChoice(for: detected),
+                recommended: defaultChoice(for: detected)
             )
             if lineClass.isSecret {
                 secrets.append(line)
@@ -316,7 +360,7 @@ extension WorkshopModel {
 
     /// A line the vault holds: no value, no class, no choice.
     private static func vaultLine(key: String, status: LineStatus) -> ProjectLine {
-        ProjectLine(key: key, value: nil, status: status, lineClass: nil, reason: nil, choice: nil)
+        ProjectLine(key: key, value: nil, status: status, lineClass: nil, reason: nil, choice: nil, recommended: nil)
     }
 
     // MARK: - Scope ID for a new project
@@ -480,5 +524,20 @@ enum EnvReader {
             "\($0.file.lastPathComponent) line \($0.lineNumber): \($0.reason)"
         }
         return WorkshopModel.EnvRead(directory: directory, lines: proposal.detectedKeys, warnings: warnings)
+    }
+
+    /// Counts each folder's secrets and settings, keyed by standardized URL.
+    ///
+    /// Keyless classification — the sidebar's "No secrets" read (ho-06.10
+    /// AT-05). A folder that cannot be read is left out.
+    static func summaries(of folders: [URL], vaultURL: URL) -> [URL: (secrets: Int, settings: Int)] {
+        var summaries: [URL: (secrets: Int, settings: Int)] = [:]
+        for folder in folders {
+            guard let read = try? read(directory: folder, vaultURL: vaultURL) else { continue }
+            let secrets = Set(read.lines.filter(\.lineClass.isSecret).map(\.key)).count
+            let settings = Set(read.lines.filter { !$0.lineClass.isSecret }.map(\.key)).count
+            summaries[folder.standardizedFileURL] = (secrets, settings)
+        }
+        return summaries
     }
 }

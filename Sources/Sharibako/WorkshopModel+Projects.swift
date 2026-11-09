@@ -51,6 +51,10 @@ extension WorkshopModel {
     enum ProjectStatus: Equatable {
         /// A folder with a `.env` and nothing in the vault.
         case notProtected
+        /// A folder whose `.env` holds only settings and nothing in the vault
+        /// — still not protected, but with nothing to protect (ho-06.10
+        /// AT-05).
+        case noSecrets
         /// In the vault, folder present, and — when a check has run — every
         /// secret in `.env` matches the vault.
         case protected
@@ -69,6 +73,7 @@ extension WorkshopModel {
         var symbolName: String {
             switch self {
             case .notProtected: return "circle"
+            case .noSecrets: return "minus.circle"
             case .protected: return "checkmark.circle.fill"
             case .outOfDate: return "exclamationmark.triangle.fill"
             case .problem: return "questionmark.circle"
@@ -80,6 +85,7 @@ extension WorkshopModel {
         var label: String {
             switch self {
             case .notProtected: return "Not protected"
+            case .noSecrets: return "No secrets"
             case .protected: return "Protected"
             case .outOfDate: return "Out of date"
             case .problem: return "Problem"
@@ -92,6 +98,8 @@ extension WorkshopModel {
             switch self {
             case .notProtected:
                 return "Not protected — this folder has a .env and nothing in the vault yet"
+            case .noSecrets:
+                return "No secrets to protect — only settings in .env"
             case .protected:
                 return "Protected — in the vault, with its folder on this Mac"
             case .outOfDate(let keyCount):
@@ -309,6 +317,10 @@ extension WorkshopModel {
         }
     }
 
+    /// Protect's disabled reason for a folder whose `.env` holds only
+    /// settings (ho-06.10 AT-05).
+    static let noSecretsToProtectReason = "No secrets to protect"
+
     /// The disabled reason for a project with no folder on this Mac
     /// (Decision 7): Write .env, Preview .env, and Open in Finder all need one.
     static let noFolderHereReason = "No folder on this Mac — attach one in a later version"
@@ -393,7 +405,10 @@ extension WorkshopModel {
             return writeDisabledReason(forScope: scopeID) ?? Self.noFolderHereReason
         case .unprotect:
             return unprotectDisabledReason(forScope: scopeID)
-        case .protect, .deleteProject, .protectFolder, .forgetFolder:
+        case .protect:
+            guard scopeID == nil, let directory, candidateSummary(for: directory)?.secrets == 0 else { return nil }
+            return Self.noSecretsToProtectReason
+        case .deleteProject, .protectFolder, .forgetFolder:
             return nil
         }
     }
@@ -439,7 +454,8 @@ extension WorkshopModel {
     // MARK: - Section rows
 
     /// Not protected: one row per ``candidates`` folder, in the scanner's
-    /// path order, named by the folder.
+    /// path order, named by the folder — "No secrets" for one whose `.env`
+    /// classified to settings only (ho-06.10 AT-05).
     private var notProtectedEntries: [ProjectEntry] {
         candidates.map { directory in
             ProjectEntry(
@@ -447,7 +463,7 @@ extension WorkshopModel {
                 name: directory.lastPathComponent,
                 directory: directory,
                 scopeID: nil,
-                status: .notProtected
+                status: candidateSummary(for: directory)?.secrets == 0 ? .noSecrets : .notProtected
             )
         }
     }

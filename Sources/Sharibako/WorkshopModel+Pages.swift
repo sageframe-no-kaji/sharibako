@@ -120,6 +120,10 @@ extension WorkshopModel {
         settingLines.count == 1 ? "1 setting left in .env" : "\(settingLines.count) settings left in .env"
     }
 
+    /// The lines area while the page's lines are being read (ho-06.10
+    /// AT-05: the page never renders an empty body).
+    static let readingLinesLabel = "Reading…"
+
     /// The page's empty state, when the project has no lines at all.
     static let noLinesDescription = "This project has no .env lines and nothing in the vault."
 
@@ -159,15 +163,26 @@ extension WorkshopModel {
         return value.isEmpty ? "(empty)" : value
     }
 
-    /// The row's caption: the recommendation and its reason for a line not in
-    /// the vault ("secret — key ends in KEY"), else where the vault holds it.
+    /// The row's caption: for a line not in the vault, the recommendation as
+    /// a visible tag and its reason ("Recommended: protect — key ends in
+    /// KEY", ho-06.10 AT-05); else where the vault holds it.
     static func lineCaption(for line: ProjectLine) -> String {
         switch line.status {
         case .protected(.value): return "in the vault"
         case .protected(.link(let sharedID)): return "in the vault · shared secret \(sharedID)"
         case .missingFromEnv: return "in the vault, not in .env"
-        case .notProtected, .setting: return line.classLabel ?? ""
+        case .notProtected, .setting:
+            guard let tag = recommendationTag(for: line) else { return "" }
+            return line.reason.map { "\(tag) — \($0)" } ?? tag
         }
+    }
+
+    /// The recommendation's tag: "Recommended: protect" for a line the
+    /// classifier calls a secret, "Recommended: leave as setting" for a
+    /// setting; `nil` for a line in the vault, which has none.
+    static func recommendationTag(for line: ProjectLine) -> String? {
+        guard let lineClass = line.lineClass else { return nil }
+        return lineClass.isSecret ? "Recommended: protect" : "Recommended: leave as setting"
     }
 
     // MARK: - The line's choice (Decision 7)
@@ -209,10 +224,27 @@ extension WorkshopModel {
     }
 
     /// The words for `choice` in the detail pane's picker: its label, or "Use
-    /// a shared secret" when the sub-picker names the ID.
-    func lineChoiceTitle(_ choice: LineChoice) -> String {
-        if usesSharedIDSubPicker, case .useShared = choice { return "Use a shared secret" }
-        return choice.label
+    /// a shared secret" when the sub-picker names the ID — ending in
+    /// " (recommended)" when it is the classifier's default for `line`
+    /// (ho-06.10 AT-05).
+    ///
+    /// With the sub-picker, the one "Use a shared secret" option carries the
+    /// mark whenever the default is a shared secret.
+    func lineChoiceTitle(_ choice: LineChoice, for line: ProjectLine) -> String {
+        let title: String
+        let isRecommended: Bool
+        if usesSharedIDSubPicker, case .useShared = choice {
+            title = "Use a shared secret"
+            if case .useShared = line.recommended {
+                isRecommended = true
+            } else {
+                isRecommended = false
+            }
+        } else {
+            title = choice.label
+            isRecommended = choice == line.recommended
+        }
+        return isRecommended ? "\(title) (recommended)" : title
     }
 
     /// The shared secret the sub-picker shows as chosen, or `nil` when there
@@ -559,8 +591,10 @@ extension WorkshopModel.ProjectHeaderState {
     /// `true` while secrets sit in `.env` in plain text — the header shows
     /// the red mark and its one Protect button exactly then (Decision 6).
     var offersProtect: Bool {
-        if case .unprotected = self { return true }
-        return false
+        switch self {
+        case .notProtected, .unprotected: return true
+        case .nothingToProtect, .protected, .empty: return false
+        }
     }
 
     /// The label without an out-of-date clause — "Protected" when lines
@@ -578,9 +612,11 @@ extension WorkshopModel.ProjectHeaderState {
 }
 
 extension WorkshopModel.ProjectSection {
-    /// `true` for the Not-protected section while it has rows: its header
-    /// offers Protect all (Decision 5).
+    /// `true` for the Not-protected section while any of its rows has
+    /// secrets to protect: its header offers Protect all (Decision 5) — a
+    /// section of folders holding only settings offers nothing (ho-06.10
+    /// AT-05).
     var offersProtectAll: Bool {
-        id == .notProtected && !entries.isEmpty
+        id == .notProtected && entries.contains { $0.status == .notProtected }
     }
 }

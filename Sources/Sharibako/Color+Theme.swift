@@ -166,8 +166,8 @@ extension WorkshopModel.ProjectStatus {
     ///
     /// Shape carries the status and the token only reinforces it: Not
     /// protected is quiet `inkSecondary`, Protected the affirmative `inSync`,
-    /// Out of date and Problem the rust alarm, No folder here the faintest
-    /// `inkTertiary`. Returned as a ``Palette`` rather than a `Color` so the
+    /// Out of date and Problem the rust alarm, No folder here and No secrets
+    /// the faintest `inkTertiary`. Returned as a ``Palette`` rather than a `Color` so the
     /// mapping is unit-tested by value — two dynamic `Color`s never compare
     /// equal.
     var glyphPalette: Palette {
@@ -175,7 +175,7 @@ extension WorkshopModel.ProjectStatus {
         case .notProtected: return Theme.inkSecondary
         case .protected: return Theme.inSync
         case .outOfDate, .problem: return Theme.alarm
-        case .noFolderHere: return Theme.inkTertiary
+        case .noFolderHere, .noSecrets: return Theme.inkTertiary
         }
     }
 }
@@ -217,12 +217,13 @@ extension WorkshopModel.LineStatus {
 
 extension WorkshopModel.ProjectHeaderState {
     /// The header mark's token: the rust alarm while anything is exposed,
-    /// `inSync` once nothing is, `inkTertiary` for a project with no lines.
+    /// `inSync` once nothing is, `inkTertiary` for a project with no lines
+    /// or nothing to protect.
     var markPalette: Palette {
         switch self {
-        case .unprotected: return Theme.alarm
+        case .notProtected, .unprotected: return Theme.alarm
         case .protected: return Theme.inSync
-        case .empty: return Theme.inkTertiary
+        case .nothingToProtect, .empty: return Theme.inkTertiary
         }
     }
 

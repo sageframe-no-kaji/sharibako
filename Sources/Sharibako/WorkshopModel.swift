@@ -164,6 +164,7 @@ final class WorkshopModel {
                 paneError = nil
                 lineShareForm = nil
                 loadedLinesSelection = nil
+                linesGeneration += 1
             }
         }
     }
@@ -192,6 +193,17 @@ final class WorkshopModel {
     /// persisted — the same posture as ``scanReport``: folders change
     /// outside the app, and a persisted list would lie across sessions.
     private(set) var candidates: [URL] = []
+
+    /// How many secrets and settings each ``candidates`` folder's `.env`
+    /// holds, keyed by standardized folder URL (ho-06.10 AT-05).
+    ///
+    /// Classified keylessly in the same worker hop as the candidate scan
+    /// (``EnvReader`` parses; nothing is decrypted), so the sidebar can say
+    /// "No secrets" for a folder holding only settings without reading it
+    /// on render. A folder that could not be read has no entry and keeps the
+    /// plain Not-protected status. A plain tuple (Core's own shape for
+    /// ``linkGraph``); read it through ``candidateSummary(for:)``.
+    private(set) var candidateSummaries: [URL: (secrets: Int, settings: Int)] = [:]
 
     /// Shared-secret IDs in the vault, loaded with the scopes by
     /// ``loadScopes()`` — the "Shared secrets" section's rows (ho-06.9).
@@ -289,6 +301,22 @@ final class WorkshopModel {
     /// flashing "No lines" before its read lands. Read through
     /// ``areLinesLoaded``.
     private(set) var loadedLinesSelection: Selection?
+
+    /// Bumped every time the selection change cascade clears the lines
+    /// (ho-06.10 AT-05: the blank-page finding).
+    ///
+    /// The window keys its lines load on ``linesLoadID`` — the selection
+    /// *and* this count — so a selection that leaves and comes back inside
+    /// one view update (a `List` re-asserting its binding through `nil`)
+    /// still reloads the lines it cleared, instead of leaving
+    /// ``areLinesLoaded`` false with nothing left to load them.
+    private(set) var linesGeneration = 0
+
+    /// Protects held back because a value already equals a shared secret's,
+    /// each awaiting the window's question, first in line first (ho-06.10
+    /// AT-05). `internal`: its intents live in
+    /// `WorkshopModel+SharedValues.swift`.
+    var pendingSharedValueMatches: [SharedValueMatches] = []
 
     /// `true` once the launch selection rule has run (ho-06.9 Decision 4) —
     /// it runs once per session, so a later launch-scan re-entry (the window's
@@ -569,6 +597,7 @@ extension WorkshopModel {
     func clearScanCaches() {
         scanReport = ScanReport(markers: [], failures: [])
         candidates = []
+        candidateSummaries = [:]
     }
 
     /// Drops `directory` from ``candidates``.
@@ -580,6 +609,13 @@ extension WorkshopModel {
     func removeCandidate(_ directory: URL) {
         let target = directory.standardizedFileURL.path
         candidates.removeAll { $0.standardizedFileURL.path == target }
+        candidateSummaries.removeValue(forKey: directory.standardizedFileURL)
+    }
+
+    /// The secret and setting counts of the candidate folder `directory`,
+    /// or `nil` when it was not classified (not a candidate, or unreadable).
+    func candidateSummary(for directory: URL) -> (secrets: Int, settings: Int)? {
+        candidateSummaries[directory.standardizedFileURL]
     }
 
     /// Stores a finished lines read — the vault's keys and the folder's
@@ -828,16 +864,19 @@ extension WorkshopModel {
     ///
     /// Walks `roots` for claim files and for unclaimed `.env`-bearing folders
     /// in a single ``worker`` call, then stores both caches together so the
-    /// sidebar never shows one half of a scan. Keyless. Returns the report
-    /// for callers that announce counts.
+    /// sidebar never shows one half of a scan. The same hop classifies each
+    /// folder's `.env` into ``candidateSummaries`` (ho-06.10 AT-05). Keyless.
+    /// Returns the report for callers that announce counts.
     func scanMarkersAndCandidates(vaultURL: URL, roots: [URL]) async throws -> ScanReport {
-        let (report, found) = try await worker.run {
+        let (report, found, summaries) = try await worker.run {
             let core = try VaultCore(vaultURL: vaultURL)
             let report = try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
-            return (report, IngestCandidateScanner.findUnboundCandidates(under: roots))
+            let found = IngestCandidateScanner.findUnboundCandidates(under: roots)
+            return (report, found, EnvReader.summaries(of: found, vaultURL: vaultURL))
         }
         scanReport = report
         candidates = found
+        candidateSummaries = summaries
         return report
     }
 

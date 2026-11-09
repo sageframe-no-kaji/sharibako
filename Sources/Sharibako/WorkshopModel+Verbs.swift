@@ -52,8 +52,19 @@ extension WorkshopModel {
         case makeShared
     }
 
+    /// Where a shared-secret form's popover is anchored (ho-06.10 AT-05):
+    /// the form opens at the click, never inline beneath the detail pane.
+    enum LineShareAnchor: Equatable {
+        /// The line's row in the page's list — opened from its right-click
+        /// menu.
+        case line
+        /// The form's own button in the detail pane.
+        case detail
+    }
+
     /// The open shared-secret form on a protected line: which form, which
-    /// line, and the shared secret's ID as picked or typed so far.
+    /// line, the shared secret's ID as picked or typed so far, and where its
+    /// popover is anchored.
     struct LineShareForm: Equatable {
         /// Which form is open.
         let kind: LineShareKind
@@ -61,6 +72,8 @@ extension WorkshopModel {
         let key: String
         /// The picked shared secret, or the typed name for a new one.
         var sharedID: String
+        /// What the popover is anchored to.
+        var anchor = LineShareAnchor.detail
     }
 
     // MARK: - Errors in the pane (Required Change 6)
@@ -298,7 +311,9 @@ extension WorkshopModel {
     /// first; **Make it a shared secret** starts on the key lowercased, `_`
     /// to `-`, clear of existing names. A no-op for a line that is not a
     /// protected secret of its own, and for Use with no shared secrets.
-    func openLineShareForm(_ kind: LineShareKind, forKey key: String) {
+    /// `anchor` says where the popover opens: the line's row (right-click)
+    /// or the detail pane's button.
+    func openLineShareForm(_ kind: LineShareKind, forKey key: String, anchor: LineShareAnchor = .detail) {
         guard isLocalSecret(key) else { return }
         let start: String
         switch kind {
@@ -309,7 +324,42 @@ extension WorkshopModel {
             start = Self.suggestedSharedID(forKey: key, existing: Set(sharedIDs))
         }
         selectedLineKey = key
-        lineShareForm = LineShareForm(kind: kind, key: key, sharedID: start)
+        lineShareForm = LineShareForm(kind: kind, key: key, sharedID: start, anchor: anchor)
+    }
+
+    /// Whether the shared-secret form's popover is open at `anchor` for the
+    /// line `key` — and, for the detail pane's two buttons, for `kind`.
+    func isLineShareFormOpen(at anchor: LineShareAnchor, forKey key: String, kind: LineShareKind? = nil) -> Bool {
+        guard let form = lineShareForm, form.key == key, form.anchor == anchor else { return false }
+        return kind.map { $0 == form.kind } ?? true
+    }
+
+    /// The open form's validation note, or `nil` when it can be submitted.
+    ///
+    /// Set for an empty name, one outside the identifier grammar, or one
+    /// already a shared secret; for Use, a pick the vault does not have
+    /// (ho-06.10 AT-05). The popover disables its button while this is set.
+    var lineShareFormProblem: String? {
+        guard let form = lineShareForm else { return nil }
+        let name = form.sharedID.trimmingCharacters(in: .whitespaces)
+        switch form.kind {
+        case .useShared:
+            return sharedIDs.contains(name) ? nil : "Pick one of the vault's shared secrets."
+        case .makeShared:
+            guard !name.isEmpty else { return "Name the shared secret." }
+            guard VaultCore.isValidIdentifier(name) else { return "Use lowercase letters, digits, dots, and dashes." }
+            guard !sharedIDs.contains(name) else { return "A shared secret named \(name) already exists." }
+            return nil
+        }
+    }
+
+    /// The popover's quiet note under a valid entry: what the one button
+    /// will do.
+    static func lineShareFormHint(_ kind: LineShareKind) -> String {
+        switch kind {
+        case .useShared: return "This line uses it from now on; its own value is discarded."
+        case .makeShared: return "Saved as a shared secret other projects can use — one Touch ID."
+        }
     }
 
     /// Closes the shared-secret form without doing anything.

@@ -234,6 +234,8 @@ struct WorkshopWindow: View {
             // The ho-06.10 AT-04 verbs' confirmations and sheets: Unprotect,
             // Use shared secret, Remote…, Scan folders….
             .modifier(VerbPresentations())
+            // The shared-value question at Protect time (ho-06.10 AT-05).
+            .modifier(SharedValuePresentations())
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -287,9 +289,11 @@ struct WorkshopWindow: View {
     /// never rebuilt. A page renders only while ``WorkshopModel/selectedEntry``
     /// finds the row — a row that vanished under the selection (forgotten,
     /// say) falls back to the empty state rather than leaving a stale page.
-    /// The `.task(id:)` re-runs on every selection change and routes through
-    /// ``WorkshopModel/loadContent(for:)`` (tested): the lines of a project
-    /// or of a folder not yet protected.
+    /// The `.task(id:)` re-runs on every selection change — and on every
+    /// clearing of the lines, even one whose selection came back to the same
+    /// row (``WorkshopModel/linesLoadID``, ho-06.10 AT-05) — and routes
+    /// through ``WorkshopModel/loadContent(for:)`` (tested): the lines of a
+    /// project or of a folder not yet protected.
     @ViewBuilder private var contentColumn: some View {
         Group {
             if let entry = model.selectedEntry {
@@ -310,7 +314,7 @@ struct WorkshopWindow: View {
             }
         }
         .navigationTitle(model.selectionTitle)
-        .task(id: model.selection) {
+        .task(id: model.linesLoadID) {
             await model.loadContent(for: model.selection)
         }
     }
@@ -610,6 +614,54 @@ private struct VerbPresentations: ViewModifier {
                 )
             ) {
                 ScanFoldersSheet()
+            }
+    }
+}
+
+// MARK: - The shared-value question (ho-06.10 AT-05)
+
+/// The confirmation a Protect raises when a line it would protect for its
+/// project holds a shared secret's value: asked, never linked without asking.
+///
+/// System-rendered like every dialog above. Each answer takes the held
+/// Protect off the queue at the tap (``WorkshopModel/takeSharedValueMatches()``)
+/// and passes it to the intent; the dismissal itself clears nothing, so a
+/// second project's question waits until the first answer lands. Every word
+/// is a `WorkshopModel` read (`WorkshopModel+SharedValues.swift`, tested).
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct SharedValuePresentations: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                WorkshopModel.sharedValueMatchesTitle,
+                isPresented: .init(
+                    get: { model.presentedSharedValueMatches != nil },
+                    set: { _ in }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(WorkshopModel.useSharedSecretsButton) {
+                    if let held = model.takeSharedValueMatches() {
+                        Task { await model.answerSharedValueMatches(held, useShared: true) }
+                    }
+                }
+                Button(WorkshopModel.protectSeparatelyButton) {
+                    if let held = model.takeSharedValueMatches() {
+                        Task { await model.answerSharedValueMatches(held, useShared: false) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    model.cancelSharedValueMatches()
+                }
+            } message: {
+                if let held = model.presentedSharedValueMatches {
+                    Text(WorkshopModel.sharedValueMatchesMessage(for: held))
+                }
             }
     }
 }
