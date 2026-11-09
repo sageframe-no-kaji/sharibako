@@ -171,6 +171,22 @@ struct ActionPanel: View {
             Button("Shared secret") {
                 openWindow(id: SharibakoApp.addSharedEntryWindowID)
             }
+
+            Divider()
+
+            // The hand-picked path (ho-06.9 gate): a folder anywhere on disk,
+            // registered as a scan root so it stays found, then protected.
+            Button("Protect a folder…") {
+                let panel = NSOpenPanel()
+                panel.canChooseDirectories = true
+                panel.canChooseFiles = false
+                panel.allowsMultipleSelection = false
+                panel.message = "Choose a project folder with a .env to protect"
+                panel.prompt = "Protect"
+                guard panel.runModal() == .OK, let folder = panel.url else { return }
+                Task { await model.protectFolder(folder) }
+            }
+            .disabled(model.activity != nil)
         } label: {
             Label("New…", systemImage: "plus")
                 .labelStyle(.titleAndIcon)

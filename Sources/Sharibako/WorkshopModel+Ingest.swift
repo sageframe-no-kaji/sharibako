@@ -125,6 +125,40 @@ extension WorkshopModel {
     /// defensive guard, the `materializeSelectedScope`/`sync` precedent).
     ///
     /// - Parameter directory: The project directory to scan.
+    /// Protects a folder the user picked by hand, wherever it sits.
+    ///
+    /// The ho-06.9 gate found the hand-picked path gone: Choose Other… left
+    /// with the chooser and nothing replaced it. When no scan root already
+    /// contains `directory`, the folder itself is registered as a root first —
+    /// so its claim file survives the next launch's scan, closing the ho-06.3
+    /// trap where a hand-picked project vanished on relaunch — then the roots
+    /// are reloaded and re-scanned quietly before the Protect sheet opens.
+    /// Registering the folder (not its parent) adds nothing the user did not
+    /// point at.
+    func protectFolder(_ directory: URL) async {
+        guard activity == nil else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        let folder = directory.standardizedFileURL
+        let covered = scanRoots.contains { root in
+            let rootPath = root.standardizedFileURL.path
+            return folder.path == rootPath || folder.path.hasPrefix(rootPath + "/")
+        }
+        if !covered {
+            do {
+                try WorkshopConfig.persistScanRoot(folder, configURL: configURL)
+                scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+                activity = .scanning
+                _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
+                activity = nil
+            } catch {
+                activity = nil
+                errorMessage = Self.message(for: error)
+                return
+            }
+        }
+        await beginIngest(directory: folder)
+    }
+
     func beginIngest(directory: URL) async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
