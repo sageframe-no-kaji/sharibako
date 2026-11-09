@@ -389,8 +389,9 @@ extension WorkshopModel {
     /// Two keyless worker hops: ``VaultCore/inspect(_:)`` for a project's
     /// vault keys, then ``Materializer/ingest(directory:)`` for the folder's
     /// `.env` when there is a folder. They fail apart — an unreadable `.env`
-    /// still shows the vault's keys — and both failures land in
-    /// ``errorMessage``. Results land only while `selection` is still selected
+    /// still shows the vault's keys — and both failures land in the page's
+    /// pane (while it is still selected) and ``errorMessage`` (ho-06.10
+    /// AT-04). Results land only while `selection` is still selected
     /// (``storeLinesRead(secrets:env:for:)``). Not gated on ``activity``:
     /// it is a quick read the page fires on selection, the serial ``worker``
     /// already orders it after any scan, and the protect intents call it
@@ -421,7 +422,7 @@ extension WorkshopModel {
                 secrets = try await worker.run { try VaultCore(vaultURL: vaultURL).inspect(scopeID) }
                 errorMessage = nil
             } catch {
-                errorMessage = Self.message(for: error)
+                reportReadFailure(error, for: selection)
             }
         }
         var env: EnvRead?
@@ -430,10 +431,21 @@ extension WorkshopModel {
                 env = try await worker.run { try EnvReader.read(directory: folder, vaultURL: vaultURL) }
                 if scopeID == nil { errorMessage = nil }
             } catch {
-                errorMessage = Self.message(for: error)
+                reportReadFailure(error, for: selection)
             }
         }
         storeLinesRead(secrets: secrets, env: env, for: selection)
+    }
+
+    /// Reports a failed page read: in the page's pane while `selection` is
+    /// still the selection, else only in the status bar — a read that
+    /// finishes after the user moved on must not land on another page.
+    private func reportReadFailure(_ error: Error, for selection: Selection) {
+        if self.selection == selection {
+            reportPaneError(for: error)
+        } else {
+            errorMessage = Self.message(for: error)
+        }
     }
 
     /// The project name and folder behind a Needs-attention row whose claim

@@ -262,6 +262,9 @@ extension WorkshopModel {
         case previewEnv
         /// Open the selected row's folder in Finder.
         case openInFinder
+        /// Put a project's secrets back into its `.env` in plain text and
+        /// remove it from the vault (destructive; ho-06.10 Decision 8).
+        case unprotect
         /// Delete a project and its secrets from the vault (destructive).
         case deleteProject
         /// Protect a Problem folder under the project its claim file names.
@@ -279,6 +282,7 @@ extension WorkshopModel {
             case .writeEnv: return "Write .env"
             case .previewEnv: return "Preview .env"
             case .openInFinder: return "Open in Finder"
+            case .unprotect: return "Unprotect"
             case .deleteProject: return "Delete project"
             case .protectFolder: return "Protect this folder"
             case .forgetFolder: return "Forget this folder"
@@ -292,15 +296,16 @@ extension WorkshopModel {
             case .writeEnv: return "arrow.down.doc"
             case .previewEnv: return "doc.text.magnifyingglass"
             case .openInFinder: return "arrow.up.forward.square"
+            case .unprotect: return "lock.open"
             case .deleteProject: return "trash"
             case .forgetFolder: return "minus.circle"
             }
         }
 
-        /// Whether the verb wears pālana rust (`Color.drift`) — the two that
-        /// remove something.
+        /// Whether the verb wears pālana rust (`Color.drift`) — the three
+        /// that remove something.
         var isDestructive: Bool {
-            self == .deleteProject || self == .forgetFolder
+            self == .deleteProject || self == .forgetFolder || self == .unprotect
         }
     }
 
@@ -328,7 +333,7 @@ extension WorkshopModel {
         case .candidate:
             return [.protect, .openInFinder]
         case .project:
-            return [.writeEnv, .previewEnv, .openInFinder, .deleteProject]
+            return [.writeEnv, .previewEnv, .openInFinder, .unprotect, .deleteProject]
         case .problem:
             guard case .problem(.orphaned) = entry.status else { return [.openInFinder] }
             return [.protectFolder, .forgetFolder, .openInFinder]
@@ -386,6 +391,8 @@ extension WorkshopModel {
         case .openInFinder:
             guard directory == nil else { return nil }
             return writeDisabledReason(forScope: scopeID) ?? Self.noFolderHereReason
+        case .unprotect:
+            return unprotectDisabledReason(forScope: scopeID)
         case .protect, .deleteProject, .protectFolder, .forgetFolder:
             return nil
         }
@@ -404,6 +411,8 @@ extension WorkshopModel {
             return "Show exactly what Write .env would put in the file, and where"
         case .openInFinder:
             return "Open this folder in Finder"
+        case .unprotect:
+            return "Put this project's secrets back into its .env in plain text and remove it from the vault"
         case .deleteProject:
             return "Delete this project and its secrets from the vault — its folder and .env are left in place"
         case .protectFolder:

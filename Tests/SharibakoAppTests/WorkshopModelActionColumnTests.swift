@@ -65,7 +65,7 @@ struct WorkshopModelActionColumnTests {
 
             for scopeID in ["falcon", "nest", "chumon"] {
                 model.selection = .project(scopeID: scopeID)
-                #expect(model.selectionVerbs == [.writeEnv, .previewEnv, .openInFinder, .deleteProject])
+                #expect(model.selectionVerbs == [.writeEnv, .previewEnv, .openInFinder, .unprotect, .deleteProject])
             }
 
             model.selection = try Self.problem(named: "ghost", in: model)
@@ -120,16 +120,20 @@ struct WorkshopModelActionColumnTests {
     func verbPresentation() async throws {
         #expect(
             WorkshopModel.SelectionVerb.allCases.map(\.title) == [
-                "Protect", "Write .env", "Preview .env", "Open in Finder", "Delete project",
+                "Protect", "Write .env", "Preview .env", "Open in Finder", "Unprotect", "Delete project",
                 "Protect this folder", "Forget this folder",
             ])
-        #expect(WorkshopModel.SelectionVerb.allCases.filter(\.isDestructive) == [.deleteProject, .forgetFolder])
+        #expect(
+            WorkshopModel.SelectionVerb.allCases.filter(\.isDestructive) == [.unprotect, .deleteProject, .forgetFolder])
         #expect(WorkshopModel.SelectionVerb.allCases.allSatisfy { !$0.systemImage.isEmpty && $0.id == $0 })
 
         let retired = ["scope", "marker", "materialize", "ingest", "drift", "reconcile", "orphan", "stale"]
         try await Self.withEveryRowKind { model, root in
             let ghost = try Self.problem(named: "ghost", in: model)
-            var texts = WorkshopModel.SelectionVerb.allCases.map(\.title) + [WorkshopModel.noFolderHereReason]
+            var texts =
+                WorkshopModel.SelectionVerb.allCases.map(\.title) + [
+                    WorkshopModel.noFolderHereReason, WorkshopModel.noFolderToUnprotectReason,
+                ]
             for selection: WorkshopModel.Selection? in [
                 nil, .candidate(directory: root.appendingPathComponent("acme")), .project(scopeID: "falcon"),
                 .project(scopeID: "chumon"), ghost,

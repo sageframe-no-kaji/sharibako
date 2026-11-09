@@ -176,9 +176,16 @@ jobs:
           #     Required Change 7). Its announce is WorkshopModel.announceJump
           #     (NOT excluded, tested); the NSWorkspace call opens a real
           #     Finder window, not headlessly drivable (ho-05 Decision 8).
+          #   RemoteSheet, ScanFoldersSheet — SwiftUI declarative sheets for
+          #     Remote… and Scan folders… (ho-06.10 AT-04, Decision 8);
+          #     ScanFoldersSheet also runs an NSOpenPanel. Every word, rule,
+          #     and intent — saveRemote/removeRemote, add/remove/close scan
+          #     folders, the empty state — lives in
+          #     WorkshopModel+VaultSettings.swift and WorkshopConfig (NOT
+          #     excluded, tested); not headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ProjectSidebar|ProjectPage|LineDetail|PageParts|ProblemPage|SharedSecretPage|OpenInFinder|Sources/Sharibako/App.swift|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ProjectSidebar|ProjectPage|LineDetail|PageParts|ProblemPage|SharedSecretPage|OpenInFinder|Sources/Sharibako/App.swift|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard|RemoteSheet|ScanFoldersSheet"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

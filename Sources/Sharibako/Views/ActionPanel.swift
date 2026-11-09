@@ -24,8 +24,9 @@ import SwiftUI
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8). Which verbs show, their titles, symbols, disabled
 /// reasons, and tooltips are ``WorkshopModel`` reads, tested in
-/// `WorkshopModelProjectsTests`; every tap routes to a tested intent. The
-/// one dispatch here, ``perform(_:)``, only maps a verb to its intent.
+/// `WorkshopModelProjectsTests`; every tap routes to a tested intent — the
+/// selection verbs through ``WorkshopModel/perform(_:on:)``, the one mapping
+/// the sidebar's right-click menus share (ho-06.10 AT-04).
 struct ActionPanel: View {
     @Environment(WorkshopModel.self)
     private var model
@@ -85,7 +86,7 @@ struct ActionPanel: View {
                         disabled: model.disabledReason(for: verb) != nil || model.activity != nil,
                         tint: verb.isDestructive ? Color.drift : nil
                     ) {
-                        perform(verb)
+                        Task { await model.perform(verb, on: entry) }
                     }
                 }
             }
@@ -140,6 +141,26 @@ struct ActionPanel: View {
                 disabled: !model.hasOutOfDateProjects || model.activity != nil
             ) {
                 model.requestMaterializeAllStale()
+            }
+
+            // The vault's two settings (ho-06.10 Decision 8): each opens its
+            // sheet; the sidebar footer reflects the change.
+            actionButton(
+                "Remote…",
+                systemImage: "arrow.triangle.branch",
+                help: "Set, change, or remove the git remote Sync backs the vault up to",
+                disabled: model.activity != nil
+            ) {
+                model.openRemoteSheet()
+            }
+
+            actionButton(
+                "Scan folders…",
+                systemImage: "folder.badge.gearshape",
+                help: "Choose the folders searched for projects — Rescan follows",
+                disabled: model.activity != nil
+            ) {
+                model.openScanFolders()
             }
         }
     }
@@ -266,38 +287,5 @@ struct ActionPanel: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
         .help(help)
-    }
-
-    // MARK: - Verb dispatch
-
-    /// Routes a selection verb to its model intent.
-    ///
-    /// The selected row supplies the target: its folder for Protect and Open
-    /// in Finder, its claim file for the two Problem verbs. A no-op when the
-    /// row has gone — the button would not be showing then.
-    private func perform(_ verb: WorkshopModel.SelectionVerb) {
-        guard let entry = model.selectedEntry else { return }
-        switch verb {
-        case .protect:
-            Task { await model.protectRecommended() }
-        case .writeEnv:
-            Task { await model.materializeSelectedScope() }
-        case .previewEnv:
-            Task { await model.previewEnv() }
-        case .openInFinder:
-            if let directory = entry.directory {
-                model.openInFinder(directory)
-            }
-        case .deleteProject:
-            model.requestDeleteSelectedScope()
-        case .protectFolder:
-            if let marker = entry.problemMarker {
-                Task { await model.createScopeFromMarker(marker) }
-            }
-        case .forgetFolder:
-            if let marker = entry.problemMarker {
-                model.requestRemoveStrayMarker(marker)
-            }
-        }
     }
 }

@@ -231,6 +231,9 @@ struct WorkshopWindow: View {
                     Text(strayMarkerRemovalMessage(for: removal))
                 }
             }
+            // The ho-06.10 AT-04 verbs' confirmations and sheets: Unprotect,
+            // Use shared secret, Remote…, Scan folders….
+            .modifier(VerbPresentations())
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -520,5 +523,93 @@ extension WorkshopWindow {
         The vault is untouched — this only removes the marker referencing scope \
         "\(removal.scope)".
         """
+    }
+}
+
+// MARK: - The ho-06.10 verbs' presentations
+
+/// The confirmations and sheets the ho-06.10 AT-04 verbs raise.
+///
+/// Attached to the window as one modifier so `WorkshopWindow`'s body stays
+/// under SwiftLint's `type_body_length` ceiling.
+///
+/// The two confirmations are system-rendered, deliberately — dialogs take no
+/// tint (the ho-06.5 gate's platform constraint, as every dialog above). Each
+/// destructive button reads its pending plan synchronously at the tap and
+/// passes it to the intent: the dialog's dismissal clears the pending value
+/// before the button's `Task` body runs (the ho-06.9 Forget-this-folder
+/// lesson). Every title and message is a `WorkshopModel` read
+/// (`WorkshopModel+Verbs.swift`, tested).
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct VerbPresentations: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            // Unprotect (Required Change 1): names exactly what happens — the
+            // secrets go back into .env in plain text and leave the vault.
+            .confirmationDialog(
+                model.pendingUnprotect.map(WorkshopModel.unprotectDialogTitle(for:)) ?? "Unprotect",
+                isPresented: .init(
+                    get: { model.pendingUnprotect != nil },
+                    set: { if !$0 { model.dismissUnprotect() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Unprotect", role: .destructive) {
+                    let plan = model.pendingUnprotect
+                    Task { await model.confirmUnprotect(plan) }
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissUnprotect()
+                }
+            } message: {
+                if let plan = model.pendingUnprotect {
+                    Text(WorkshopModel.unprotectDialogMessage(for: plan))
+                }
+            }
+            // Use shared secret on a protected line (Required Change 2): the
+            // line's own value is discarded, so it is confirmed.
+            .confirmationDialog(
+                model.pendingSharedLink.map(WorkshopModel.sharedLinkDialogTitle(for:)) ?? "Use shared secret",
+                isPresented: .init(
+                    get: { model.pendingSharedLink != nil },
+                    set: { if !$0 { model.dismissSharedLink() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Use Shared Secret", role: .destructive) {
+                    let plan = model.pendingSharedLink
+                    model.confirmUseShared(plan)
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissSharedLink()
+                }
+            } message: {
+                if let plan = model.pendingSharedLink {
+                    Text(WorkshopModel.sharedLinkDialogMessage(for: plan))
+                }
+            }
+            // Remote… (Required Change 4).
+            .sheet(
+                isPresented: .init(
+                    get: { model.remoteSheet != nil },
+                    set: { if !$0 { model.dismissRemoteSheet() } }
+                )
+            ) {
+                RemoteSheet()
+            }
+            // Scan folders… (Required Change 5): any dismissal rescans.
+            .sheet(
+                isPresented: .init(
+                    get: { model.isScanFoldersSheetPresented },
+                    set: { if !$0 { Task { await model.closeScanFolders() } } }
+                )
+            ) {
+                ScanFoldersSheet()
+            }
     }
 }

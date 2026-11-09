@@ -43,6 +43,9 @@ final class WorkshopModel {
         /// one name). Its label is the user's verb, Protect (ho-06.9,
         /// kamae-2.3 §2); the case keeps its engine name.
         case ingesting
+        /// An Unprotect is writing a project's values back into its `.env`
+        /// and removing it from the vault (ho-06.10 AT-04).
+        case unprotecting
 
         /// Progress text shown beside the indicator in the status surface.
         var label: String {
@@ -50,8 +53,9 @@ final class WorkshopModel {
             case .scanning: return "Scanning…"
             case .materializing: return "Materializing…"
             case .syncing: return "Syncing…"
-            case .checkingDrift: return "Checking drift…"
+            case .checkingDrift: return "Checking every project…"
             case .ingesting: return "Protecting…"
+            case .unprotecting: return "Unprotecting…"
             }
         }
     }
@@ -158,6 +162,7 @@ final class WorkshopModel {
                 cachedHistory = []
                 envRead = nil
                 paneError = nil
+                lineShareForm = nil
                 loadedLinesSelection = nil
             }
         }
@@ -226,10 +231,55 @@ final class WorkshopModel {
     /// (ho-06.10 Decision 8: errors where the action was).
     ///
     /// Set alongside ``errorMessage`` (which keeps the status bar's one-line
-    /// echo) and cleared on every selection change, so the pane that shows it
-    /// is always the pane whose action failed. `internal` for the same
-    /// cross-file reason as ``envRead``.
+    /// echo) and cleared on every selection change and whenever
+    /// ``errorMessage`` clears (the next successful action), so the pane that
+    /// shows it is always the pane whose action failed. `internal` for the
+    /// same cross-file reason as ``envRead``.
     var paneError: PaneError?
+
+    /// Projects the last Check all could not read, by scope ID, each with the
+    /// failure the pane shows when the project is selected (ho-06.10 AT-04).
+    ///
+    /// Replaced wholesale by every Check all; dropped for a project when it
+    /// is unprotected or deleted. Never persisted. `internal` for the same
+    /// cross-file reason as ``envRead`` — the sweep lives in
+    /// `WorkshopModel+Heal.swift`.
+    var unreadableProjects: [String: PaneError] = [:]
+
+    /// Protected lines whose own value equals a shared secret's, found by the
+    /// last Check all: scope ID → key → shared ID (ho-06.10 Decision 8).
+    ///
+    /// Rendered on the line's caption and offered as "Use shared secret ‹id›".
+    /// Replaced wholesale by every Check all; a key's entry drops once it
+    /// uses a shared secret. Never persisted. `internal` for the same reason
+    /// as ``unreadableProjects``.
+    var sharedMatches: [String: [String: String]] = [:]
+
+    /// A staged Unprotect awaiting the window's confirmation, or `nil`
+    /// (ho-06.10 AT-04). `internal`: its intents live in
+    /// `WorkshopModel+Verbs.swift`.
+    var pendingUnprotect: UnprotectPlan?
+
+    /// A staged switch of a protected line to a shared secret, awaiting the
+    /// window's confirmation (its own value is discarded), or `nil`.
+    /// `internal` for the same reason as ``pendingUnprotect``.
+    var pendingSharedLink: SharedLinkPlan?
+
+    /// The open shared-secret form on the selected protected line, or `nil`.
+    ///
+    /// "Use shared secret…" or "Make it a shared secret". Cleared when the
+    /// line or the selection changes. `internal` for the same reason as
+    /// ``pendingUnprotect``.
+    var lineShareForm: LineShareForm?
+
+    /// The Remote… sheet's draft and inline error while it is open, or `nil`
+    /// when it is closed. `internal` for the same reason as
+    /// ``pendingUnprotect``.
+    var remoteSheet: RemoteSheetState?
+
+    /// Whether the Scan folders… sheet is open. `internal` for the same
+    /// reason as ``pendingUnprotect``.
+    var isScanFoldersSheetPresented = false
 
     /// The selection whose lines read has landed, or `nil` while a read is in
     /// flight or none has run (ho-06.10 AT-03).
@@ -260,6 +310,7 @@ final class WorkshopModel {
                 revealedValue = nil
                 revealedNotes = nil
                 cachedHistory = []
+                lineShareForm = nil
             }
         }
     }
@@ -322,7 +373,16 @@ final class WorkshopModel {
 
     /// Human-readable description of the most recent failure, for the window
     /// to surface; `nil` when the last operation succeeded.
-    var errorMessage: String?
+    ///
+    /// Clearing it clears ``paneError`` too: a success after a failure means
+    /// the pane's error no longer describes the last action (ho-06.10 AT-04).
+    var errorMessage: String? {
+        didSet {
+            if errorMessage == nil {
+                paneError = nil
+            }
+        }
+    }
 
     /// File-based age key from `SHARIBAKO_AGE_KEY`; `nil` selects the Keychain path.
     ///
@@ -331,7 +391,12 @@ final class WorkshopModel {
     let devAgeKeyPath: URL?
 
     /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
-    private(set) var pendingDiff: MaterializeDiff?
+    ///
+    /// `internal` (not `private(set)`): Unprotect (`WorkshopModel+Verbs.swift`)
+    /// stops on the same diff and raises the same confirmation, and Swift's
+    /// `private(set)` is file-scoped — the `Conduit`/`Conduit+Remote.swift`
+    /// cross-file-extension precedent. Views only ever read it.
+    var pendingDiff: MaterializeDiff?
 
     /// A pending Materialize-all-stale plan awaiting confirmation, or `nil`
     /// (ho-06.2 AT-02, Decision 3).
@@ -488,6 +553,24 @@ extension WorkshopModel {
         scanReport = report
     }
 
+    /// Adds `directory` to ``candidates`` when the scan did not find it.
+    ///
+    /// The seam Unprotect (`WorkshopModel+Verbs.swift`) uses for a folder outside
+    /// the scan roots, so the folder it just returned to plain text is still
+    /// listed under Not protected. Compared by standardized path.
+    func addCandidate(_ directory: URL) {
+        let target = directory.standardizedFileURL.path
+        guard !candidates.contains(where: { $0.standardizedFileURL.path == target }) else { return }
+        candidates.append(directory.standardizedFileURL)
+    }
+
+    /// Empties the scan caches — the seam the Scan folders… sheet uses when
+    /// the last folder is removed, since a scan over no roots never runs.
+    func clearScanCaches() {
+        scanReport = ScanReport(markers: [], failures: [])
+        candidates = []
+    }
+
     /// Drops `directory` from ``candidates``.
     ///
     /// The seam a successful Protect (`WorkshopModel+Protect.swift`) uses to
@@ -604,7 +687,7 @@ extension WorkshopModel {
         do {
             handle = try provider.loadIdentity(reason: "Reveal \(key) from \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         defer { handle.release() }
@@ -617,7 +700,7 @@ extension WorkshopModel {
         } catch {
             revealedValue = nil
             revealedNotes = nil
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -765,8 +848,9 @@ extension WorkshopModel {
     /// use. A vault with no `.git/` or no `origin` and any `Conduit`
     /// construction failure both resolve to ``RemoteDescription/none`` rather
     /// than surfacing an error — the footer's job is to state the fact
-    /// plainly, not to treat "no remote" as a failure.
-    private func resolveRemoteDescription(vaultURL: URL) {
+    /// plainly, not to treat "no remote" as a failure. `internal`: the Remote…
+    /// sheet (`WorkshopModel+Verbs.swift`) re-resolves after a change.
+    func resolveRemoteDescription(vaultURL: URL) {
         guard let conduit = try? Conduit(vaultURL: vaultURL),
             let url = try? conduit.remoteURL()
         else {
@@ -798,9 +882,9 @@ extension WorkshopModel {
         let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
         do {
-            handle = try provider.loadIdentity(reason: "Decrypt secrets for materialize")
+            handle = try provider.loadIdentity(reason: "Write .env for \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         do {
@@ -815,7 +899,7 @@ extension WorkshopModel {
             applyMaterializeResult(result)
         } catch {
             handle.release()
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -905,7 +989,7 @@ extension WorkshopModel {
                 return (commit, push)
             }
             if case .rejected(let reason) = pushResult {
-                errorMessage = "Push rejected: \(reason). Resolve remotely, then sync again."
+                errorMessage = "Push rejected: \(reason). \(Self.pushRejectedNextStep)"
                 return
             }
             statusMessage = Self.syncStatusMessage(commit: commitResult, push: pushResult)
@@ -995,80 +1079,5 @@ extension WorkshopModel {
         } catch {
             errorMessage = Self.message(for: error)
         }
-    }
-}
-
-// MARK: - Age key provider and error messages
-
-extension WorkshopModel {
-    /// Builds the age-key provider for decrypt operations (used from AT-02 on).
-    ///
-    /// The file provider wins when `SHARIBAKO_AGE_KEY` is set (the dev bypass,
-    /// Decision 7); otherwise the GUI's own Keychain adapter (Decision 1).
-    func makeAgeKeyProvider() -> any GUIAgeKeyProvider {
-        if let devAgeKeyPath {
-            return GUIFileAgeKeyProvider(path: devAgeKeyPath)
-        }
-        return GUIKeychainAgeKeyProvider()
-    }
-
-    /// Renders an error as a user-facing sentence.
-    ///
-    /// Dispatches to `vaultErrorMessage` for known `VaultError` cases;
-    /// everything else falls through to a generic description.
-    static func message(for error: Error) -> String {
-        guard let vaultError = error as? VaultError else {
-            return "Unexpected error: \(error)"
-        }
-        return Self.vaultErrorMessage(for: vaultError)
-    }
-
-    /// Names the `VaultError` cases the model can surface; split from
-    /// `message(for:)` to keep cyclomatic complexity within the linter ceiling.
-    private static func vaultErrorMessage(for vaultError: VaultError) -> String {
-        switch vaultError {
-        case .vaultNotFound(let path):
-            return "No vault found at \(path.path)."
-        case .yamlDecodeError(let path, _):
-            return "Could not read \(path.lastPathComponent) — the file is not valid YAML."
-        case .fileSystemError(let path, _):
-            return "A filesystem operation failed at \(path.path)."
-        case .secretNotFound(let scope, let key):
-            return "Secret '\(key)' not found in scope '\(scope)'."
-        case .scopeNotFound(let id):
-            return "Scope '\(id)' not found."
-        case .scopeAlreadyExists(let id):
-            return "A scope named '\(id)' already exists."
-        case .sharedEntryExists(let id):
-            return "A shared entry named '\(id)' already exists."
-        case .sharedEntryNotFound(let id):
-            return "Shared entry '\(id)' not found."
-        case .markerNotFound:
-            return "No .sharibako marker found for this scope in the configured scan roots."
-        case .ageInvocationFailed(_, let stderr):
-            return Self.ageFailureMessage(stderr: stderr)
-        case .gitInvocationFailed(_, let stderr):
-            return "Git error: \(stderr.prefix(120))"
-        default:
-            return "Vault error: \(vaultError)"
-        }
-    }
-
-    /// The message for an `age` failure, by what `age` actually said.
-    ///
-    /// `age` is used for both directions, and the ho-06.9 gate showed a
-    /// decrypt failure ("no identity matched any of the recipients") wearing an
-    /// "Encryption failed" label. The recipient mismatch gets plain words — it
-    /// means this vault's secrets were encrypted to a different key than the
-    /// one in use, which is the one thing the user can act on.
-    static func ageFailureMessage(stderr: String) -> String {
-        let text = stderr.lowercased()
-        if text.contains("no identity matched") {
-            return "This key cannot read these secrets — they were encrypted to a different key than the one in use."
-        }
-        if text.contains("decrypt") || text.contains("identity") {
-            return "Decryption failed: \(stderr.prefix(120))"
-        }
-        return "Encryption failed: \(stderr.prefix(120))"
     }
 }

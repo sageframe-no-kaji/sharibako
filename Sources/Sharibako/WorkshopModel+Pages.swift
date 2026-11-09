@@ -77,11 +77,15 @@ extension WorkshopModel {
 
     /// The pane error for `host`: the detail column's while it shows a line,
     /// else the page header's — never both (ho-06.10 Decision 8).
+    ///
+    /// An action's own failure wins; otherwise a project the last Check all
+    /// could not read shows why, with its next step (AT-04).
     func paneError(in host: PaneErrorHost) -> PaneError? {
+        let error = paneError ?? selectedProjectCheckError
         let detailShowing = detailPane != .empty
         switch host {
-        case .page: return detailShowing ? nil : paneError
-        case .detail: return detailShowing ? paneError : nil
+        case .page: return detailShowing ? nil : error
+        case .detail: return detailShowing ? error : nil
         }
     }
 
@@ -285,6 +289,13 @@ extension WorkshopModel {
         case reveal
         /// Decrypt and put the value on the clipboard, without showing it.
         case copy
+        /// Switch a protected line to the shared secret whose value it
+        /// already has, as the last Check all found (confirmed; AT-04).
+        case useMatchedShared(id: String)
+        /// Open the form to switch a protected line to a shared secret.
+        case useSharedSecret
+        /// Open the form to make a protected line's value a shared secret.
+        case makeSharedSecret
         /// Delete the secret from the vault (destructive; confirmed).
         case deleteSecret
 
@@ -298,6 +309,9 @@ extension WorkshopModel {
             case .choose(let choice): return choice.label
             case .reveal: return "Reveal"
             case .copy: return "Copy"
+            case .useMatchedShared(let id): return "Use shared secret \(id)"
+            case .useSharedSecret: return "Use shared secret…"
+            case .makeSharedSecret: return "Make it a shared secret"
             case .deleteSecret: return "Delete secret"
             }
         }
@@ -310,6 +324,8 @@ extension WorkshopModel {
             case .choose: return nil
             case .reveal: return "eye"
             case .copy: return "doc.on.doc"
+            case .useMatchedShared, .useSharedSecret: return "link"
+            case .makeSharedSecret: return "link.badge.plus"
             case .deleteSecret: return "trash"
             }
         }
@@ -321,9 +337,16 @@ extension WorkshopModel {
     }
 
     /// The right-click menu for `line`, in order (Required Change 2).
+    ///
+    /// A protected line with its own value also offers the shared-secret
+    /// verbs (AT-04): the match the last Check all found, Use shared secret…
+    /// while any shared secret exists, and Make it a shared secret.
     func lineVerbs(for line: ProjectLine) -> [LineVerb] {
         if line.status.isInVault {
-            return [.reveal, .copy, .deleteSecret]
+            guard isLocalSecret(line.key) else { return [.reveal, .copy, .deleteSecret] }
+            let matched = sharedMatch(forKey: line.key).map { [LineVerb.useMatchedShared(id: $0)] } ?? []
+            let use: [LineVerb] = sharedIDs.isEmpty ? [] : [.useSharedSecret]
+            return [.reveal, .copy] + matched + use + [.makeSharedSecret, .deleteSecret]
         }
         let shared = sharedIDs.map { LineVerb.choose(.useShared(id: $0)) }
         return [.protectLine] + shared + [.choose(makeSharedChoice(for: line)), .choose(.leaveAsSetting)]
@@ -336,11 +359,14 @@ extension WorkshopModel {
         return line.choice == choice
     }
 
-    /// Whether `verb` is off: Protect this line and Delete secret wait while
+    /// Whether `verb` is off: everything that changes the vault waits while
     /// an operation runs.
     func isLineVerbDisabled(_ verb: LineVerb) -> Bool {
         guard activity != nil else { return false }
-        return verb == .protectLine || verb == .deleteSecret
+        switch verb {
+        case .protectLine, .deleteSecret, .useMatchedShared, .useSharedSecret, .makeSharedSecret: return true
+        case .choose, .reveal, .copy: return false
+        }
     }
 
     // MARK: - Line intents (right-click and detail pane)
@@ -425,6 +451,8 @@ extension WorkshopModel {
             if let directory = entry.directory {
                 openInFinder(directory)
             }
+        case .unprotect:
+            requestUnprotectSelectedProject()
         case .deleteProject:
             requestDeleteSelectedScope()
         case .protectFolder:

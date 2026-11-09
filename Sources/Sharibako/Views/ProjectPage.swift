@@ -182,7 +182,7 @@ struct ProjectPage: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            Text(WorkshopModel.lineCaption(for: line))
+            Text(model.lineCaptionText(for: line))
                 .font(.caption)
                 .foregroundStyle(line.status.captionPalette.color)
                 .padding(.leading, 24)
@@ -234,6 +234,12 @@ struct ProjectPage: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(value, forType: .string)
             }
+        case .useMatchedShared(let id):
+            model.requestUseShared(id, forKey: line.key)
+        case .useSharedSecret:
+            model.openLineShareForm(.useShared, forKey: line.key)
+        case .makeSharedSecret:
+            model.openLineShareForm(.makeShared, forKey: line.key)
         case .deleteSecret:
             model.requestDeleteLine(key: line.key)
         }

@@ -225,7 +225,8 @@ struct WorkshopModelLineVerbsTests {
             let problem = try #require(model.projectSections.first { $0.id == .needsAttention }?.entries.first)
 
             #expect(model.entryVerbs(for: candidate) == [.protect, .openInFinder])
-            #expect(model.entryVerbs(for: project) == [.writeEnv, .previewEnv, .openInFinder, .deleteProject])
+            #expect(
+                model.entryVerbs(for: project) == [.writeEnv, .previewEnv, .openInFinder, .unprotect, .deleteProject])
             #expect(model.entryVerbs(for: problem) == [.protectFolder, .forgetFolder, .openInFinder])
             // The menu speaks for its own row, not for the selection.
             model.selection = .candidate(directory: try #require(candidate.directory))

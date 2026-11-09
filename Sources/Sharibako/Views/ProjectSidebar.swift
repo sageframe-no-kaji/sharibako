@@ -144,21 +144,37 @@ struct ProjectSidebar: View {
                     .foregroundStyle(Color.inkSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                // The remote line reads `remoteDescription`, which Remote…
+                // re-resolves on every change (ho-06.10 AT-04) — so it shows
+                // a new remote, or "No remote", the moment the sheet closes.
+                // Clicking it opens the sheet.
                 if let remoteShort = model.remoteShortDescription {
-                    Label(remoteShort, systemImage: "arrow.triangle.branch")
+                    Button {
+                        model.openRemoteSheet()
+                    } label: {
+                        Label(remoteShort, systemImage: "arrow.triangle.branch")
+                            .font(.callout)
+                            .foregroundStyle(Color.inkTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(model.activity != nil)
+                }
+                // Scan-root visibility (ho-06.2 AT-03 Decision 5): every scan
+                // folder, full paths in the tooltip; it follows Scan
+                // folders… (ho-06.10 AT-04), which a click opens.
+                Button {
+                    model.openScanFolders()
+                } label: {
+                    Label(model.scanRootsShortDescription, systemImage: "magnifyingglass")
                         .font(.callout)
                         .foregroundStyle(Color.inkTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                // Scan-root visibility (ho-06.2 AT-03 Decision 5): the missing
-                // half of "where is it scanning" — read-only, all configured
-                // roots, full paths in the tooltip.
-                Label(model.scanRootsShortDescription, systemImage: "magnifyingglass")
-                    .font(.callout)
-                    .foregroundStyle(Color.inkTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                .buttonStyle(.plain)
+                .disabled(model.activity != nil)
             }
             // 16 pt insets keep the footer clear of the window's rounded
             // bottom-left corner and on the sidebar's own content line
@@ -185,7 +201,7 @@ struct ProjectSidebar: View {
             lines.append("Remote: \(remoteFull)")
         }
         if let scanRootsFull = model.scanRootsFullDescription {
-            lines.append("Scan roots: \(scanRootsFull)")
+            lines.append("Scan folders: \(scanRootsFull)")
         }
         return lines.joined(separator: "\n")
     }

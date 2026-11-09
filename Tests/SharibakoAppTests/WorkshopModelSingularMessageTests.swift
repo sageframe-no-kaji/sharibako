@@ -73,14 +73,14 @@ struct WorkshopModelSingularMessageTests {
         }
     }
 
-    @Test("checking one scope says 'scope', not 'scopes'")
+    @Test("checking one project counts it plainly (ho-06.10 AT-04's per-project announce)")
     func checkDriftOneScope() async throws {
         try await Self.withSingleEverything { model, _ in
             await model.materializeSelectedScope()
 
             await model.checkDrift()
 
-            #expect(model.statusMessage?.hasPrefix("Checked 1 scope —") == true)
+            #expect(model.statusMessage == "1 checked · 0 out of date")
         }
     }
 
