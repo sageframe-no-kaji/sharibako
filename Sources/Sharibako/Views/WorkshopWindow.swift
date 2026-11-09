@@ -275,9 +275,9 @@ struct WorkshopWindow: View {
 
     // MARK: - Columns (ho-06.9 Decision 9)
 
-    /// The content column, switched on the selection's kind: a project's
-    /// header over its secret list, or the page for a Not-protected,
-    /// Needs-attention, or Shared-secrets row.
+    /// The content column, switched on the selection's kind: the one project
+    /// page for a project and for a folder not yet protected alike (ho-06.10
+    /// Decision 6), or the page for a Needs-attention or Shared-secrets row.
     ///
     /// One `Group` hosts every kind (the Discovery lean), so the split view
     /// keeps a single, stable content column and the sidebar selection is
@@ -285,19 +285,14 @@ struct WorkshopWindow: View {
     /// finds the row — a row that vanished under the selection (forgotten,
     /// say) falls back to the empty state rather than leaving a stale page.
     /// The `.task(id:)` re-runs on every selection change and routes through
-    /// ``WorkshopModel/loadContent(for:)`` (tested): the secrets for a
-    /// project, the keys-only preview for a folder not yet protected.
+    /// ``WorkshopModel/loadContent(for:)`` (tested): the lines of a project
+    /// or of a folder not yet protected.
     @ViewBuilder private var contentColumn: some View {
         Group {
             if let entry = model.selectedEntry {
                 switch entry.id {
-                case .project:
-                    VStack(spacing: 0) {
-                        ProjectHeader(entry: entry)
-                        SecretList()
-                    }
-                case .candidate(let directory):
-                    NotProtectedPage(entry: entry, directory: directory)
+                case .project, .candidate:
+                    ProjectPage(entry: entry)
                 case .problem:
                     if let marker = entry.problemMarker, let directory = entry.directory {
                         ProblemPage(entry: entry, marker: marker, directory: directory)
@@ -317,13 +312,17 @@ struct WorkshopWindow: View {
         }
     }
 
-    /// The detail column: the selected secret for a project, as before; an
-    /// empty flat ground for every other kind, whose page lives in the
-    /// content column (the Discovery lean — no detail to show).
+    /// The detail column, by ``WorkshopModel/detailPane`` (ho-06.10 AT-03):
+    /// `SecretDetail` for a selected line in the vault, `LineDetail` for one
+    /// not in the vault, and an empty flat ground otherwise — nothing
+    /// selected, or a page whose content lives in the content column.
     @ViewBuilder private var detailColumn: some View {
-        if case .project = model.selection {
+        switch model.detailPane {
+        case .secret:
             SecretDetail()
-        } else {
+        case .line:
+            LineDetail()
+        case .empty:
             Color.ground
         }
     }

@@ -110,9 +110,6 @@ jobs:
           #     a launched app; not headlessly drivable (ho-05 Decision 8).
           #     All branching they render lives in WorkshopModel and
           #     WorkshopConfig, which are NOT excluded and carry real coverage.
-          #   SecretList — SwiftUI declarative body; center-column secret list,
-          #     driven by WorkshopModel.secrets (not excluded); not headlessly
-          #     drivable (ho-05 Decision 8).
           #   SecretDetail — SwiftUI declarative body; detail-pane reveal UI and
           #     edit affordances (AT-03), driven by WorkshopModel.revealedValue/
           #     history/pendingDiff (not excluded); not headlessly drivable
@@ -156,23 +153,32 @@ jobs:
           #     no test touches the real Keychain); the view itself is
           #     declarative panels plus NSSavePanel/NSOpenPanel calls, not
           #     headlessly drivable (ho-05 Decision 8).
-          #   ProjectSidebar, ProjectHeader, NotProtectedPage, ProblemPage,
-          #     SharedSecretPage — SwiftUI declarative bodies; the
-          #     project-first sidebar, the header over a project's secret
-          #     list, and the three status pages (ho-06.9 AT-02, Decisions 8
-          #     and 9). Sections, statuses, glyph symbols and tints, every
-          #     count-aware string, and the selection's load dispatch live in
-          #     WorkshopModel+Projects.swift, WorkshopModel+Pages.swift,
-          #     WorkshopModel+Lines.swift, and Color+Theme.swift (NOT
-          #     excluded); the views only lay them out,
+          #   ProjectSidebar, ProblemPage, SharedSecretPage — SwiftUI
+          #     declarative bodies; the project-first sidebar (with its
+          #     right-click menus and Protect all) and the two status pages
+          #     (ho-06.9 AT-02, Decisions 8 and 9; ho-06.10 AT-03). Sections,
+          #     statuses, glyph symbols and tints, every count-aware string,
+          #     each row's verbs and disabled reasons, and the selection's
+          #     load dispatch live in WorkshopModel+Projects.swift,
+          #     WorkshopModel+Pages.swift, WorkshopModel+Lines.swift, and
+          #     Color+Theme.swift (NOT excluded); the views only lay them out,
           #     not headlessly drivable (ho-05 Decision 8).
+          #   ProjectPage, LineDetail, PageParts — SwiftUI declarative bodies;
+          #     the one project page (header, lines, settings fold, line
+          #     menus), the detail pane for a line not in the vault, and the
+          #     shared title / Open in Finder / pane-error parts (ho-06.10
+          #     AT-03, Decisions 6-8). Every word, symbol, tint, choice
+          #     option, verb list, detail-pane pick, and pane-error placement
+          #     lives in WorkshopModel+Pages.swift and Color+Theme.swift (NOT
+          #     excluded); the views only lay them out and route verbs to
+          #     tested intents, not headlessly drivable (ho-05 Decision 8).
           #   OpenInFinder — the shared Open in Finder helper (ho-06.9 AT-02
           #     Required Change 7). Its announce is WorkshopModel.announceJump
           #     (NOT excluded, tested); the NSWorkspace call opens a real
           #     Finder window, not headlessly drivable (ho-05 Decision 8).
           # The 90% floor applies to everything OUTSIDE this list. Additions
           # require the same justification these entries carry.
-          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ProjectSidebar|ProjectHeader|NotProtectedPage|ProblemPage|SharedSecretPage|OpenInFinder|Sources/Sharibako/App.swift|SecretList|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard"
+          EXCLUDED="KeychainAgeKeyProvider|ExecReplace|TerminalDetector|SecureValuePrompt|GUIAgeKeyProvider|WorkshopWindow|ProjectSidebar|ProjectPage|LineDetail|PageParts|ProblemPage|SharedSecretPage|OpenInFinder|Sources/Sharibako/App.swift|SecretDetail|AddScopeSheet|AddSecretSheet|AddSharedEntrySheet|EnvPreviewSheet|RevealableSecureField|AuxiliaryWindowChrome|SettingsScene|ActionPanel|FirstRunWizard"
           xcrun llvm-cov report \
             -instr-profile="$PROFDATA" \
             "$XCTEST_BINARY" \

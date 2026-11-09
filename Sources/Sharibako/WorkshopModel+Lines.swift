@@ -53,7 +53,7 @@ extension WorkshopModel {
     /// Four choices, not `KeyDecision`'s five: `skip` collapses into
     /// ``leaveAsSetting`` because a user cannot tell them apart, so no
     /// choice ever produces `.skip` (Do Not).
-    enum LineChoice: Equatable {
+    enum LineChoice: Hashable {
         /// Encrypt the value into this project (`importAsLocal`).
         case protectLocal
         /// Link the line to an existing shared secret (`linkToShared`).

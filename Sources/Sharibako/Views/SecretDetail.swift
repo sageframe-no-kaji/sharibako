@@ -1,7 +1,8 @@
 import SharibakoCore
 import SwiftUI
 
-/// Detail column of the Workshop.
+/// Detail column of the Workshop for a project line in the vault (ho-06.10
+/// AT-03: the protected-line detail; `LineDetail` takes the rest).
 ///
 /// Shows a selected secret's value (masked or revealed), notes, link target,
 /// and rotation history. Adds edit affordances for value (routes through
@@ -61,6 +62,12 @@ struct SecretDetail: View {
     private func detailContent(key: String, scopeID: String, info: SecretInfo) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                // A failure from this pane's action, where the action was
+                // (ho-06.10 Decision 8).
+                if let error = model.paneError(in: .detail) {
+                    PaneErrorView(error: error)
+                }
+
                 // Key heading
                 Text(key)
                     .font(.title2.monospaced())

@@ -7,7 +7,7 @@ import Testing
 /// ho-06.9 AT-02 tests: the reads and words the project-first views render
 /// (`WorkshopModel+Pages.swift`) and the glyph tints (`Color+Theme.swift`).
 ///
-/// The sidebar, header, and three status pages are coverage-excluded
+/// The sidebar and the status pages are coverage-excluded
 /// declarative bodies; every count-aware phrase, fallback, and the
 /// selection's load dispatch they rely on is specified here instead. Temp
 /// vaults and temp scan roots only — no live user state, no Keychain.
@@ -69,29 +69,15 @@ struct WorkshopModelPagesTests {
         }
     }
 
-    // MARK: - Project header
+    // MARK: - Page location
 
-    @Test("the header's drift clause counts lines for Out of date only")
-    func headerDriftClause() {
-        #expect(WorkshopModel.headerDriftClause(for: .outOfDate(keyCount: 1)) == "1 line differs")
-        #expect(WorkshopModel.headerDriftClause(for: .outOfDate(keyCount: 3)) == "3 lines differ")
-        #expect(WorkshopModel.headerDriftClause(for: .protected) == nil)
-        #expect(WorkshopModel.headerDriftClause(for: .noFolderHere) == nil)
-        #expect(WorkshopModel.headerDriftClause(for: .notProtected) == nil)
-    }
-
-    @Test("the header's location abbreviates the folder, says no folder, or stays silent when the status says it")
-    func headerLocation() {
+    @Test("a page's location abbreviates the folder, or says there is no folder on this Mac")
+    func pageLocation() {
         let model = WorkshopModel(
             environment: ["SHARIBAKO_VAULT": "/nonexistent/vault"], home: URL(fileURLWithPath: "/Users/nobody"))
-        let here = Self.entry(directory: URL(fileURLWithPath: "/Users/nobody/Projects/falcon"), status: .protected)
-        #expect(model.headerLocation(for: here) == "~/Projects/falcon")
-        let elsewhere = Self.entry(directory: URL(fileURLWithPath: "/opt/falcon"), status: .protected)
-        #expect(model.headerLocation(for: elsewhere) == "/opt/falcon")
-        let driftedNoFolder = Self.entry(directory: nil, status: .outOfDate(keyCount: 2))
-        #expect(model.headerLocation(for: driftedNoFolder) == "No folder on this Mac")
-        let away = Self.entry(directory: nil, status: .noFolderHere)
-        #expect(model.headerLocation(for: away) == nil)
+        #expect(model.pageLocation(for: URL(fileURLWithPath: "/Users/nobody/Projects/falcon")) == "~/Projects/falcon")
+        #expect(model.pageLocation(for: URL(fileURLWithPath: "/opt/falcon")) == "/opt/falcon")
+        #expect(model.pageLocation(for: nil) == "No folder on this Mac")
     }
 
     @Test("abbreviatedPath abbreviates under the injected home only")
@@ -104,11 +90,8 @@ struct WorkshopModelPagesTests {
 
     // MARK: - Counts and copy
 
-    @Test("count lines are count-aware: the page's and the first-run finish page's")
+    @Test("the first-run finish page's count line is count-aware")
     func countLines() {
-        #expect(WorkshopModel.envLineCount(0) == "No lines with a value in .env")
-        #expect(WorkshopModel.envLineCount(1) == "1 line in .env")
-        #expect(WorkshopModel.envLineCount(3) == "3 lines in .env")
         #expect(
             WorkshopModel.firstRunCandidateSummary(count: 1)
                 == "Found 1 project with a .env — it'll be waiting under Not protected.")

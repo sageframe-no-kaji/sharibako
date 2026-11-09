@@ -317,6 +317,13 @@ extension WorkshopModel {
     /// three of them disabled by ``writeDisabledReason``.
     var selectionVerbs: [SelectionVerb] {
         guard let entry = selectedEntry else { return [] }
+        return entryVerbs(for: entry)
+    }
+
+    /// The verbs for `entry`, whether or not it is selected — the action
+    /// column's list for the selected row, and the sidebar's right-click menu
+    /// for any row (ho-06.10 Decision 8, AT-03).
+    func entryVerbs(for entry: ProjectEntry) -> [SelectionVerb] {
         switch entry.id {
         case .candidate:
             return [.protect, .openInFinder]
@@ -338,7 +345,14 @@ extension WorkshopModel {
     /// not scanned yet; or no folder on this Mac (the No-folder-here status,
     /// and any project whose claim file the scan did not find).
     var writeDisabledReason: String? {
-        guard let scopeID = selectedScopeID else { return "Select a project first" }
+        writeDisabledReason(forScope: selectedScopeID)
+    }
+
+    /// Why Write .env, Preview .env, and Open in Finder cannot run for the
+    /// project `scopeID`, or `nil` when they can — ``writeDisabledReason``
+    /// for any row, not only the selected one.
+    func writeDisabledReason(forScope scopeID: String?) -> String? {
+        guard let scopeID else { return "Select a project first" }
         guard cachedMarker(forScope: scopeID) != nil else {
             return scanReport == nil
                 ? "Not scanned yet — rescan to find this project's folder"
@@ -352,12 +366,26 @@ extension WorkshopModel {
     /// Says nothing about ``activity`` — the panel disables every verb while
     /// one is in flight, on top of this.
     func disabledReason(for verb: SelectionVerb) -> String? {
+        disabledReason(for: verb, directory: selectedEntry?.directory, scopeID: selectedScopeID)
+    }
+
+    /// Why `verb` cannot run on `entry`, or `nil` when it can.
+    ///
+    /// The sidebar's right-click menu, for any row (AT-03). Says nothing
+    /// about ``activity``, as ``disabledReason(for:)``.
+    func disabledReason(for verb: SelectionVerb, on entry: ProjectEntry) -> String? {
+        disabledReason(for: verb, directory: entry.directory, scopeID: entry.scopeID)
+    }
+
+    /// The one rule behind both disabled-reason reads: the row's folder and
+    /// project decide.
+    private func disabledReason(for verb: SelectionVerb, directory: URL?, scopeID: String?) -> String? {
         switch verb {
         case .writeEnv, .previewEnv:
-            return writeDisabledReason
+            return writeDisabledReason(forScope: scopeID)
         case .openInFinder:
-            guard selectedEntry?.directory == nil else { return nil }
-            return writeDisabledReason ?? Self.noFolderHereReason
+            guard directory == nil else { return nil }
+            return writeDisabledReason(forScope: scopeID) ?? Self.noFolderHereReason
         case .protect, .deleteProject, .protectFolder, .forgetFolder:
             return nil
         }

@@ -158,6 +158,7 @@ final class WorkshopModel {
                 cachedHistory = []
                 envRead = nil
                 paneError = nil
+                loadedLinesSelection = nil
             }
         }
     }
@@ -229,6 +230,15 @@ final class WorkshopModel {
     /// is always the pane whose action failed. `internal` for the same
     /// cross-file reason as ``envRead``.
     var paneError: PaneError?
+
+    /// The selection whose lines read has landed, or `nil` while a read is in
+    /// flight or none has run (ho-06.10 AT-03).
+    ///
+    /// Set by ``storeLinesRead(secrets:env:for:)`` and cleared on every
+    /// ``selection`` change, so the page can say it is reading instead of
+    /// flashing "No lines" before its read lands. Read through
+    /// ``areLinesLoaded``.
+    private(set) var loadedLinesSelection: Selection?
 
     /// `true` once the launch selection rule has run (ho-06.9 Decision 4) —
     /// it runs once per session, so a later launch-scan re-entry (the window's
@@ -501,6 +511,7 @@ extension WorkshopModel {
         guard self.selection == selection else { return }
         cachedSecrets = secrets
         envRead = env
+        loadedLinesSelection = selection
     }
 
     /// Reloads the scope list, the shared-secret IDs, and the link graph from

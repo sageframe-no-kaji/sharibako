@@ -11,7 +11,8 @@ import SwiftUI
 /// with verbs inside the rows. Here every row is selectable and tagged with
 /// its ``WorkshopModel/Selection``, so the content column shows each row's
 /// page; no verb lives in a row — they moved to the pages and the action
-/// column.
+/// column, and each row's right-click menu mirrors its action-column verbs
+/// (ho-06.10 Decision 8).
 ///
 /// Pure rendering: sections, order, names, glyphs, tooltips, and tints all
 /// come from `WorkshopModel` (`WorkshopModel+Projects.swift`,
@@ -42,6 +43,9 @@ struct ProjectSidebar: View {
                             ForEach(section.entries) { entry in
                                 row(for: entry)
                                     .tag(entry.id)
+                                    .contextMenu {
+                                        rowMenu(for: entry)
+                                    }
                             }
                         } header: {
                             sectionHeader(section)
@@ -64,13 +68,43 @@ struct ProjectSidebar: View {
 
     /// The section's title with its row count trailing in `inkTertiary` —
     /// "NOT PROTECTED (3)" in the drawing.
+    ///
+    /// The Not-protected header also carries Protect all (ho-06.10 Decision
+    /// 5): every folder there, each with its own lines, behind one Touch ID.
     private func sectionHeader(_ section: WorkshopModel.ProjectSection) -> some View {
         HStack {
             Text(section.title)
             Spacer(minLength: 4)
+            if section.offersProtectAll {
+                Button("Protect all") {
+                    Task { await model.protectAllCandidates() }
+                }
+                .buttonStyle(.link)
+                .disabled(model.activity != nil)
+                .help("Protect every folder under Not protected — one Touch ID")
+            }
             Text("\(section.entries.count)")
                 .foregroundStyle(Color.inkTertiary)
                 .monospacedDigit()
+        }
+    }
+
+    // MARK: - Right-click menu
+
+    /// A row's right-click menu (ho-06.10 Decision 8).
+    ///
+    /// The same verbs the action column shows for that row, from
+    /// ``WorkshopModel/entryVerbs(for:)``. Choosing one selects the row and
+    /// runs its intent (``WorkshopModel/perform(_:on:)``).
+    @ViewBuilder
+    private func rowMenu(for entry: WorkshopModel.ProjectEntry) -> some View {
+        ForEach(model.entryVerbs(for: entry)) { verb in
+            Button(role: verb.isDestructive ? .destructive : nil) {
+                Task { await model.perform(verb, on: entry) }
+            } label: {
+                Label(verb.title, systemImage: verb.systemImage)
+            }
+            .disabled(model.disabledReason(for: verb, on: entry) != nil || model.activity != nil)
         }
     }
 
