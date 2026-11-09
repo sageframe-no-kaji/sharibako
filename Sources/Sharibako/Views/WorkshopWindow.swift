@@ -243,26 +243,11 @@ struct WorkshopWindow: View {
                     EnvPreviewSheet(preview: preview)
                 }
             }
-            // Ingest sheet (ho-06.3 AT-02, Decision 6): presented whenever
-            // `model.ingest.session` is non-nil, from any of its entry points
-            // (ho-06.9 Decision 6: the Protect verbs and orphaned-marker
-            // rows). Dismissing via
-            // the system chrome (swipe/Escape) discards the session exactly
-            // like the sheet's own Cancel button — the `envPreview` sheet's
-            // dismiss-clears-state precedent.
-            .sheet(
-                isPresented: .init(
-                    get: { model.ingest.session != nil },
-                    set: { if !$0 { model.cancelIngest() } }
-                )
-            ) {
-                IngestSheet()
-            }
             // Welcome tour (ho-06.3 gate-fix round): the Help-menu re-entry
             // into the SAME wizard the fresh-machine path renders as main
             // content — this time as a sheet, since a vault is already
             // open. Presented purely off `model.firstRun.mode == .tour`
-            // (the `ingest.session` sheet's precedent); `expectedPath`
+            // (the `envPreview` sheet's precedent); `expectedPath`
             // carries the ALREADY-OPEN vault's real URL (not a
             // not-yet-created one) so the tour's root/finish pages can
             // state it plainly like the first-run pages do. The hard

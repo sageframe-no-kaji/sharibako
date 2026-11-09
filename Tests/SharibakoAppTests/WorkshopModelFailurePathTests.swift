@@ -65,17 +65,33 @@ struct WorkshopModelFailurePathTests {
         }
     }
 
-    @Test("beginIngest reports the failure when the vault has gone away")
-    func beginIngestFailsWithoutVault() async throws {
+    @Test("loading a page's lines reports the failure when the vault has gone away")
+    func loadLinesFailsWithoutVault() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
             let model = model(vault: vault)
             let projectDir = vault.deletingLastPathComponent()
+            model.selection = .candidate(directory: projectDir)
             try FileManager.default.removeItem(at: vault)
 
-            await model.beginIngest(directory: projectDir)
+            await model.loadContent(for: model.selection)
 
             #expect(model.errorMessage != nil)
-            #expect(model.ingest.session == nil)
+            #expect(model.envRead == nil)
+        }
+    }
+
+    @Test("loading a project's lines reports the failure when the vault has gone away")
+    func loadProjectLinesFailsWithoutVault() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
+            try WorkshopTestSupport.writeScope("alpha", type: .other, in: vault)
+            let model = model(vault: vault)
+            model.selection = .project(scopeID: "alpha")
+            try FileManager.default.removeItem(at: vault)
+
+            await model.loadContent(for: model.selection)
+
+            #expect(model.errorMessage != nil)
+            #expect(model.secrets.isEmpty)
         }
     }
 

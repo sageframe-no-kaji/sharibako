@@ -79,15 +79,21 @@ struct WorkshopModelGuardTests {
         #expect(model.statusMessage == nil)
     }
 
-    @Test("ingest intents are no-ops while no vault is open")
-    func ingestNoOpWithoutVault() async {
+    @Test("protect intents and the lines load are no-ops while no vault is open")
+    func protectNoOpWithoutVault() async {
         let model = noVaultModel()
+        let folder = URL(fileURLWithPath: "/tmp/nowhere")
+        model.selection = .candidate(directory: folder)
 
-        await model.commitIngest()
-        await model.loadCandidatePreview(for: URL(fileURLWithPath: "/tmp/nowhere"))
+        await model.loadContent(for: model.selection)
+        await model.protectLine(key: "API_KEY")
+        await model.protectRecommended()
+        await model.protectAllCandidates()
+        model.beginIngest(directory: folder)
 
-        #expect(model.ingest.session == nil)
-        #expect(model.candidatePreview == nil)
+        #expect(model.envRead == nil)
+        #expect(model.projectLines.isEmpty)
+        #expect(model.statusMessage == nil)
         #expect(model.errorMessage == nil)
     }
 
@@ -115,7 +121,9 @@ struct WorkshopModelGuardTests {
             model.requestMaterializeAllStale()
             await model.checkDrift()
             await model.confirmMaterializeAllStale()
-            await model.commitIngest()
+            await model.protectRecommended()
+            await model.protectLine(key: "DB")
+            await model.protectAllCandidates()
 
             #expect(model.pendingScopeDeletion == nil)
             #expect(model.pendingSecretDeletion == nil)

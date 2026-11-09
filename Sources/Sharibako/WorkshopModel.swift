@@ -38,10 +38,10 @@ final class WorkshopModel {
         /// A Check-drift sweep is decrypting and comparing every `live_here`
         /// scope against its materialized `.env` (ho-06.2 AT-02, Decision 3).
         case checkingDrift
-        /// An ingest commit is encrypting decided keys into a scope (ho-06.3
-        /// gate fix: the status surface said "Materializing…" while the sheet
-        /// button said "Importing…" — one operation must wear one name). Its
-        /// label is the user's verb, Protect (ho-06.9, kamae-2.3 §2).
+        /// A Protect is encrypting a project's chosen lines into the vault
+        /// through `acceptIngest` (ho-06.3 gate fix: one operation must wear
+        /// one name). Its label is the user's verb, Protect (ho-06.9,
+        /// kamae-2.3 §2); the case keeps its engine name.
         case ingesting
 
         /// Progress text shown beside the indicator in the status surface.
@@ -141,19 +141,23 @@ final class WorkshopModel {
     /// The single source of truth for "what is the window showing"; the
     /// sidebar binds to it and the content column switches on its kind.
     /// Changing it runs the cascade that used to live on `selectedScopeID`:
-    /// the selected secret, any revealed value and notes, the secret and
-    /// history caches, and the candidate preview all clear — moving away
-    /// re-masks (ho-05 Decision 4). Never persisted: the launch rule
+    /// the selected line, any revealed value and notes, the secret and
+    /// history caches, the `.env` read behind the page's lines, and any
+    /// pane-local error all clear — moving away re-masks (ho-05 Decision 4),
+    /// and an error never outlives the page it was about (ho-06.10 AT-02).
+    /// Line-choice flips survive: they are keyed by folder, not by selection,
+    /// and last the session (Decision 7). Never persisted: the launch rule
     /// (``initialSelection(sections:)``) picks the opening row each session.
     var selection: Selection? {
         didSet {
             if selection != oldValue {
-                selectedSecretKey = nil
+                selectedLineKey = nil
                 revealedValue = nil
                 revealedNotes = nil
                 cachedSecrets = []
                 cachedHistory = []
-                candidatePreview = nil
+                envRead = nil
+                paneError = nil
             }
         }
     }
@@ -196,12 +200,35 @@ final class WorkshopModel {
     /// ``usedBy(sharedID:)``.
     private(set) var linkGraph: [String: [(scopeID: String, key: String)]] = [:]
 
-    /// The keyless preview for the selected Not-protected folder, or `nil`
-    /// (ho-06.9 Decision 9).
+    /// The keyless read of the selected page's `.env`, or `nil` (ho-06.10
+    /// AT-02, Decision 6).
     ///
-    /// Filled by ``loadCandidatePreview(for:)`` and cleared whenever
-    /// ``selection`` changes, so a preview can never outlive its row.
-    private(set) var candidatePreview: CandidatePreview?
+    /// Filled by ``loadContent(for:)`` for a project with a folder, a folder
+    /// not yet protected, or a Problem folder, and cleared whenever
+    /// ``selection`` changes, so a read can never outlive its row.
+    /// ``projectLines`` merges it with ``secrets``. `internal` (not
+    /// `private(set)`): the protect intents in `WorkshopModel+Protect.swift`
+    /// reset it after a commit — the `Conduit`/`Conduit+Remote.swift`
+    /// cross-file-extension precedent. Views only ever read it.
+    var envRead: EnvRead?
+
+    /// The user's per-line choices that differ from the classifier's default,
+    /// keyed by ``lineChoiceKey(folder:key:)`` (ho-06.10 Decision 7).
+    ///
+    /// Remembered for the session across selection changes — the user can
+    /// leave a page and come back to the choices they made — and cleared for
+    /// a folder once it is protected. Never persisted (Do Not). `internal`
+    /// for the same cross-file reason as ``envRead``.
+    var lineChoiceFlips: [String: LineChoice] = [:]
+
+    /// The last failure of an action taken from the content pane, or `nil`
+    /// (ho-06.10 Decision 8: errors where the action was).
+    ///
+    /// Set alongside ``errorMessage`` (which keeps the status bar's one-line
+    /// echo) and cleared on every selection change, so the pane that shows it
+    /// is always the pane whose action failed. `internal` for the same
+    /// cross-file reason as ``envRead``.
+    var paneError: PaneError?
 
     /// `true` once the launch selection rule has run (ho-06.9 Decision 4) —
     /// it runs once per session, so a later launch-scan re-entry (the window's
@@ -211,18 +238,42 @@ final class WorkshopModel {
     /// Secrets in the selected scope, populated by ``loadSecrets()``.
     private(set) var cachedSecrets: [SecretInfo] = []
 
-    /// The key of the currently selected secret in the center column.
+    /// The key of the currently selected line on the project page — a
+    /// protected secret, a line not yet protected, or a setting (ho-06.10
+    /// AT-02).
     ///
     /// Setting this clears ``revealedValue`` and ``cachedHistory`` —
     /// changing selection re-masks the previous secret (Decision 4).
-    var selectedSecretKey: String? {
+    var selectedLineKey: String? {
         didSet {
-            if selectedSecretKey != oldValue {
+            if selectedLineKey != oldValue {
                 revealedValue = nil
                 revealedNotes = nil
                 cachedHistory = []
             }
         }
+    }
+
+    /// The selected line's key when it names a secret in the vault, else
+    /// `nil` — a computed shim over ``selectedLineKey`` so every intent and
+    /// view written against the vault-only secret list keeps working.
+    ///
+    /// Returns `nil` exactly when the selected key is a plaintext `.env` line
+    /// the vault does not hold (Not protected, or a setting), so
+    /// `SecretDetail`'s reveal, rotate, and delete paths can never fire for a
+    /// line that is not in the vault. A key with no derived line at all (the
+    /// lines not loaded yet) passes through unchanged — the vault is the
+    /// authority it is checked against downstream. Set writes
+    /// ``selectedLineKey``, running the same cascade.
+    var selectedSecretKey: String? {
+        get {
+            guard let key = selectedLineKey else { return nil }
+            let isPlaintextLine =
+                envRead?.lines.contains { $0.key == key } == true
+                && !cachedSecrets.contains { $0.key == key }
+            return isPlaintextLine ? nil : key
+        }
+        set { selectedLineKey = newValue }
     }
 
     /// The decrypted plaintext for the selected secret while it is revealed.
@@ -364,17 +415,6 @@ final class WorkshopModel {
     /// extension file.
     var firstRunCompleted = false
 
-    /// The GUI ingest flow's own state (ho-06.3 AT-02).
-    ///
-    /// A nested `@Observable` object (`WorkshopModel+Ingest.swift`) mirroring
-    /// ``firstRun``'s pattern: the scan proposal, per-key decisions, and
-    /// scope ID/type are cohesive to the ingest sheet alone and would
-    /// otherwise crowd this already-long class for a session that only
-    /// exists while the sheet is up. `let`, not `private(set) var` — the
-    /// ingest intents mutate the instance's own fields; `WorkshopModel`
-    /// never reassigns it.
-    let ingest = IngestState()
-
     /// The injected (or live) environment.
     ///
     /// Retained for ``WorkshopModel/completeFirstRun()``'s git-identity probe
@@ -429,7 +469,7 @@ extension WorkshopModel {
 
     /// Replaces the cached scan report.
     ///
-    /// The write seam `WorkshopModel+Ingest.swift`'s post-commit cache
+    /// The write seam `WorkshopModel+Protect.swift`'s post-commit cache
     /// refresh uses — `private(set)` is file-scoped (the same reason
     /// ``bindOpenedVault(at:)`` exists above); declared here, not a public
     /// setter, so nothing else can silently overwrite the cache outside a
@@ -440,28 +480,27 @@ extension WorkshopModel {
 
     /// Drops `directory` from ``candidates``.
     ///
-    /// The seam a successful Protect (`commitIngest()`,
-    /// `WorkshopModel+Ingest.swift`) uses to move its row out of "Not
-    /// protected". Compared by standardized path: the scanner
-    /// stores standardized URLs, and an ingest session's directory may carry
-    /// a trailing slash or a `..` the walk never produced.
+    /// The seam a successful Protect (`WorkshopModel+Protect.swift`) uses to
+    /// move its row out of "Not protected". Compared by standardized path:
+    /// the scanner stores standardized URLs, and a hand-picked directory may
+    /// carry a trailing slash or a `..` the walk never produced.
     func removeCandidate(_ directory: URL) {
         let target = directory.standardizedFileURL.path
         candidates.removeAll { $0.standardizedFileURL.path == target }
     }
 
-    /// Stores a finished candidate preview, but only while its folder is still
-    /// the selection — the seam ``loadCandidatePreview(for:)``
-    /// (`WorkshopModel+Projects.swift`) writes through.
+    /// Stores a finished lines read — the vault's keys and the folder's
+    /// `.env` — but only while `selection` is still the selection; the seam
+    /// ``loadContent(for:)`` (`WorkshopModel+Lines.swift`) writes through.
     ///
-    /// The preview's worker hop can finish after the user has moved on; a
+    /// The read's worker hops can finish after the user has moved on; a
     /// result for a row no longer selected is dropped rather than left to
-    /// surface under a different selection.
-    func storeCandidatePreview(_ preview: CandidatePreview) {
-        guard case .candidate(let selected) = selection,
-            selected.standardizedFileURL.path == preview.directory.standardizedFileURL.path
-        else { return }
-        candidatePreview = preview
+    /// surface under a different selection. Declared here because
+    /// ``secrets``' backing store is `private(set)`, which is file-scoped.
+    func storeLinesRead(secrets: [SecretInfo], env: EnvRead?, for selection: Selection) {
+        guard self.selection == selection else { return }
+        cachedSecrets = secrets
+        envRead = env
     }
 
     /// Reloads the scope list, the shared-secret IDs, and the link graph from

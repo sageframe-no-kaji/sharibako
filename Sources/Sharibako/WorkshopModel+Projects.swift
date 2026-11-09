@@ -10,7 +10,7 @@ import SharibakoCore
 /// ``WorkshopModel/driftReports``, and ``WorkshopModel/candidates`` — plus
 /// ``WorkshopModel/sharedIDs`` for the shared-secrets section. Nothing here
 /// walks the tree, decrypts, or touches an age key, so the sidebar costs
-/// nothing to render; the one worker hop is the keyless candidate preview.
+/// nothing to render. A page's lines are `WorkshopModel+Lines.swift`'s.
 ///
 /// The five statuses fold together what three older reads expressed apart:
 /// ho-06.2's marker-presence glyph (`GlyphState`), its drift badge
@@ -253,7 +253,8 @@ extension WorkshopModel {
     /// title, symbol, and destructive flag travel with the verb so the view
     /// only lays them out and routes the tap.
     enum SelectionVerb: Hashable, Identifiable, CaseIterable {
-        /// Protect a Not-protected folder (the Protect sheet).
+        /// Protect the selected folder's recommended lines (ho-06.10
+        /// Decision 6 — the page is the review; no sheet).
         case protect
         /// Write a project's secrets back into its `.env`.
         case writeEnv
@@ -460,72 +461,6 @@ extension WorkshopModel {
         sharedIDs.map { sharedID in
             ProjectEntry(
                 id: .shared(id: sharedID), name: sharedID, directory: nil, scopeID: nil, status: .protected)
-        }
-    }
-
-    // MARK: - Candidate preview (Decision 9)
-
-    /// One line of a Not-protected folder's `.env`, with its class.
-    ///
-    /// The value is shown: it already sits in plain text on disk, and the
-    /// page's job is to show what Protect would take in (ho-06.9 gate
-    /// finding — masking a plaintext file's values was theater).
-    struct PreviewLine: Equatable, Sendable {
-        /// The `.env` key.
-        let key: String
-        /// The plaintext value as it stands in the file.
-        let value: String
-        /// Secret or setting, with the rule that decided it (ho-06.10 AT-01).
-        let lineClass: LineClass
-
-        /// The class and its reason, in plain words: "secret — key ends in
-        /// KEY", "setting — looks like a number".
-        var classLabel: String {
-            "\(lineClass.isSecret ? "secret" : "setting") — \(lineClass.reason.explanation)"
-        }
-    }
-
-    /// What a Not-protected folder's `.env` holds.
-    struct CandidatePreview: Equatable {
-        /// The folder previewed.
-        let directory: URL
-        /// The lines with values, in file order, each with its class.
-        let lines: [PreviewLine]
-        /// Lines the parser could not read, as "<file> line N: <reason>".
-        let warnings: [String]
-
-        /// The keys, in file order.
-        var keys: [String] { lines.map(\.key) }
-    }
-
-    /// Loads a preview of a Not-protected folder's `.env` for its page.
-    ///
-    /// Keyless by construction: ``Materializer/ingest(directory:)`` only
-    /// parses `.env`-family files; nothing is decrypted. Each line comes back
-    /// with its plaintext value (already on disk in plain text) and its
-    /// secret-or-setting class from ``SecretClassifier``. Deliberately not gated on ``activity`` and sets none: it is a quick
-    /// read the page fires on selection, and the launch selection can pick a
-    /// folder while the launch scan's activity is still winding down; the
-    /// serial ``worker`` already orders it after any scan. The result lands
-    /// only if the folder is still selected (``storeCandidatePreview(_:)``).
-    /// A parse failure lands in ``errorMessage``.
-    func loadCandidatePreview(for directory: URL) async {
-        guard case .open(let vaultURL) = vaultState else { return }
-        do {
-            let (lines, warnings) = try await worker.run {
-                let core = try VaultCore(vaultURL: vaultURL)
-                let proposal = try Materializer(vaultCore: core, vaultURL: vaultURL).ingest(directory: directory)
-                let warnings = proposal.parseWarnings.map {
-                    "\($0.file.lastPathComponent) line \($0.lineNumber): \($0.reason)"
-                }
-                let lines = proposal.detectedKeys.map {
-                    PreviewLine(key: $0.key, value: $0.value, lineClass: $0.lineClass)
-                }
-                return (lines, warnings)
-            }
-            storeCandidatePreview(CandidatePreview(directory: directory, lines: lines, warnings: warnings))
-        } catch {
-            errorMessage = Self.message(for: error)
         }
     }
 }

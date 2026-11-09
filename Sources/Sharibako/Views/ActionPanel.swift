@@ -279,9 +279,7 @@ struct ActionPanel: View {
         guard let entry = model.selectedEntry else { return }
         switch verb {
         case .protect:
-            if let directory = entry.directory {
-                Task { await model.beginIngest(directory: directory) }
-            }
+            Task { await model.protectRecommended() }
         case .writeEnv:
             Task { await model.materializeSelectedScope() }
         case .previewEnv:

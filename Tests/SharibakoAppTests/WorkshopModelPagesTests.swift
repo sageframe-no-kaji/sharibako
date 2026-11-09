@@ -36,7 +36,7 @@ struct WorkshopModelPagesTests {
 
     // MARK: - Load dispatch
 
-    @Test("loadContent loads a project's secrets and a folder's preview, and nothing for the rest")
+    @Test("loadContent loads a project's secrets and a folder's lines, and nothing for the rest")
     func loadContentDispatch() async throws {
         try await WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("falcon", type: .other, in: vault)
@@ -50,11 +50,11 @@ struct WorkshopModelPagesTests {
             model.selection = .project(scopeID: "falcon")
             await model.loadContent(for: model.selection)
             #expect(model.secrets.map(\.key) == ["API_KEY"])
-            #expect(model.candidatePreview == nil)
+            #expect(model.envRead == nil)
 
             model.selection = .candidate(directory: acme)
             await model.loadContent(for: model.selection)
-            #expect(model.candidatePreview?.keys == ["STRIPE_SECRET_KEY"])
+            #expect(model.projectLines.map(\.key) == ["STRIPE_SECRET_KEY"])
             #expect(model.secrets.isEmpty)
 
             for selection: WorkshopModel.Selection? in [
@@ -63,7 +63,7 @@ struct WorkshopModelPagesTests {
                 model.selection = selection
                 await model.loadContent(for: selection)
                 #expect(model.secrets.isEmpty)
-                #expect(model.candidatePreview == nil)
+                #expect(model.projectLines.isEmpty)
                 #expect(model.errorMessage == nil)
             }
         }
@@ -104,13 +104,11 @@ struct WorkshopModelPagesTests {
 
     // MARK: - Counts and copy
 
-    @Test("count lines are count-aware: the page's, the Protect sheet's, the first-run finish page's")
+    @Test("count lines are count-aware: the page's and the first-run finish page's")
     func countLines() {
         #expect(WorkshopModel.envLineCount(0) == "No lines with a value in .env")
         #expect(WorkshopModel.envLineCount(1) == "1 line in .env")
         #expect(WorkshopModel.envLineCount(3) == "3 lines in .env")
-        #expect(WorkshopModel.protectFoundCount(1) == "1 line found in .env")
-        #expect(WorkshopModel.protectFoundCount(4) == "4 lines found in .env")
         #expect(
             WorkshopModel.firstRunCandidateSummary(count: 1)
                 == "Found 1 project with a .env — it'll be waiting under Not protected.")

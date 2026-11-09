@@ -5,11 +5,12 @@ import SwiftUI
 ///
 /// Shows what Protect would take in — every `.env` line with its value (it is
 /// plain text on disk already) and its secret-or-setting class with the
-/// reason — and offers the one verb, Protect, which opens the Protect sheet
-/// (Decision 6). The preview is
-/// ``WorkshopModel/candidatePreview``, loaded keyless on the worker by the
-/// content column's `.task(id:)`; until it lands the page says it is reading.
+/// reason — and offers the one verb, Protect, which commits the recommended
+/// lines (ho-06.10 Decision 6; no sheet). The lines are
+/// ``WorkshopModel/projectLines``, read keyless on the worker by the content
+/// column's `.task(id:)`; until the read lands the page says it is reading.
 /// Every count-aware string comes from `WorkshopModel+Pages.swift` (tested).
+/// ho-06.10 AT-03 replaces this page with the one project page.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8).
@@ -27,8 +28,8 @@ struct NotProtectedPage: View {
             VStack(alignment: .leading, spacing: 16) {
                 PageTitle(entry: entry, directory: directory)
 
-                if let preview = model.candidatePreview {
-                    keyList(preview)
+                if model.envRead != nil {
+                    keyList
                 } else {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -39,7 +40,7 @@ struct NotProtectedPage: View {
                 }
 
                 Button("Protect \(entry.name)") {
-                    Task { await model.beginIngest(directory: directory) }
+                    Task { await model.protectRecommended() }
                 }
                 .primaryActionButton()
                 .disabled(model.activity != nil)
@@ -61,12 +62,12 @@ struct NotProtectedPage: View {
     /// in full ink, settings quieter.
     ///
     /// Any lines the parser could not read follow, in the rust alarm.
-    private func keyList(_ preview: WorkshopModel.CandidatePreview) -> some View {
+    private var keyList: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(WorkshopModel.envLineCount(preview.lines.count))
+            Text(WorkshopModel.envLineCount(model.projectLines.count))
                 .font(.headline)
                 .foregroundStyle(Color.ink)
-            ForEach(preview.lines, id: \.key) { line in
+            ForEach(model.projectLines) { line in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(line.key)
@@ -75,19 +76,19 @@ struct NotProtectedPage: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer(minLength: 16)
-                        Text(line.value.isEmpty ? "(empty)" : line.value)
+                        Text(line.value ?? "")
                             .font(.system(.body, design: .monospaced))
-                            .foregroundStyle(line.lineClass.isSecret ? Color.ink : Color.inkSecondary)
+                            .foregroundStyle(line.status == .setting ? Color.inkSecondary : Color.ink)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
                     }
-                    Text(line.classLabel)
+                    Text(line.classLabel ?? "")
                         .font(.caption)
-                        .foregroundStyle(line.lineClass.isSecret ? Color.inkSecondary : Color.inkTertiary)
+                        .foregroundStyle(line.status == .setting ? Color.inkTertiary : Color.inkSecondary)
                 }
             }
-            ForEach(preview.warnings, id: \.self) { warning in
+            ForEach(model.lineWarnings, id: \.self) { warning in
                 Text(warning)
                     .font(.callout)
                     .foregroundStyle(Color.drift)

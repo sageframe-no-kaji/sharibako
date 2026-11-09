@@ -6,13 +6,13 @@ import SharibakoCore
 ///
 /// `ProjectSidebar`, `ProjectHeader`, and the three status pages
 /// (`NotProtectedPage`, `ProblemPage`, `SharedSecretPage`) are declarative
-/// and coverage-excluded, so every count-aware phrase, every fallback, and
-/// the one selection-kind dispatch with a side effect (what to load when the
-/// selection changes) lives here, tested, rather than in a `View` body. Each
-/// string is built from kamae-2.3 §2's ten words.
+/// and coverage-excluded, so every count-aware phrase and every fallback
+/// lives here, tested, rather than in a `View` body. Each string is built
+/// from kamae-2.3 §2's ten words. What to load when the selection changes
+/// (``loadContent(for:)``) moved to `WorkshopModel+Lines.swift` with the
+/// lines it fills (ho-06.10 AT-02).
 ///
-/// Pure reads over state `WorkshopModel.swift` already owns, plus
-/// ``loadContent(for:)``, which only routes to the two existing loaders. Kept
+/// Pure reads over state `WorkshopModel.swift` already owns. Kept
 /// in its own file, the `Conduit`/`Conduit+Remote.swift` split precedent, so
 /// `WorkshopModel.swift` stays under SwiftLint's `file_length` ceiling.
 extension WorkshopModel {
@@ -33,23 +33,6 @@ extension WorkshopModel {
     /// scope ID and onto the project's name, for every kind of row).
     var selectionTitle: String {
         selectedEntry?.name ?? "Projects"
-    }
-
-    /// Loads what the content column needs for `selection` (Decision 9):
-    /// a project's secrets, or a Not-protected folder's keys-only preview.
-    ///
-    /// Problem and shared pages read caches the scan and ``loadScopes()``
-    /// already filled, so they load nothing. Fired by the content column's
-    /// `.task(id:)`, which re-runs on every selection change.
-    func loadContent(for selection: Selection?) async {
-        switch selection {
-        case .project(let scopeID):
-            loadSecrets(for: scopeID)
-        case .candidate(let directory):
-            await loadCandidatePreview(for: directory)
-        case .problem, .shared, nil:
-            break
-        }
     }
 
     // MARK: - Project header (Decision 9)
@@ -83,11 +66,6 @@ extension WorkshopModel {
         case 1: return "1 line in .env"
         default: return "\(count) lines in .env"
         }
-    }
-
-    /// The Protect sheet's count line (Decision 6): "N lines found in .env".
-    static func protectFoundCount(_ count: Int) -> String {
-        count == 1 ? "1 line found in .env" : "\(count) lines found in .env"
     }
 
     // MARK: - Problem page
