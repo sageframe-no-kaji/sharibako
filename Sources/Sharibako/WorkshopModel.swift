@@ -649,6 +649,18 @@ extension WorkshopModel {
             scopes = []
             errorMessage = Self.message(for: error)
         }
+        loadSharedSecrets()
+    }
+
+    /// Reloads only the shared side — the shared-secret IDs and the link
+    /// graph — leaving ``scopes`` as they are.
+    ///
+    /// The refresh for a change that touched shared secrets and nothing else
+    /// (a failed Make it a shared secret whose shared entry was written
+    /// before its link failed). A no-op in the `.noVault` state; a failure
+    /// lands in ``errorMessage``.
+    func loadSharedSecrets() {
+        guard case .open(let vaultURL) = vaultState else { return }
         do {
             let core = try VaultCore(vaultURL: vaultURL)
             sharedIDs = try core.listShared()

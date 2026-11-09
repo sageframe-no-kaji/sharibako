@@ -52,19 +52,12 @@ extension WorkshopModel {
         case makeShared
     }
 
-    /// Where a shared-secret form's popover is anchored (ho-06.10 AT-05):
-    /// the form opens at the click, never inline beneath the detail pane.
-    enum LineShareAnchor: Equatable {
-        /// The line's row in the page's list — opened from its right-click
-        /// menu.
-        case line
-        /// The form's own button in the detail pane.
-        case detail
-    }
-
     /// The open shared-secret form on a protected line: which form, which
-    /// line, the shared secret's ID as picked or typed so far, and where its
-    /// popover is anchored.
+    /// line, and the shared secret's ID as picked or typed so far.
+    ///
+    /// One form, one presentation: the window's sheet, whichever door opened
+    /// it — the line's right-click menu or the detail pane's button (the
+    /// ho-06.10 gate's blank-split-view finding; see ``isLineShareFormPresented``).
     struct LineShareForm: Equatable {
         /// Which form is open.
         let kind: LineShareKind
@@ -72,16 +65,13 @@ extension WorkshopModel {
         let key: String
         /// The picked shared secret, or the typed name for a new one.
         var sharedID: String
-        /// What the popover is anchored to.
-        var anchor = LineShareAnchor.detail
     }
 
     // MARK: - Errors in the pane (Required Change 6)
 
     /// The next step for a key that cannot read a project's secrets.
     static let keyMismatchNextStep =
-        "Unprotect is not possible without the key; Delete project and protect the folder again, "
-        + "or switch to the key that made it."
+        "If you switched keys, switch back; otherwise Delete project and protect the folder again."
 
     /// The next step when a project's folder cannot be found.
     static let folderNotFoundNextStep = "Attach a folder with Scan folders… or protect the folder again."
@@ -311,9 +301,9 @@ extension WorkshopModel {
     /// first; **Make it a shared secret** starts on the key lowercased, `_`
     /// to `-`, clear of existing names. A no-op for a line that is not a
     /// protected secret of its own, and for Use with no shared secrets.
-    /// `anchor` says where the popover opens: the line's row (right-click)
-    /// or the detail pane's button.
-    func openLineShareForm(_ kind: LineShareKind, forKey key: String, anchor: LineShareAnchor = .detail) {
+    /// Both doors — the line's right-click menu and the detail pane's
+    /// button — open the same form in the window's sheet.
+    func openLineShareForm(_ kind: LineShareKind, forKey key: String) {
         guard isLocalSecret(key) else { return }
         let start: String
         switch kind {
@@ -324,21 +314,27 @@ extension WorkshopModel {
             start = Self.suggestedSharedID(forKey: key, existing: Set(sharedIDs))
         }
         selectedLineKey = key
-        lineShareForm = LineShareForm(kind: kind, key: key, sharedID: start, anchor: anchor)
+        lineShareForm = LineShareForm(kind: kind, key: key, sharedID: start)
     }
 
-    /// Whether the shared-secret form's popover is open at `anchor` for the
-    /// line `key` — and, for the detail pane's two buttons, for `kind`.
-    func isLineShareFormOpen(at anchor: LineShareAnchor, forKey key: String, kind: LineShareKind? = nil) -> Bool {
-        guard let form = lineShareForm, form.key == key, form.anchor == anchor else { return false }
-        return kind.map { $0 == form.kind } ?? true
+    /// Whether the window's shared-secret sheet is up — exactly while a form
+    /// is open.
+    ///
+    /// The form is presented by the window, outside the split view, never as
+    /// a popover anchored to a `List` row or a detail-pane button: the
+    /// ho-06.10 gate saw the whole split view go blank after a failed Make it
+    /// a shared secret from a row-anchored popover. Every way the form ends —
+    /// cancel, a new line or selection, a submit that lands or fails —
+    /// clears ``lineShareForm`` and so takes the sheet down.
+    var isLineShareFormPresented: Bool {
+        lineShareForm != nil
     }
 
     /// The open form's validation note, or `nil` when it can be submitted.
     ///
     /// Set for an empty name, one outside the identifier grammar, or one
     /// already a shared secret; for Use, a pick the vault does not have
-    /// (ho-06.10 AT-05). The popover disables its button while this is set.
+    /// (ho-06.10 AT-05). The sheet disables its button while this is set.
     var lineShareFormProblem: String? {
         guard let form = lineShareForm else { return nil }
         let name = form.sharedID.trimmingCharacters(in: .whitespaces)
@@ -353,7 +349,7 @@ extension WorkshopModel {
         }
     }
 
-    /// The popover's quiet note under a valid entry: what the one button
+    /// The sheet's quiet note under a valid entry: what the one button
     /// will do.
     static func lineShareFormHint(_ kind: LineShareKind) -> String {
         switch kind {
@@ -389,10 +385,14 @@ extension WorkshopModel {
 
     /// Stages switching the protected line `key` to shared secret `sharedID`
     /// for the window's confirmation, selecting the line.
+    ///
+    /// Closes the form first, so its sheet is down before the confirmation
+    /// asks — the window never holds both at once.
     func requestUseShared(_ sharedID: String, forKey key: String) {
         guard activity == nil, let scopeID = selectedScopeID, isLocalSecret(key),
             sharedIDs.contains(sharedID)
         else { return }
+        lineShareForm = nil
         statusMessage = nil
         selectedLineKey = key
         pendingSharedLink = SharedLinkPlan(scopeID: scopeID, key: key, sharedID: sharedID)
@@ -440,10 +440,19 @@ extension WorkshopModel {
     /// secret, then links the line to it. A name outside the identifier
     /// grammar, or one already taken, is refused in the pane before any key
     /// is asked for.
+    ///
+    /// The form closes on every outcome, so a failure lands in the pane with
+    /// nothing presented over it. A failure leaves the selection, the
+    /// selected line, the scopes, and the page's lines as they were: nothing
+    /// is reloaded unless the shared secret was written before the link
+    /// failed, and then only the shared side (the ho-06.10 gate's
+    /// blank-split-view finding, where the key in use could not read the
+    /// project's secrets).
     func makeLineShared(key: String, as sharedID: String) {
         guard activity == nil, case .open(let vaultURL) = vaultState,
             let scopeID = selectedScopeID, isLocalSecret(key)
         else { return }
+        lineShareForm = nil
         guard VaultCore.isValidIdentifier(sharedID) else {
             reportPaneError(
                 "\"\(sharedID)\" can't name a shared secret.",
@@ -464,13 +473,17 @@ extension WorkshopModel {
             return
         }
         defer { handle.release() }
+        var savedShared = false
         do {
             let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: handle.url)
             let content = try core.getSecretContent(key, inScope: scopeID)
             try core.addSharedEntry(sharedID, value: content.value, notes: content.notes)
+            savedShared = true
             try core.link(key, inScope: scopeID, toShared: sharedID)
         } catch {
-            loadScopes()
+            if savedShared {
+                loadSharedSecrets()
+            }
             reportPaneError(for: error)
             return
         }

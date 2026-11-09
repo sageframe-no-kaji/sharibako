@@ -128,10 +128,10 @@ struct WorkshopModelEdgePathTests {
             for: VaultError.ageInvocationFailed(exitCode: 2, stderr: "no identity matched"))
         #expect(
             message.hasPrefix("Encryption failed:") || message.hasPrefix("Decryption failed:")
-                || message.hasPrefix("This key cannot read"))
+                || message == WorkshopModel.keyMismatchMessage)
         #expect(
             WorkshopModel.ageFailureMessage(stderr: "age: error: no identity matched any of the recipients")
-                .hasPrefix("This key cannot read these secrets"))
+                == "These secrets were protected with a different key.")
         #expect(
             WorkshopModel.ageFailureMessage(stderr: "age: error: failed to decrypt").hasPrefix("Decryption failed:"))
         #expect(WorkshopModel.ageFailureMessage(stderr: "age: error: bad recipient").hasPrefix("Encryption failed:"))

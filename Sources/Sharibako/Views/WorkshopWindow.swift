@@ -236,6 +236,8 @@ struct WorkshopWindow: View {
             .modifier(VerbPresentations())
             // The shared-value question at Protect time (ho-06.10 AT-05).
             .modifier(SharedValuePresentations())
+            // The shared-secret form on a protected line, as a window sheet.
+            .modifier(LineSharePresentation())
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -662,6 +664,38 @@ private struct SharedValuePresentations: ViewModifier {
                 if let held = model.presentedSharedValueMatches {
                     Text(WorkshopModel.sharedValueMatchesMessage(for: held))
                 }
+            }
+    }
+}
+
+// MARK: - The shared-secret form (ho-06.10 AT-05, gate round 2)
+
+/// The sheet for Make it a shared secret / Use shared secret… on a protected
+/// line, whichever door opened it — the row's right-click menu or the detail
+/// pane's button.
+///
+/// Attached to the window, outside the `NavigationSplitView`: never a
+/// popover anchored to a `List` row or a detail-pane button. The gate saw the
+/// whole split view go blank (sidebar, content, and detail alike, the action
+/// panel beside it untouched) after a failed share from a row-anchored
+/// popover. Every end of the form clears ``WorkshopModel/lineShareForm`` and
+/// so takes the sheet down; dismissing it cancels the form.
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct LineSharePresentation: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(
+                isPresented: .init(
+                    get: { model.isLineShareFormPresented },
+                    set: { if !$0 { model.cancelLineShareForm() } }
+                )
+            ) {
+                LineShareSheet()
             }
     }
 }

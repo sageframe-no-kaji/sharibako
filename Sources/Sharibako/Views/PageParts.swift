@@ -3,7 +3,8 @@ import SwiftUI
 /// Parts shared by the content column's pages (ho-06.9 AT-02, moved here by
 /// ho-06.10 AT-03 when the Not-protected page went): the title block, the
 /// quiet Open in Finder link, the pane-local error, and the shared-secret
-/// popover the page's rows and the detail pane both open (ho-06.10 AT-05).
+/// form the page's rows and the detail pane both open, presented as the
+/// window's sheet (ho-06.10 AT-05).
 ///
 /// Every string comes from `WorkshopModel` (tested); these views only lay
 /// them out.
@@ -94,22 +95,33 @@ struct PaneErrorView: View {
     }
 }
 
-/// The shared-secret form on a protected line, as a popover at the click
-/// (ho-06.10 AT-05) — from the line's right-click menu or from the detail
-/// pane's button, never inline beneath the detail pane's sections.
+/// The shared-secret form on a protected line, as the window's sheet.
+///
+/// Whichever door opened it — the line's right-click menu or the detail
+/// pane's button — and never inline beneath the detail pane's sections.
+///
+/// Presented by `WorkshopWindow` on the window, outside the
+/// `NavigationSplitView`, while ``WorkshopModel/isLineShareFormPresented``.
+/// It replaced a popover anchored to the line's `List` row (ho-06.10 AT-05):
+/// after that popover's Make it a shared secret failed (the key in use could
+/// not read the project's secrets), the gate saw the whole split view go
+/// blank while the model kept its selection and lines. A sheet hangs off no
+/// view inside the split view, so nothing the failure re-renders there can
+/// take its anchor away.
 ///
 /// **Make it a shared secret**: the name field, starting on the suggested
 /// name. **Use shared secret…**: the picker of the vault's shared secrets.
 /// Beneath either, the validation note — what is wrong with the entry, in
-/// the alarm token, or what the one button will do — and the one button.
-/// Clicking outside or pressing Escape closes it with nothing done.
+/// the alarm token, or what the one button will do — then Cancel and the
+/// one button. Cancel or Escape closes it with nothing done; a submit closes
+/// it whatever the outcome, and a failure shows in the pane beneath.
 ///
 /// Every word and rule is a `WorkshopModel` read or intent
 /// (`WorkshopModel+Verbs.swift`, tested); this view only lays them out.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
 /// (ho-05 Decision 8).
-struct LineSharePopover: View {
+struct LineShareSheet: View {
     @Environment(WorkshopModel.self)
     private var model
 
@@ -147,14 +159,19 @@ struct LineSharePopover: View {
                 }
                 HStack {
                     Spacer()
+                    Button("Cancel") {
+                        model.cancelLineShareForm()
+                    }
+                    .keyboardShortcut(.cancelAction)
                     Button(WorkshopModel.lineShareFormAction(form.kind), action: submit)
                         .primaryActionButton()
                         .keyboardShortcut(.defaultAction)
                         .disabled(model.lineShareFormProblem != nil || model.activity != nil)
                 }
             }
-            .padding(14)
-            .frame(width: 300)
+            .padding()
+            .frame(width: 360)
+            // Flat pālana ground (ho-06.5 Decision 3).
             .background(Color.ground)
         }
     }

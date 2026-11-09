@@ -350,7 +350,7 @@ struct WorkshopModelCheckAllTests {
 
                     model.selection = .project(scopeID: "ghost")
                     let error = try #require(model.paneError(in: .page))
-                    #expect(error.message.hasPrefix("This key cannot read these secrets"))
+                    #expect(error.message == WorkshopModel.keyMismatchMessage)
                     #expect(error.nextStep == WorkshopModel.keyMismatchNextStep)
                     model.selection = .project(scopeID: "bento")
                     #expect(model.paneError(in: .page) == nil)

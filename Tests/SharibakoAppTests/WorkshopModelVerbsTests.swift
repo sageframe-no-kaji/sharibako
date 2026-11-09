@@ -72,7 +72,10 @@ struct WorkshopModelVerbsTests {
         #expect(WorkshopModel.nextStep(for: VaultError.scopeNotFound(id: "x")) == nil)
         #expect(WorkshopModel.nextStep(for: CocoaError(.fileNoSuchFile)) == nil)
         #expect(WorkshopModel.message(for: notFound) == "No folder for this project was found under the scan folders.")
-        #expect(WorkshopModel.keyMismatchNextStep.hasPrefix("Unprotect is not possible without the key;"))
+        #expect(
+            WorkshopModel.keyMismatchNextStep
+                == "If you switched keys, switch back; otherwise Delete project and protect the folder again.")
+        #expect(WorkshopModel.message(for: mismatch) == "These secrets were protected with a different key.")
     }
 
     @Test("a pane error is set with its status-bar echo, and the next success clears both")

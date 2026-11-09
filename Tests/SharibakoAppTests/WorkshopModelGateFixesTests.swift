@@ -207,14 +207,14 @@ struct WorkshopModelGateFixesTests {
 
     // MARK: - The shared-secret popover
 
-    @Test("the form opens at its anchor, and its note says what is wrong with the name")
-    func lineSharePopoverState() async throws {
+    @Test("the form puts the window's sheet up, and its note says what is wrong with the name")
+    func lineShareSheetState() async throws {
         try await VerbsTestSupport.withProtectedProject(shared: ["openai": "sk-other"]) { model, _, _, _ in
-            model.openLineShareForm(.makeShared, forKey: "DB", anchor: .line)
-            #expect(model.lineShareForm == .init(kind: .makeShared, key: "DB", sharedID: "db", anchor: .line))
-            #expect(model.isLineShareFormOpen(at: .line, forKey: "DB"))
-            #expect(!model.isLineShareFormOpen(at: .detail, forKey: "DB"))
-            #expect(!model.isLineShareFormOpen(at: .line, forKey: "API_KEY"))
+            #expect(!model.isLineShareFormPresented)
+            model.openLineShareForm(.makeShared, forKey: "DB")
+            #expect(model.lineShareForm == .init(kind: .makeShared, key: "DB", sharedID: "db"))
+            #expect(model.isLineShareFormPresented)
+            #expect(model.selectedLineKey == "DB")
             #expect(model.lineShareFormProblem == nil)
             #expect(
                 WorkshopModel.lineShareFormHint(.makeShared)
@@ -228,8 +228,8 @@ struct WorkshopModelGateFixesTests {
             #expect(model.lineShareFormProblem == "A shared secret named openai already exists.")
 
             model.openLineShareForm(.useShared, forKey: "API_KEY")
-            #expect(model.isLineShareFormOpen(at: .detail, forKey: "API_KEY", kind: .useShared))
-            #expect(!model.isLineShareFormOpen(at: .detail, forKey: "API_KEY", kind: .makeShared))
+            #expect(model.lineShareForm?.kind == .useShared)
+            #expect(model.isLineShareFormPresented)
             #expect(model.lineShareFormProblem == nil)
             #expect(
                 WorkshopModel.lineShareFormHint(.useShared)
@@ -239,7 +239,17 @@ struct WorkshopModelGateFixesTests {
 
             model.cancelLineShareForm()
             #expect(model.lineShareFormProblem == nil)
-            #expect(!model.isLineShareFormOpen(at: .detail, forKey: "API_KEY"))
+            #expect(!model.isLineShareFormPresented)
+        }
+    }
+
+    @Test("submitting Use takes the sheet down before the confirmation asks")
+    func useSharedClosesSheetBeforeConfirming() async throws {
+        try await VerbsTestSupport.withProtectedProject(shared: ["openai": "sk-other"]) { model, _, _, _ in
+            model.openLineShareForm(.useShared, forKey: "API_KEY")
+            model.submitLineShareForm()
+            #expect(!model.isLineShareFormPresented)
+            #expect(model.pendingSharedLink == .init(scopeID: "bento", key: "API_KEY", sharedID: "openai"))
         }
     }
 
@@ -250,7 +260,7 @@ struct WorkshopModelGateFixesTests {
         let env = "DB=postgres://vault\nAPI_KEY=sk-live\nPORT=3000\n"
         try await VerbsTestSupport.withProtectedProject(env: env) { model, _, _, _ in
             #expect(model.areLinesLoaded)
-            model.openLineShareForm(.makeShared, forKey: "DB", anchor: .line)
+            model.openLineShareForm(.makeShared, forKey: "DB")
             model.submitLineShareForm()
             #expect(model.secrets.first { $0.key == "DB" }?.kind == .link(sharedID: "db"))
             model.selectedLineKey = nil
@@ -260,6 +270,62 @@ struct WorkshopModelGateFixesTests {
             #expect(model.detailPane == .empty)
             #expect(model.projectLines.map(\.key) == ["DB", "API_KEY", "PORT"])
             #expect(model.headerState == .protected(upToDate: nil))
+        }
+    }
+
+    @Test("a share the key cannot read closes the form, says why in the pane, and leaves the page standing")
+    func makeSharedWithForeignKey() async throws {
+        let env = "DB=postgres://vault\nAPI_KEY=sk-live\nPORT=3000\n"
+        try await VerbsTestSupport.withProtectedProject(env: env) { _, vault, folder, _ in
+            // The gate's machine: the vault's secrets were protected with a
+            // different key than the one this model uses.
+            try await AppAgeKeyFixture.withEphemeralKey { other in
+                let model = ProjectsTestSupport.model(vault: vault, ageKey: other.privateKeyURL)
+                model.loadScopes()
+                model.scanRoots = [folder.deletingLastPathComponent()]
+                await model.performLaunchScan()
+                model.selection = .project(scopeID: "bento")
+                await model.loadContent(for: model.selection)
+                #expect(model.areLinesLoaded)
+                let sections = model.projectSections
+                let scopes = model.scopes.map(\.identity)
+                let loadID = model.linesLoadID
+
+                model.openLineShareForm(.makeShared, forKey: "DB")
+                #expect(model.isLineShareFormPresented)
+                model.submitLineShareForm()
+
+                // The form is closed, the failure is in the detail pane, and
+                // its words are the plain ones.
+                #expect(model.lineShareForm == nil)
+                #expect(!model.isLineShareFormPresented)
+                let error = try #require(model.paneError)
+                #expect(error.message == "These secrets were protected with a different key.")
+                #expect(
+                    error.nextStep
+                        == "If you switched keys, switch back; otherwise Delete project and protect the folder again.")
+                #expect(model.errorMessage == error.message)
+                #expect(model.paneError(in: .detail) == error)
+                #expect(model.paneError(in: .page) == nil)
+
+                // Nothing the window draws from moved: the selection, the
+                // selected line, the sidebar, the scopes, and the page's lines.
+                #expect(model.selection == .project(scopeID: "bento"))
+                #expect(model.selectedLineKey == "DB")
+                #expect(model.detailPane == .secret)
+                #expect(model.linesLoadID == loadID)
+                #expect(model.areLinesLoaded)
+                #expect(!model.projectSections.isEmpty)
+                #expect(model.projectSections == sections)
+                #expect(model.scopes.map(\.identity) == scopes)
+                #expect(model.selectedEntry?.name == "bento")
+                #expect(model.projectLines.map(\.key) == ["DB", "API_KEY", "PORT"])
+
+                // And nothing was written.
+                #expect(model.secrets.first { $0.key == "DB" }?.kind == .value)
+                #expect(!model.sharedIDs.contains("db"))
+                #expect(!FileManager.default.fileExists(atPath: vault.appendingPathComponent("shared/db.age").path))
+            }
         }
     }
 

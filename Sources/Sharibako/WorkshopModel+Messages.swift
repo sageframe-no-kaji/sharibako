@@ -61,17 +61,21 @@ extension WorkshopModel {
         }
     }
 
+    /// The message when the key in use cannot read a project's secrets — the
+    /// first half of the pane error, ``keyMismatchNextStep`` the second.
+    static let keyMismatchMessage = "These secrets were protected with a different key."
+
     /// The message for an `age` failure, by what `age` actually said.
     ///
     /// `age` is used for both directions, and the ho-06.9 gate showed a
     /// decrypt failure ("no identity matched any of the recipients") wearing an
     /// "Encryption failed" label. The recipient mismatch gets plain words — it
-    /// means this vault's secrets were encrypted to a different key than the
-    /// one in use, which is the one thing the user can act on.
+    /// means these secrets were protected with a different key than the one
+    /// in use; what to do about it is ``keyMismatchNextStep``.
     static func ageFailureMessage(stderr: String) -> String {
         let text = stderr.lowercased()
         if text.contains("no identity matched") {
-            return "This key cannot read these secrets — they were encrypted to a different key than the one in use."
+            return keyMismatchMessage
         }
         if text.contains("decrypt") || text.contains("identity") {
             return "Decryption failed: \(stderr.prefix(120))"

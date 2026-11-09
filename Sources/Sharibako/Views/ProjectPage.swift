@@ -200,18 +200,10 @@ struct ProjectPage: View {
         .contextMenu {
             lineMenu(line)
         }
-        // Make it a shared secret / Use shared secret… from the right-click
-        // menu open at the row (ho-06.10 AT-05), never inline beneath the
-        // detail pane.
-        .popover(
-            isPresented: Binding(
-                get: { model.isLineShareFormOpen(at: .line, forKey: line.key) },
-                set: { if !$0 { model.cancelLineShareForm() } }
-            ),
-            arrowEdge: .trailing
-        ) {
-            LineSharePopover()
-        }
+        // Nothing is presented from a row: Make it a shared secret / Use
+        // shared secret… open the window's sheet (`LineShareSheet`), never a
+        // popover anchored here — a row-anchored popover was the strongest
+        // suspect for the gate's blank split view after a failed share.
     }
 
     /// A line's right-click menu: the verbs from
@@ -257,9 +249,9 @@ struct ProjectPage: View {
         case .useMatchedShared(let id):
             model.requestUseShared(id, forKey: line.key)
         case .useSharedSecret:
-            model.openLineShareForm(.useShared, forKey: line.key, anchor: .line)
+            model.openLineShareForm(.useShared, forKey: line.key)
         case .makeSharedSecret:
-            model.openLineShareForm(.makeShared, forKey: line.key, anchor: .line)
+            model.openLineShareForm(.makeShared, forKey: line.key)
         case .deleteSecret:
             model.requestDeleteLine(key: line.key)
         }

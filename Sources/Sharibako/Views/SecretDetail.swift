@@ -314,8 +314,11 @@ struct SecretDetail: View {
 /// Always visible: **Use shared secret…** (a picker of the vault's shared
 /// secrets; the switch is confirmed, since the line's own value is
 /// discarded) and **Make it a shared secret** (a name, one Touch ID). Each
-/// opens its form as a popover anchored to its own button (ho-06.10 AT-05),
-/// never inline beneath this pane's sections. When the last Check all found
+/// opens its form in the window's sheet (`LineShareSheet`), never inline
+/// beneath this pane's sections and never as a popover anchored to the
+/// button — the pane re-renders with its error on a failed share, and a
+/// presentation anchored inside the split view is what the ho-06.10 gate
+/// saw blank it. When the last Check all found
 /// a shared secret with the same value, it says so and offers that one
 /// directly.
 ///
@@ -354,30 +357,14 @@ private struct SharedSecretSection: View {
                     }
                     .disabled(model.activity != nil)
                     .help("Have this project use one of the vault's shared secrets instead of its own value")
-                    .popover(isPresented: formBinding(.useShared), arrowEdge: .bottom) {
-                        LineSharePopover()
-                    }
                 }
                 Button("Make it a shared secret") {
                     model.openLineShareForm(.makeShared, forKey: key)
                 }
                 .disabled(model.activity != nil)
                 .help("Save this value as a shared secret other projects can use — one Touch ID")
-                .popover(isPresented: formBinding(.makeShared), arrowEdge: .bottom) {
-                    LineSharePopover()
-                }
             }
         }
-    }
-
-    /// Whether the popover for `kind` is open on this pane's button.
-    ///
-    /// Closing it cancels the form.
-    private func formBinding(_ kind: WorkshopModel.LineShareKind) -> Binding<Bool> {
-        Binding(
-            get: { model.isLineShareFormOpen(at: .detail, forKey: key, kind: kind) },
-            set: { if !$0 { model.cancelLineShareForm() } }
-        )
     }
 }
 
