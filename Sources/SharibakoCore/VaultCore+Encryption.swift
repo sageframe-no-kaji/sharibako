@@ -172,6 +172,26 @@ extension VaultCore {
         try encryptAndWrite(content, to: target)
     }
 
+    /// Decrypts and returns the plaintext value of a shared entry.
+    ///
+    /// Reads `shared/<id>.age` directly — the shared-entry sibling of
+    /// ``getValue(_:inScope:)``, for callers that hold a shared ID rather than
+    /// a scope key (the Workshop's value match during Check all, and its
+    /// shared page).
+    ///
+    /// - Parameter sharedID: Shared entry identifier.
+    /// - Returns: The decrypted `value`.
+    /// - Throws: ``VaultError/sharedEntryNotFound(id:)`` if the entry is absent;
+    ///   `VaultError.invalidIdentifier` for an ID outside the grammar;
+    ///   `VaultError.ageInvocationFailed` for decryption failures.
+    public func getSharedValue(_ sharedID: String) throws -> String {
+        let target = try VaultLayout.sharedEntryURL(sharedID, in: vaultURL)
+        guard FileManager.default.fileExists(atPath: target.path) else {
+            throw VaultError.sharedEntryNotFound(id: sharedID)
+        }
+        return try decryptSecretContent(at: target).value
+    }
+
     /// Rotates a shared entry to a new value, preserving notes.
     ///
     /// Every scope that links to this shared entry will resolve the new value on

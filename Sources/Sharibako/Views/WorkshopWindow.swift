@@ -33,7 +33,7 @@ struct WorkshopWindow: View {
     private var reduceMotion
 
     /// Leading inset shared by the status surface and the sidebar footer's
-    /// own horizontal padding (`ScopeSidebar`), so the status line's leading
+    /// own horizontal padding (`ProjectSidebar`), so the status line's leading
     /// edge reads as continuous with the sidebar column's section labels
     /// (AT-02 Decision 4) instead of spanning the full window edge-to-edge.
     /// 16 pt also keeps the bottom row's text clear of the window's rounded
@@ -64,22 +64,12 @@ struct WorkshopWindow: View {
         case .open:
             HStack(spacing: 0) {
                 NavigationSplitView {
-                    ScopeSidebar()
+                    ProjectSidebar()
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240)
                 } content: {
-                    SecretList()
-                        .onAppear {
-                            if let scopeID = model.selectedScopeID {
-                                model.loadSecrets(for: scopeID)
-                            }
-                        }
-                        .onChange(of: model.selectedScopeID) { _, newScopeID in
-                            if let scopeID = newScopeID {
-                                model.loadSecrets(for: scopeID)
-                            }
-                        }
+                    contentColumn
                 } detail: {
-                    SecretDetail()
+                    detailColumn
                 }
                 .toolbar {
                     toolbarContent
@@ -220,15 +210,18 @@ struct WorkshopWindow: View {
             // vault — so the copy names the full path and says the vault is
             // untouched. Same platform constraint: system-rendered, no tint.
             .confirmationDialog(
-                "Remove stray marker",
+                "Forget this folder?",
                 isPresented: .init(
                     get: { model.pendingStrayMarkerRemoval != nil },
                     set: { if !$0 { model.dismissStrayMarkerRemoval() } }
                 ),
                 titleVisibility: .visible
             ) {
-                Button("Remove Marker", role: .destructive) {
-                    model.confirmRemoveStrayMarker()
+                Button("Forget Folder", role: .destructive) {
+                    // Read the pending removal NOW, synchronously: the dialog's
+                    // dismissal clears it before the Task body runs.
+                    let removal = model.pendingStrayMarkerRemoval
+                    Task { await model.confirmRemoveStrayMarker(removal) }
                 }
                 Button("Cancel", role: .cancel) {
                     model.dismissStrayMarkerRemoval()
@@ -238,6 +231,13 @@ struct WorkshopWindow: View {
                     Text(strayMarkerRemovalMessage(for: removal))
                 }
             }
+            // The ho-06.10 AT-04 verbs' confirmations and sheets: Unprotect,
+            // Use shared secret, Remote…, Scan folders….
+            .modifier(VerbPresentations())
+            // The shared-value question at Protect time (ho-06.10 AT-05).
+            .modifier(SharedValuePresentations())
+            // The shared-secret form on a protected line, as a window sheet.
+            .modifier(LineSharePresentation())
             // Preview .env (ho-06.1 AT-03 Decision 5): presented whenever
             // `envPreview` is non-nil; dismissing (either affordance) clears it.
             .sheet(
@@ -250,39 +250,11 @@ struct WorkshopWindow: View {
                     EnvPreviewSheet(preview: preview)
                 }
             }
-            // Ingest sheet (ho-06.3 AT-02, Decision 6): presented whenever
-            // `model.ingest.session` is non-nil, from any of its three entry
-            // points (the panel verb, the first-run wizard's finish
-            // hand-off, and — AT-03 — orphaned-marker rows). Dismissing via
-            // the system chrome (swipe/Escape) discards the session exactly
-            // like the sheet's own Cancel button — the `envPreview` sheet's
-            // dismiss-clears-state precedent.
-            .sheet(
-                isPresented: .init(
-                    get: { model.ingest.session != nil },
-                    set: { if !$0 { model.cancelIngest() } }
-                )
-            ) {
-                IngestSheet()
-            }
-            // Ingest candidate chooser (ho-06.3 gate-fix round): presented
-            // whenever `model.ingest.candidates` is non-nil — from the panel
-            // verb, the wizard hand-off with several candidates, and the
-            // post-commit chain. System dismissal (Escape) closes it exactly
-            // like its own Done button.
-            .sheet(
-                isPresented: .init(
-                    get: { model.ingest.candidates != nil },
-                    set: { if !$0 { model.dismissIngestChooser() } }
-                )
-            ) {
-                IngestChooserSheet()
-            }
             // Welcome tour (ho-06.3 gate-fix round): the Help-menu re-entry
             // into the SAME wizard the fresh-machine path renders as main
             // content — this time as a sheet, since a vault is already
             // open. Presented purely off `model.firstRun.mode == .tour`
-            // (the `ingest.session` sheet's precedent); `expectedPath`
+            // (the `envPreview` sheet's precedent); `expectedPath`
             // carries the ALREADY-OPEN vault's real URL (not a
             // not-yet-created one) so the tour's root/finish pages can
             // state it plainly like the first-run pages do. The hard
@@ -305,6 +277,62 @@ struct WorkshopWindow: View {
             // scene's `.windowResizability(.contentSize)` the unbounded max
             // is what keeps the open Workshop freely resizable.
             .frame(minWidth: 720, maxWidth: .infinity, minHeight: 440, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Columns (ho-06.9 Decision 9)
+
+    /// The content column, switched on the selection's kind: the one project
+    /// page for a project and for a folder not yet protected alike (ho-06.10
+    /// Decision 6), or the page for a Needs-attention or Shared-secrets row.
+    ///
+    /// One `Group` hosts every kind (the Discovery lean), so the split view
+    /// keeps a single, stable content column and the sidebar selection is
+    /// never rebuilt. A page renders only while ``WorkshopModel/selectedEntry``
+    /// finds the row — a row that vanished under the selection (forgotten,
+    /// say) falls back to the empty state rather than leaving a stale page.
+    /// The `.task(id:)` re-runs on every selection change — and on every
+    /// clearing of the lines, even one whose selection came back to the same
+    /// row (``WorkshopModel/linesLoadID``, ho-06.10 AT-05) — and routes
+    /// through ``WorkshopModel/loadContent(for:)`` (tested): the lines of a
+    /// project or of a folder not yet protected.
+    @ViewBuilder private var contentColumn: some View {
+        Group {
+            if let entry = model.selectedEntry {
+                switch entry.id {
+                case .project, .candidate:
+                    ProjectPage(entry: entry)
+                case .problem:
+                    if let marker = entry.problemMarker, let directory = entry.directory {
+                        ProblemPage(entry: entry, marker: marker, directory: directory)
+                    }
+                case .shared(let sharedID):
+                    SharedSecretPage(sharedID: sharedID)
+                }
+            } else {
+                ContentUnavailableView("Select a project", systemImage: "folder")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.ground)
+            }
+        }
+        .navigationTitle(model.selectionTitle)
+        .task(id: model.linesLoadID) {
+            await model.loadContent(for: model.selection)
+        }
+    }
+
+    /// The detail column, by ``WorkshopModel/detailPane`` (ho-06.10 AT-03):
+    /// `SecretDetail` for a selected line in the vault, `LineDetail` for one
+    /// not in the vault, and an empty flat ground otherwise — nothing
+    /// selected, or a page whose content lives in the content column.
+    @ViewBuilder private var detailColumn: some View {
+        switch model.detailPane {
+        case .secret:
+            SecretDetail()
+        case .line:
+            LineDetail()
+        case .empty:
+            Color.ground
         }
     }
 
@@ -433,7 +461,7 @@ extension WorkshopWindow {
             } label: {
                 Label("Actions", systemImage: "sidebar.trailing")
             }
-            .help(actionPanelCollapsed ? "Show the actions panel" : "Hide the actions panel")
+            .help(actionPanelCollapsed ? "Show the actions column" : "Hide the actions column")
         }
     }
 
@@ -501,5 +529,173 @@ extension WorkshopWindow {
         The vault is untouched — this only removes the marker referencing scope \
         "\(removal.scope)".
         """
+    }
+}
+
+// MARK: - The ho-06.10 verbs' presentations
+
+/// The confirmations and sheets the ho-06.10 AT-04 verbs raise.
+///
+/// Attached to the window as one modifier so `WorkshopWindow`'s body stays
+/// under SwiftLint's `type_body_length` ceiling.
+///
+/// The two confirmations are system-rendered, deliberately — dialogs take no
+/// tint (the ho-06.5 gate's platform constraint, as every dialog above). Each
+/// destructive button reads its pending plan synchronously at the tap and
+/// passes it to the intent: the dialog's dismissal clears the pending value
+/// before the button's `Task` body runs (the ho-06.9 Forget-this-folder
+/// lesson). Every title and message is a `WorkshopModel` read
+/// (`WorkshopModel+Verbs.swift`, tested).
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct VerbPresentations: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            // Unprotect (Required Change 1): names exactly what happens — the
+            // secrets go back into .env in plain text and leave the vault.
+            .confirmationDialog(
+                model.pendingUnprotect.map(WorkshopModel.unprotectDialogTitle(for:)) ?? "Unprotect",
+                isPresented: .init(
+                    get: { model.pendingUnprotect != nil },
+                    set: { if !$0 { model.dismissUnprotect() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Unprotect", role: .destructive) {
+                    let plan = model.pendingUnprotect
+                    Task { await model.confirmUnprotect(plan) }
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissUnprotect()
+                }
+            } message: {
+                if let plan = model.pendingUnprotect {
+                    Text(WorkshopModel.unprotectDialogMessage(for: plan))
+                }
+            }
+            // Use shared secret on a protected line (Required Change 2): the
+            // line's own value is discarded, so it is confirmed.
+            .confirmationDialog(
+                model.pendingSharedLink.map(WorkshopModel.sharedLinkDialogTitle(for:)) ?? "Use shared secret",
+                isPresented: .init(
+                    get: { model.pendingSharedLink != nil },
+                    set: { if !$0 { model.dismissSharedLink() } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Use Shared Secret", role: .destructive) {
+                    let plan = model.pendingSharedLink
+                    model.confirmUseShared(plan)
+                }
+                Button("Cancel", role: .cancel) {
+                    model.dismissSharedLink()
+                }
+            } message: {
+                if let plan = model.pendingSharedLink {
+                    Text(WorkshopModel.sharedLinkDialogMessage(for: plan))
+                }
+            }
+            // Remote… (Required Change 4).
+            .sheet(
+                isPresented: .init(
+                    get: { model.remoteSheet != nil },
+                    set: { if !$0 { model.dismissRemoteSheet() } }
+                )
+            ) {
+                RemoteSheet()
+            }
+            // Scan folders… (Required Change 5): any dismissal rescans.
+            .sheet(
+                isPresented: .init(
+                    get: { model.isScanFoldersSheetPresented },
+                    set: { if !$0 { Task { await model.closeScanFolders() } } }
+                )
+            ) {
+                ScanFoldersSheet()
+            }
+    }
+}
+
+// MARK: - The shared-value question (ho-06.10 AT-05)
+
+/// The confirmation a Protect raises when a line it would protect for its
+/// project holds a shared secret's value: asked, never linked without asking.
+///
+/// System-rendered like every dialog above. Each answer takes the held
+/// Protect off the queue at the tap (``WorkshopModel/takeSharedValueMatches()``)
+/// and passes it to the intent; the dismissal itself clears nothing, so a
+/// second project's question waits until the first answer lands. Every word
+/// is a `WorkshopModel` read (`WorkshopModel+SharedValues.swift`, tested).
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct SharedValuePresentations: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                WorkshopModel.sharedValueMatchesTitle,
+                isPresented: .init(
+                    get: { model.presentedSharedValueMatches != nil },
+                    set: { _ in }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button(WorkshopModel.useSharedSecretsButton) {
+                    if let held = model.takeSharedValueMatches() {
+                        Task { await model.answerSharedValueMatches(held, useShared: true) }
+                    }
+                }
+                Button(WorkshopModel.protectSeparatelyButton) {
+                    if let held = model.takeSharedValueMatches() {
+                        Task { await model.answerSharedValueMatches(held, useShared: false) }
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    model.cancelSharedValueMatches()
+                }
+            } message: {
+                if let held = model.presentedSharedValueMatches {
+                    Text(WorkshopModel.sharedValueMatchesMessage(for: held))
+                }
+            }
+    }
+}
+
+// MARK: - The shared-secret form (ho-06.10 AT-05, gate round 2)
+
+/// The sheet for Make it a shared secret / Use shared secret… on a protected
+/// line, whichever door opened it — the row's right-click menu or the detail
+/// pane's button.
+///
+/// Attached to the window, outside the `NavigationSplitView`: never a
+/// popover anchored to a `List` row or a detail-pane button. The gate saw the
+/// whole split view go blank (sidebar, content, and detail alike, the action
+/// panel beside it untouched) after a failed share from a row-anchored
+/// popover. Every end of the form clears ``WorkshopModel/lineShareForm`` and
+/// so takes the sheet down; dismissing it cancels the form.
+///
+/// Coverage-excluded with `WorkshopWindow` (same file): SwiftUI declarative
+/// presentation, not headlessly drivable (ho-05 Decision 8).
+private struct LineSharePresentation: ViewModifier {
+    @Environment(WorkshopModel.self)
+    private var model
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(
+                isPresented: .init(
+                    get: { model.isLineShareFormPresented },
+                    set: { if !$0 { model.cancelLineShareForm() } }
+                )
+            ) {
+                LineShareSheet()
+            }
     }
 }

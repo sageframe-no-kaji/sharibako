@@ -1,28 +1,32 @@
 import AppKit
 import SwiftUI
 
-/// The Workshop's right-side action panel (ho-06.5 Decision 1) — the
-/// forward-only replacement for ho-06.2's failed toolbar + overflow chrome.
+/// The Workshop's right-side action column (ho-06.5 Decision 1, made
+/// contextual by ho-06.9 Decision 7).
 ///
 /// A hand-built trailing column on the flat `panelGround` surface (the token
-/// ho-06.4 defined for exactly this), hosting every Workshop verb as an
-/// always-titled button in labeled groups: the selected scope's verbs, the
-/// vault-wide verbs, and the create verbs. Nothing lives behind a nested menu
-/// — the ho-06.2 gate ruled that burial unacceptable. Disabled logic travels
-/// with each verb unchanged from the toolbar it replaces (`selectedScopeID`,
-/// `model.activity`, the preview/jump disabled reasons).
+/// ho-06.4 defined for exactly this), every verb an always-titled button.
+/// Three groups: the selection group, titled with the selected thing's name
+/// and holding only its verbs (``WorkshopModel/selectionVerbs`` — omitted
+/// when nothing, or a shared secret, is selected); VAULT, the four
+/// whole-vault verbs; and the one **New…** menu for the rare by-hand
+/// creations. New… is the only menu — the ho-06.2 gate ruled burying the
+/// journey's verbs unacceptable, and nothing on the journey lives in it.
 ///
-/// The base carries a quiet System/Light/Dark control (Decision 2) bound to
-/// the same `@AppStorage` value the Settings scene writes — one stored value,
-/// two surfaces, no divergence possible. Settings (⌘,) stays the durable home.
+/// The base carries a quiet System/Light/Dark control (ho-06.5 Decision 2)
+/// bound to the same `@AppStorage` value the Settings scene writes — one
+/// stored value, two surfaces, no divergence possible. Settings (⌘,) stays
+/// the durable home.
 ///
 /// Collapse is the parent's job: `WorkshopWindow` shows or hides the whole
-/// panel from its toolbar toggle and persists that state.
+/// column from its toolbar toggle and persists that state.
 ///
 /// Coverage-excluded: SwiftUI declarative body, not headlessly drivable
-/// (ho-05 Decision 8). Every verb routes through `WorkshopModel`'s tested
-/// intents; no branching logic lives here beyond reading the model's
-/// published disabled reasons.
+/// (ho-05 Decision 8). Which verbs show, their titles, symbols, disabled
+/// reasons, and tooltips are ``WorkshopModel`` reads, tested in
+/// `WorkshopModelProjectsTests`; every tap routes to a tested intent — the
+/// selection verbs through ``WorkshopModel/perform(_:on:)``, the one mapping
+/// the sidebar's right-click menus share (ho-06.10 AT-04).
 struct ActionPanel: View {
     @Environment(WorkshopModel.self)
     private var model
@@ -30,24 +34,24 @@ struct ActionPanel: View {
     @Environment(\.openWindow)
     private var openWindow
 
-    /// The appearance override (Decision 2).
+    /// The appearance override (ho-06.5 Decision 2).
     ///
     /// The same stored value `SettingsScene`'s picker and `App.swift`'s
     /// `.preferredColorScheme` reader use.
     @AppStorage(AppAppearance.storageKey)
     private var appearance: AppAppearance = .system
 
-    /// Fixed panel width: wide enough for the longest title
-    /// ("Materialize All Stale") at body size, narrow enough to stay chrome.
+    /// Fixed column width: wide enough for the longest verb ("Write all out
+    /// of date") at body size, narrow enough to stay chrome.
     static let panelWidth: CGFloat = 212
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    scopeGroup
+                    selectionGroup
                     vaultGroup
-                    addGroup
+                    newMenu
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 14)
@@ -65,52 +69,26 @@ struct ActionPanel: View {
 
     // MARK: - Groups
 
-    /// Verbs acting on the selected scope.
-    private var scopeGroup: some View {
-        panelGroup("Scope") {
-            actionButton(
-                "Materialize",
-                systemImage: "arrow.down.doc",
-                help: model.selectedScopeID == nil
-                    ? "Select a scope to materialize its secrets"
-                    : "Write this scope's secrets into its .env target",
-                disabled: model.selectedScopeID == nil || model.activity != nil
-            ) {
-                Task { await model.materializeSelectedScope() }
-            }
-
-            actionButton(
-                "Preview .env",
-                systemImage: "doc.text.magnifyingglass",
-                help: "Show exactly what Materialize would write, and where",
-                disabled: model.previewDisabledReason != nil || model.activity != nil
-            ) {
-                Task { await model.previewEnv() }
-            }
-
-            actionButton(
-                "Jump to Directory",
-                systemImage: "arrow.up.forward.square",
-                help: "Open the scope's marker directory in Finder",
-                disabled: model.jumpDisabledReason != nil
-            ) {
-                jumpToSelectedScopeDirectory()
-            }
-
-            // The first real in-window destructive affordance (ho-06.7): it
-            // wears pālana rust (`Color.drift`), the voice ho-06.4 reserved and
-            // ho-06.5 could find no consumer for. The confirmation it opens is
-            // system-rendered — dialogs take no tint (ho-06.5 gate).
-            actionButton(
-                "Delete Scope",
-                systemImage: "trash",
-                help: model.selectedScopeID == nil
-                    ? "Select a scope to delete it"
-                    : "Delete this scope and all its secrets (markers and .env files are left in place)",
-                disabled: model.selectedScopeID == nil || model.activity != nil,
-                tint: Color.drift
-            ) {
-                model.requestDeleteSelectedScope()
+    /// The selected thing's verbs, under its name (Decision 7's table).
+    ///
+    /// Omitted entirely when ``WorkshopModel/selectionVerbs`` is empty —
+    /// nothing selected, a shared secret, or a row that has gone. Destructive
+    /// verbs wear pālana rust (`Color.drift`); their confirmations are
+    /// system-rendered — dialogs take no tint (ho-06.5 gate).
+    @ViewBuilder private var selectionGroup: some View {
+        if let entry = model.selectedEntry, !model.selectionVerbs.isEmpty {
+            panelGroup(entry.name) {
+                ForEach(model.selectionVerbs) { verb in
+                    actionButton(
+                        verb.title,
+                        systemImage: verb.systemImage,
+                        help: model.help(for: verb),
+                        disabled: model.disabledReason(for: verb) != nil || model.activity != nil,
+                        tint: verb.isDestructive ? Color.drift : nil
+                    ) {
+                        Task { await model.perform(verb, on: entry) }
+                    }
+                }
             }
         }
     }
@@ -119,110 +97,137 @@ struct ActionPanel: View {
     private var vaultGroup: some View {
         panelGroup("Vault") {
             actionButton(
-                "Check Drift",
-                systemImage: "arrow.triangle.branch",
-                help: "Check every materialized scope for drift from the vault (one Touch ID)",
+                "Rescan",
+                systemImage: "arrow.clockwise",
+                help: "Look for projects under the scan folders",
                 disabled: model.activity != nil
             ) {
-                Task { await model.checkDrift() }
-            }
-
-            actionButton(
-                "Materialize All Stale",
-                systemImage: "arrow.down.doc.fill",
-                help: "Reconcile every drifted scope from the last drift check",
-                disabled: model.activity != nil
-            ) {
-                model.requestMaterializeAllStale()
+                Task {
+                    await model.rescan {
+                        // First Rescan with no scan folder yet: pick one.
+                        let panel = NSOpenPanel()
+                        panel.canChooseDirectories = true
+                        panel.canChooseFiles = false
+                        panel.allowsMultipleSelection = false
+                        panel.message = "Choose the folder where you keep your projects"
+                        panel.prompt = "Choose"
+                        return panel.runModal() == .OK ? panel.url : nil
+                    }
+                }
             }
 
             actionButton(
                 "Sync",
                 systemImage: "arrow.triangle.2.circlepath",
-                help: "Commit pending vault changes and push to the remote",
+                help: "Back the vault up to its git remote",
                 disabled: model.activity != nil
             ) {
                 Task { await model.sync() }
             }
 
             actionButton(
-                "Rescan",
-                systemImage: "arrow.clockwise",
-                help: "Scan configured directories for .sharibako markers",
+                "Check all",
+                systemImage: "checklist",
+                help: "Check every protected project's .env against the vault — one Touch ID",
                 disabled: model.activity != nil
             ) {
-                Task {
-                    await model.rescan {
-                        // Open an NSOpenPanel directory picker for the scan root.
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true
-                        panel.canChooseFiles = false
-                        panel.allowsMultipleSelection = false
-                        panel.message = "Choose a directory to scan for .sharibako markers"
-                        panel.prompt = "Choose"
-                        return panel.runModal() == .OK ? panel.url : nil
-                    }
-                }
+                Task { await model.checkDrift() }
+            }
+
+            actionButton(
+                "Write all out of date",
+                systemImage: "arrow.down.doc.fill",
+                help: "Rewrite every out-of-date .env from the vault",
+                disabled: !model.hasOutOfDateProjects || model.activity != nil
+            ) {
+                model.requestMaterializeAllStale()
+            }
+
+            // The vault's two settings (ho-06.10 Decision 8): each opens its
+            // sheet; the sidebar footer reflects the change.
+            actionButton(
+                "Remote…",
+                systemImage: "arrow.triangle.branch",
+                help: "Set, change, or remove the git remote Sync backs the vault up to",
+                disabled: model.activity != nil
+            ) {
+                model.openRemoteSheet()
+            }
+
+            actionButton(
+                "Scan folders…",
+                systemImage: "folder.badge.gearshape",
+                help: "Choose the folders searched for projects — Rescan follows",
+                disabled: model.activity != nil
+            ) {
+                model.openScanFolders()
             }
         }
     }
 
-    /// The create verbs — each opens its auxiliary `Window` scene
-    /// (ho-06.1 AT-03 Decision 6): movable, non-modal, the main window stays
-    /// interactive while one is open.
-    private var addGroup: some View {
-        panelGroup("Add") {
-            actionButton(
-                "Add Scope",
-                systemImage: "folder.badge.plus",
-                help: "Add a new scope to the vault"
-            ) {
+    /// The one menu (Decision 7): the rare by-hand creations, each opening
+    /// its auxiliary `Window` scene (ho-06.1 AT-03 Decision 6) — movable,
+    /// non-modal, the main window stays interactive while one is open.
+    ///
+    /// A borderless `Menu` with the sibling buttons' `Label`, padding, and
+    /// ink, so it reads as one more verb on the flat ground (the AT-03 stop
+    /// condition's fallback styling, taken directly).
+    private var newMenu: some View {
+        Menu {
+            Button("Project") {
                 openWindow(id: SharibakoApp.addScopeWindowID)
             }
 
-            actionButton(
-                "Add Secret",
-                systemImage: "plus.circle",
-                help: model.selectedScopeID == nil
-                    ? "Select a scope to add a secret"
-                    : "Add a secret to the selected scope",
-                disabled: model.selectedScopeID == nil
-            ) {
-                // The scope ID is read once, here, and travels as the window's
-                // `value` — not re-read from `model.selectedScopeID` while the
-                // Add Secret window is open, so a selection change in the main
-                // window afterward cannot retarget an in-progress add
-                // (ho-06.1 Decision 6).
-                if let scopeID = model.selectedScopeID {
+            Button(model.newSecretMenuTitle) {
+                // The project is read once, here, and travels as the window's
+                // `value` — not re-read while the Add Secret window is open,
+                // so a selection change in the main window afterward cannot
+                // retarget an in-progress add (ho-06.1 Decision 6).
+                if let scopeID = model.selectedEntry?.scopeID {
                     openWindow(id: SharibakoApp.addSecretWindowID, value: scopeID)
                 }
             }
+            .disabled(model.selectedEntry?.scopeID == nil)
 
-            actionButton(
-                "Add Shared Secret",
-                systemImage: "link.badge.plus",
-                help: "Add a shared entry that scopes can link to"
-            ) {
+            Button("Shared secret") {
                 openWindow(id: SharibakoApp.addSharedEntryWindowID)
             }
 
-            // Ingest Project… (ho-06.3 AT-02, Decision 6; chooser at the
-            // gate-fix round): one of the ingest flow's three entry points,
-            // alongside the first-run wizard's finish hand-off and (AT-03)
-            // orphaned-marker rows. Opens the candidate chooser — every
-            // .env-bearing project under the scan roots not yet in the
-            // vault — with Choose Other… inside it as the hand-picked
-            // fallback. No branching here; the walk and its filters live
-            // tested in `WorkshopModel+Ingest.swift`.
-            actionButton(
-                "Ingest Project…",
-                systemImage: "square.and.arrow.down.on.square",
-                help: "Import .env-bearing projects found under your scan roots",
-                disabled: model.activity != nil
-            ) {
-                Task { await model.presentIngestChooser() }
+            Divider()
+
+            // The hand-picked path (ho-06.9 gate): a folder anywhere on disk,
+            // registered as a scan root so it stays found, then protected.
+            Button("Protect a folder…") {
+                guard
+                    let folder = Self.pickFolder(
+                        message: "Choose a project folder with a .env to protect", prompt: "Protect")
+                else { return }
+                Task { await model.protectFolder(folder) }
             }
+            .disabled(model.activity != nil)
+
+            // The arbitrary-tree path (ho-06.10 gate: the only way in was
+            // VAULT › Scan folders…, where the practitioner did not look).
+            Button(WorkshopModel.addScanFolderTitle) {
+                guard
+                    let folder = Self.pickFolder(
+                        message: "Choose a folder; every project with a .env beneath it will be found",
+                        prompt: "Scan")
+                else { return }
+                Task { await model.addScanFolderAndRescan(folder) }
+            }
+            .disabled(model.activity != nil)
+        } label: {
+            Label("New…", systemImage: "plus")
+                .labelStyle(.titleAndIcon)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.visible)
+        .fixedSize()
+        .foregroundStyle(Color.ink)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .help("Create a project, a secret, or a shared secret by hand")
     }
 
     // MARK: - Appearance control (Decision 2)
@@ -248,6 +253,21 @@ struct ActionPanel: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Folder picker
+
+    /// One modal directory picker for the New… items that take a folder.
+    ///
+    /// Returns `nil` on cancel.
+    static func pickFolder(message: String, prompt: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = message
+        panel.prompt = prompt
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     // MARK: - Building blocks
@@ -291,22 +311,5 @@ struct ActionPanel: View {
         .padding(.vertical, 3)
         .padding(.horizontal, 6)
         .help(help)
-    }
-
-    // MARK: - Jump to Directory
-
-    /// Opens the selected scope's cached marker directory in Finder and
-    /// announces it (ho-06.1 AT-02 Decision 3; moved here from the toolbar
-    /// this panel replaces).
-    ///
-    /// A no-op when nothing is selected or the cache holds no marker — the
-    /// panel button is already disabled in that state, so this is a defensive
-    /// guard, not the primary gate.
-    private func jumpToSelectedScopeDirectory() {
-        guard let scopeID = model.selectedScopeID,
-            let directory = model.jumpTargetDirectory(forScope: scopeID)
-        else { return }
-        NSWorkspace.shared.open(directory)
-        model.announceJump(to: directory)
     }
 }

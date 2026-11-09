@@ -64,24 +64,23 @@ struct WorkshopModelSingularMessageTests {
         }
     }
 
-    @Test("rescanning one root says 'root', not 'roots'")
-    func rescanOneRoot() async throws {
+    @Test("rescanning one protected project says 'project', counted plainly")
+    func rescanOneProject() async throws {
         try await Self.withSingleEverything { model, _ in
             await model.rescan()
 
-            #expect(model.statusMessage?.contains("in 1 root.") == true)
-            #expect(model.statusMessage?.contains("roots") == false)
+            #expect(model.statusMessage == "Found no projects to protect; 1 already protected.")
         }
     }
 
-    @Test("checking one scope says 'scope', not 'scopes'")
+    @Test("checking one project counts it plainly (ho-06.10 AT-04's per-project announce)")
     func checkDriftOneScope() async throws {
         try await Self.withSingleEverything { model, _ in
             await model.materializeSelectedScope()
 
             await model.checkDrift()
 
-            #expect(model.statusMessage?.hasPrefix("Checked 1 scope —") == true)
+            #expect(model.statusMessage == "1 checked · 0 out of date")
         }
     }
 
@@ -94,8 +93,9 @@ struct WorkshopModelSingularMessageTests {
 
             await model.checkDrift()
 
-            let badge = model.driftBadge(forScope: "kanyo-dev")
-            #expect(badge?.helpText.contains("1 key drifted from the vault") == true)
+            let status = model.projectStatus(forScope: "kanyo-dev")
+            #expect(status == .outOfDate(keyCount: 1))
+            #expect(status.helpText.contains("1 secret in .env differs from the vault"))
 
             model.requestMaterializeAllStale()
             await model.confirmMaterializeAllStale()

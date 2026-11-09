@@ -104,7 +104,7 @@ extension WorkshopModel {
         do {
             handle = try provider.loadIdentity(reason: "Rotate \(key) in \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         defer { handle.release() }
@@ -116,9 +116,11 @@ extension WorkshopModel {
                 revealedValue = nil
                 revealedNotes = nil
             }
+            // A new value may no longer equal the shared secret it matched.
+            sharedMatches[scopeID]?[key] = nil
             errorMessage = nil
         } catch {
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -133,7 +135,7 @@ extension WorkshopModel {
         do {
             handle = try provider.loadIdentity(reason: "Edit notes for \(key) in \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         defer { handle.release() }
@@ -148,7 +150,7 @@ extension WorkshopModel {
             }
             errorMessage = nil
         } catch {
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -202,10 +204,11 @@ extension WorkshopModel {
                 selectedScopeID = nil
             }
             loadScopes()
+            forgetCheckResults(forScope: deletion.scopeID)
             statusMessage = "Deleted scope \(deletion.scopeID). Sync to commit the removal."
             errorMessage = nil
         } catch {
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -253,11 +256,12 @@ extension WorkshopModel {
             if selectedScopeID == deletion.scopeID {
                 loadSecrets(for: deletion.scopeID)
             }
+            sharedMatches[deletion.scopeID]?[deletion.key] = nil
             statusMessage =
                 "Deleted key \(deletion.scopeID)/\(deletion.key). Sync to commit the removal."
             errorMessage = nil
         } catch {
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 }

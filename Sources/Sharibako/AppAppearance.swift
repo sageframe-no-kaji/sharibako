@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The app's appearance override (ho-06.2 AT-03, Decision 4).
@@ -37,7 +38,31 @@ enum AppAppearance: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The UserDefaults key shared by the Settings picker and the main window's
-    /// `.preferredColorScheme` reader, so both bind to the same stored value.
+    /// The AppKit appearance this override applies to the whole app, or `nil`
+    /// to follow the system.
+    ///
+    /// Applied to `NSApp.appearance` rather than through SwiftUI's
+    /// `.preferredColorScheme`: passing that modifier `nil` after an explicit
+    /// scheme does not reliably return the window to following the system,
+    /// so "System" left the window in the last forced look while sheets and
+    /// dialogs followed the real system — a mix of light and dark (the
+    /// ho-06.9 gate finding). The app-level AppKit setting drives every
+    /// window, sheet, and system-rendered dialog together.
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// Applies this override app-wide (see ``nsAppearance``).
+    @MainActor
+    func apply() {
+        NSApp.appearance = nsAppearance
+    }
+
+    /// The UserDefaults key shared by the Settings picker and the app's
+    /// appearance applier, so both bind to the same stored value.
     static let storageKey = "appearance"
 }

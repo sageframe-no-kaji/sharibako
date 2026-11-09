@@ -4,11 +4,16 @@ import SharibakoCore
 
 /// Initializes a project directory as a sharibako scope.
 ///
-/// Reads `.env`/`.env.local` in the target directory, walks each detected
-/// secret through an interactive per-key decision prompt (import as scope-local,
-/// link to shared, move to shared, leave alone, skip), then writes the chosen
-/// secrets to the vault and drops a `.sharibako` marker binding the directory
-/// to its scope.
+/// Reads `.env`/`.env.local` in the target directory and classes every line
+/// as a secret or a setting (``SecretClassifier``). In a terminal it lists
+/// each line with its class and asks once whether to take the defaults —
+/// protect the secrets, leave the settings alone — with per-key overrides
+/// (import as scope-local, link to shared, move to shared, leave alone, skip)
+/// when declined. Under `--yes` the defaults apply and each line's class is
+/// printed (ho-06.10 Decision 3); without a terminal and without `--yes` it
+/// refuses rather than apply defaults nobody asked for. The chosen
+/// secrets are written to the vault and a `.sharibako` marker binds the
+/// directory to its scope.
 ///
 /// Re-running `init` in an already-initialized directory reconciles: it
 /// presents only keys the scope does not yet own, and never silently rebinds
@@ -22,8 +27,12 @@ struct InitCommand: AsyncParsableCommand {
         commandName: "init",
         abstract: "Initialize a project directory as a sharibako scope.",
         discussion: """
-            Reads the .env (and .env.local) in a project directory and walks each \
-            detected secret through an interactive per-key decision: import as \
+            Reads the .env (and .env.local) in a project directory and classes \
+            every line as a secret or a setting, saying why (for example "key \
+            ends in KEY" or "looks like a number"). Anything not recognised as a \
+            plain setting is classed as a secret. The class is only a default: \
+            'init' lists every line and asks once whether to protect the secrets \
+            and leave the settings alone; answer n to choose per key - import as \
             scope-local, link to an existing shared entry, move to shared, leave \
             alone, or skip. The chosen secrets are encrypted into the vault and a \
             .sharibako marker is dropped in the directory, binding it to its \
@@ -31,10 +40,17 @@ struct InitCommand: AsyncParsableCommand {
             byte-for-byte untouched - it is the runtime artifact, not a duplicate \
             to clean up.
 
-            'init' is interactive by design and requires a terminal. If no age key \
-            exists yet it offers to generate one inline (suppress with \
-            --no-generate). Re-running 'init' in an already-initialized directory \
-            reconciles: it presents only keys the scope does not already own, and \
+            With --yes, 'init' takes the defaults without asking and prints \
+            one line per key before \
+            committing: PROTECT or LEAVE, the key, and the reason. --yes also \
+            takes the other prompts' defaults: the suggested scope ID (which \
+            never names an existing scope), the default scope type, and \
+            generating an age key if none exists. Without a terminal, 'init' \
+            requires --yes and refuses otherwise.
+
+            If no age key exists yet 'init' offers to generate one inline \
+            (suppress with --no-generate). Re-running 'init' in an \
+            already-initialized directory reconciles: it presents only keys the scope does not already own, and \
             never silently rebinds the directory to a different scope. A directory \
             with no importable secrets is rejected rather than creating an empty \
             scope.
@@ -50,10 +66,13 @@ struct InitCommand: AsyncParsableCommand {
             Initialize a specific directory without offering key generation:
               sharibako init ~/Projects/momiji --no-generate
 
+            Initialize from a script, protecting the secrets and leaving the settings:
+              sharibako init ~/Projects/momiji --yes
+
             EXIT CODES
 
             Exits 2 when the directory has no secrets to import or when a prompt \
-            is declined; needs an interactive terminal.
+            is declined.
             """
     )
 
@@ -65,14 +84,52 @@ struct InitCommand: AsyncParsableCommand {
     @Flag(name: .customLong("no-generate"), help: "Do not offer to generate an age key if none exists (fail instead).")
     var noGenerate: Bool = false
 
+    @Flag(help: "Take every default without asking: protect the secrets, leave the settings, print each line's class.")
+    var yes: Bool = false
+
     // MARK: - AsyncParsableCommand
 
     func run() async throws {
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        do { try _run(cwd: cwd) } catch { ErrorReporter.report(error, json: global.json) }
+        do {
+            try _run(
+                cwd: cwd,
+                decisionSource: makeDecisionSource(isInteractive: TerminalDetector.isInteractiveInput),
+                lineReader: makeLineReader()
+            )
+        } catch {
+            ErrorReporter.report(error, json: global.json)
+        }
     }
 
     // MARK: - Internal for testing
+
+    /// The decision source for this run: the class defaults under `--yes`,
+    /// otherwise the interactive prompt.
+    ///
+    /// Without `--yes` the prompt's TTY guard decides: with no terminal it
+    /// refuses with ``CLIError/notInteractiveTerminal`` before anything is
+    /// written. A secrets tool never writes a vault and a claim file from a
+    /// script that did not ask — the CLI's consent grammar is that commands
+    /// which confirm interactively require `--yes` when stdin is not a terminal.
+    func makeDecisionSource(isInteractive: Bool) -> any IngestDecisionSource {
+        if yes { return ClassDefaultIngestDecisionSource() }
+        var prompt = PlainIngestPrompt()
+        prompt.isInteractive = { isInteractive }
+        return prompt
+    }
+
+    /// The reader for the scope and key-generation prompts.
+    ///
+    /// Under `--yes` it answers nothing, so each prompt takes its default:
+    /// generate a missing age key (`--no-generate` still refuses), the
+    /// suggested scope ID (collision-avoided, so the add-to-existing
+    /// confirmation is never reached — and its default is no), and the
+    /// default scope type.
+    func makeLineReader() -> () -> String? {
+        if yes { return { nil } }
+        return { readLine() }
+    }
 
     // _run: leading-underscore testable-entry-point convention (.swift-format NoLeadingUnderscores: false).
     // swiftlint:disable:next identifier_name

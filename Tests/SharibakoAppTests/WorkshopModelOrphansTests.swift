@@ -9,8 +9,8 @@ import Testing
 /// `requestRemoveStrayMarker`/`confirmRemoveStrayMarker`/
 /// `dismissStrayMarkerRemoval` trio.
 ///
-/// `createScopeFromMarker` rides `beginIngest`/`commitIngest`, which encrypt,
-/// so those legs use `AppAgeKeyFixture` (the `WorkshopModelIngestCommitTests`
+/// `createScopeFromMarker` protects through `protectRecommended`, which
+/// encrypts, so those legs use `AppAgeKeyFixture` (the encryption-test
 /// convention). Removal is keyless — no Keychain, no age key, no Touch ID —
 /// so those legs use plain temp vaults, mirroring `WorkshopModelDeleteTests`.
 /// All fixtures inject temp homes/roots/vaults — no live user state.
@@ -18,7 +18,7 @@ import Testing
 @Suite("WorkshopModel Orphans")
 struct WorkshopModelOrphansTests {
     /// Writes `contents` to `<directory>/<name>`, creating `directory`
-    /// first — mirrors `WorkshopModelIngestTests.writeEnv`.
+    /// first — mirrors `ProjectsTestSupport.writeEnv`.
     private static func writeEnv(
         _ contents: String, in directory: URL, named name: String = ".env"
     ) throws {
@@ -75,14 +75,14 @@ struct WorkshopModelOrphansTests {
 
     // MARK: - createScopeFromMarker
 
-    @Test("createScopeFromMarker seeds the ingest session with the marker's directory and scope ID")
-    func createScopeFromMarkerSeedsSession() async throws {
+    @Test("createScopeFromMarker protects the folder under the claimed project ID, settings left alone")
+    func createScopeFromMarkerProtects() async throws {
         try await AppAgeKeyFixture.withEphemeralKey { fixture in
             try await WorkshopTestSupport.withTempVault { vault in
                 let root = try Self.makeRoot(near: vault)
                 defer { try? FileManager.default.removeItem(at: root) }
                 let project = try Self.seedMarker(scope: "ghost-scope", under: root, named: "ghost")
-                try Self.writeEnv("API_KEY=sk-live\n", in: project)
+                try Self.writeEnv("API_KEY=sk-live\nPORT=3000\n", in: project)
 
                 let model = WorkshopModel(
                     environment: [
@@ -94,14 +94,17 @@ struct WorkshopModelOrphansTests {
                 model.scanRoots = [root]
                 await model.performLaunchScan()
                 let orphan = try #require(model.unlinkedMarkers.first)
-                let expectedDirectory = Self.markerURL(of: orphan).deletingLastPathComponent()
 
                 await model.createScopeFromMarker(orphan)
 
-                #expect(model.ingest.session?.directory == expectedDirectory)
-                #expect(model.ingest.session?.scopeID == "ghost-scope")
-                #expect(model.ingest.session?.isReconcile == true)
-                #expect(model.ingest.session?.decisions.keys.contains("API_KEY") == true)
+                #expect(model.selection == .project(scopeID: "ghost-scope"))
+                let core = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+                #expect(try core.inspect("ghost-scope").map(\.key) == ["API_KEY"])
+                #expect(model.statusMessage == "Protected 1 secret in ghost-scope; 1 setting left in .env.")
+                // The claim file kept its `materialize_to` through acceptIngest's rewrite.
+                let marker = try String(
+                    contentsOf: Self.markerURL(of: orphan), encoding: .utf8)
+                #expect(marker.contains("materialize_to: .env"))
             }
         }
     }
@@ -116,11 +119,12 @@ struct WorkshopModelOrphansTests {
 
             await model.createScopeFromMarker(failure)
 
-            #expect(model.ingest.session == nil)
+            #expect(model.selection == nil)
+            #expect(model.statusMessage == nil)
         }
     }
 
-    @Test("committing a marker-seeded session creates the scope and clears the orphan")
+    @Test("protecting a claimed folder creates the project and clears the orphan")
     func createScopeFromMarkerRoundTrips() async throws {
         try await AppAgeKeyFixture.withEphemeralKey { fixture in
             try await WorkshopTestSupport.withTempVault { vault in
@@ -141,11 +145,10 @@ struct WorkshopModelOrphansTests {
                 let orphan = try #require(model.unlinkedMarkers.first)
 
                 await model.createScopeFromMarker(orphan)
-                await model.commitIngest()
 
                 #expect(model.scopes.map(\.identity).contains("ghost-scope"))
                 #expect(model.unlinkedMarkers.isEmpty)
-                #expect(model.glyphState(forScope: "ghost-scope") == .liveHere)
+                #expect(model.projectStatus(forScope: "ghost-scope") == .protected)
             }
         }
     }
@@ -218,7 +221,7 @@ struct WorkshopModelOrphansTests {
             let orphan = try #require(model.unlinkedMarkers.first)
             model.requestRemoveStrayMarker(orphan)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.pendingStrayMarkerRemoval == nil)
             #expect(!FileManager.default.fileExists(atPath: markerURL.path))
@@ -258,7 +261,7 @@ struct WorkshopModelOrphansTests {
                 })
             model.requestRemoveStrayMarker(orphan)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.unlinkedMarkers.count == 1)
             guard case .failed = model.unlinkedMarkers.first else {
@@ -269,14 +272,14 @@ struct WorkshopModelOrphansTests {
     }
 
     @Test("confirmRemoveStrayMarker surfaces an error and stays consistent when the file is already gone")
-    func confirmAbsentSurfacesError() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func confirmAbsentSurfacesError() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let ghostURL = vault.appendingPathComponent("nowhere/.sharibako")
             let model = model(vault: vault)
             model.pendingStrayMarkerRemoval = WorkshopModel.StrayMarkerRemoval(
                 scope: "ghost-scope", markerURL: ghostURL)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.pendingStrayMarkerRemoval == nil)
             #expect(model.errorMessage != nil)
@@ -284,11 +287,11 @@ struct WorkshopModelOrphansTests {
     }
 
     @Test("confirmRemoveStrayMarker is a no-op with nothing staged")
-    func confirmNoOpWithoutStaged() throws {
-        try WorkshopTestSupport.withTempVault { vault in
+    func confirmNoOpWithoutStaged() async throws {
+        try await WorkshopTestSupport.withTempVault { vault in
             let model = model(vault: vault)
 
-            model.confirmRemoveStrayMarker()
+            await model.confirmRemoveStrayMarker()
 
             #expect(model.errorMessage == nil)
             #expect(model.statusMessage == nil)

@@ -22,7 +22,8 @@ extension WorkshopModel {
     ///
     /// Drifted when any owned key is `.fileValueDiffers`, `.fileMissing`, or
     /// `.fileLineCorrupted`; clean when every owned key is `.match`. Drives both
-    /// the sidebar badge and the Materialize-all-stale set.
+    /// the Out-of-date status (``projectStatus(forScope:)``) and the
+    /// Materialize-all-stale set.
     static func isDrifted(_ report: DriftReport) -> Bool {
         report.owned.contains { drift in
             switch drift {
@@ -32,7 +33,7 @@ extension WorkshopModel {
         }
     }
 
-    /// The number of drifted owned keys in a report — the badge tooltip count.
+    /// The number of drifted owned keys in a report — the Out-of-date count.
     static func driftedKeyCount(_ report: DriftReport) -> Int {
         report.owned.reduce(into: 0) { count, drift in
             switch drift {
@@ -75,45 +76,7 @@ extension WorkshopModel {
         }
     }
 
-    // MARK: - Badge + per-key reads (cache-only, synchronous)
-
-    /// The sidebar drift badge for `scopeID`, or `nil` when no check has run
-    /// for it — the row then shows only its AT-01 glyph, no badge.
-    enum DriftBadge: Equatable {
-        /// Every owned key is in sync as of the last check.
-        case clean
-        /// `keyCount` owned keys have drifted as of the last check.
-        case drifted(keyCount: Int)
-
-        /// SF Symbol — shape-distinct (colorblind-safe) from the AT-01 glyphs
-        /// and from each other.
-        var symbolName: String {
-            switch self {
-            case .clean: return "checkmark.seal"
-            case .drifted: return "exclamationmark.triangle.fill"
-            }
-        }
-
-        /// The badge's help tooltip.
-        var helpText: String {
-            switch self {
-            case .clean:
-                return "In sync — the materialized .env matches the vault as of the last check"
-            case .drifted(let keyCount):
-                return "\(keyCount) key\(keyCount == 1 ? "" : "s") drifted from the vault"
-            }
-        }
-    }
-
-    /// The cached drift badge for `scopeID`, read from ``driftReports`` only.
-    ///
-    /// `nil` before a Check-drift has run for the scope (no ambient badge,
-    /// Decision 3); `.clean` / `.drifted` from the cached report otherwise.
-    func driftBadge(forScope scopeID: String) -> DriftBadge? {
-        guard let report = driftReports[scopeID] else { return nil }
-        let count = Self.driftedKeyCount(report)
-        return count == 0 ? .clean : .drifted(keyCount: count)
-    }
+    // MARK: - Per-key reads (cache-only, synchronous)
 
     /// The cached drift report for `scopeID`, for the detail pane's per-key
     /// display; `nil` before a check has run for the scope.
@@ -133,69 +96,97 @@ extension WorkshopModel {
     }
 
     /// The `live_here` scopes a sweep would check — vault scopes with a marker
-    /// in the scan roots (AT-01's ``glyphState(forScope:)``).
+    /// in the scan roots (the projects whose folder is on this Mac).
     var liveHereScopes: [ScopeMetadata] {
-        scopes.filter { glyphState(forScope: $0.identity) == .liveHere }
+        scopes.filter { cachedMarker(forScope: $0.identity) != nil }
     }
 
-    // MARK: - Check-drift sweep
+    // MARK: - Check all (ho-06.10 AT-04)
 
-    /// Sweeps drift across every `live_here` scope behind one Touch ID and
-    /// caches a ``DriftReport`` per scope (Decision 3).
+    /// Check all's announce: "4 checked · 1 out of date · 2 could not be
+    /// read", with the could-not-be-read clause only when some could not be
+    /// read, and a closing clause when lines match a shared secret's value.
+    static func checkAllSummary(checked: Int, outOfDate: Int, unreadable: Int, matches: Int) -> String {
+        var parts = ["\(checked) checked", "\(outOfDate) out of date"]
+        if unreadable > 0 {
+            parts.append("\(unreadable) could not be read")
+        }
+        if matches > 0 {
+            parts.append(matches == 1 ? "1 line matches a shared secret" : "\(matches) lines match a shared secret")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Checks every project with a folder on this Mac behind one Touch ID,
+    /// and notices protected values equal to a shared secret's (Decision 3,
+    /// ho-06.10 Decision 8).
     ///
-    /// Async (Decision 1): each ``Materializer/heal(marker:)`` decrypts every
-    /// owned key — the same weight as materialize — so the compare runs through
-    /// ``worker`` off the main thread. The age key is acquired ONCE on the main
-    /// actor (user interaction, not CPU work) and its `Sendable` handle URL is
-    /// reused across the whole sweep, so one Touch ID covers it (ho-06.1's
-    /// 5-minute reuse window). Guards re-entry against ``activity``. Announces
-    /// the outcome through ``statusMessage`` including the no-drift and
-    /// nothing-to-check cases (the silent-success rule); errors land in
-    /// ``errorMessage``. Results replace ``driftReports`` wholesale on success
-    /// so a scope that is no longer `live_here` doesn't keep a stale report.
+    /// Async (Decision 1): each project's check decrypts every key it owns,
+    /// the same weight as Write .env, so it runs through ``worker``. The age
+    /// key is acquired ONCE on the main actor and its `Sendable` handle URL
+    /// reused across the sweep, so one Touch ID covers it — the shared
+    /// secrets' values are decrypted once, up front, inside the same handle.
+    /// Each project is checked in its own worker hop and its failure caught:
+    /// a project this key cannot read lands in ``unreadableProjects`` (its
+    /// pane shows why, with a next step) and the sweep goes on. Results
+    /// replace ``driftReports``, ``unreadableProjects``, and
+    /// ``sharedMatches`` wholesale, so a project no longer here keeps no
+    /// stale result. Announces through ``statusMessage`` every time,
+    /// including when there is nothing to check (the silent-success rule).
     func checkDrift() async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         statusMessage = nil
-        let candidates = liveHereScopes
-        guard !candidates.isEmpty else {
-            // Honest conclusion — the sweep visibly did nothing because there
-            // was nothing materialized here to check (no Touch ID spent).
-            statusMessage = "No materialized scopes to check for drift."
+        let projects = liveHereScopes
+        guard !projects.isEmpty else {
+            // Honest conclusion — nothing to check, so no Touch ID spent.
+            statusMessage = "No protected projects with a folder on this Mac to check."
             return
         }
         activity = .checkingDrift
         defer { activity = nil }
-        let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
         do {
-            handle = try provider.loadIdentity(reason: "Check drift across materialized scopes")
+            handle = try makeAgeKeyProvider().loadIdentity(reason: "Check every protected project against its .env")
         } catch {
             errorMessage = "Could not load age key: \(error)"
             return
         }
         defer { handle.release() }
         let keyURL = handle.url
-        do {
-            var reports: [String: DriftReport] = [:]
-            for scope in candidates {
-                guard let marker = cachedMarker(forScope: scope.identity) else { continue }
-                let report = try await worker.run {
-                    let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
-                    return try Materializer(vaultCore: core, vaultURL: vaultURL).heal(marker: marker)
-                }
-                reports[scope.identity] = report
-            }
-            driftReports = reports
-            let checked = reports.count
-            let drifted = reports.values.filter { Self.isDrifted($0) }.count
-            statusMessage =
-                "Checked \(checked) scope\(checked == 1 ? "" : "s") — "
-                + "\(drifted) drifted."
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
+        let ids = sharedIDs
+        let sharedValues = await worker.run {
+            ProjectChecker.sharedValues(ids, vaultURL: vaultURL, keyURL: keyURL)
         }
+        var reports: [String: DriftReport] = [:]
+        var unreadable: [String: PaneError] = [:]
+        var matches: [String: [String: String]] = [:]
+        for scope in projects {
+            guard let marker = cachedMarker(forScope: scope.identity) else { continue }
+            do {
+                let checked = try await worker.run {
+                    try ProjectChecker.check(
+                        marker: marker, vaultURL: vaultURL, keyURL: keyURL, sharedValues: sharedValues)
+                }
+                reports[scope.identity] = checked.report
+                if !checked.matches.isEmpty {
+                    matches[scope.identity] = checked.matches
+                }
+            } catch {
+                unreadable[scope.identity] = PaneError(
+                    message: Self.message(for: error), nextStep: Self.nextStep(for: error))
+            }
+        }
+        driftReports = reports
+        unreadableProjects = unreadable
+        sharedMatches = matches
+        statusMessage = Self.checkAllSummary(
+            checked: reports.count,
+            outOfDate: reports.values.filter { Self.isDrifted($0) }.count,
+            unreadable: unreadable.count,
+            matches: matches.values.reduce(0) { $0 + $1.count }
+        )
+        errorMessage = nil
     }
 
     // MARK: - Reconcile refresh
@@ -328,5 +319,66 @@ extension WorkshopModel {
         } catch {
             errorMessage = Self.message(for: error)
         }
+    }
+}
+
+// MARK: - Checking one project (pure, off-main-actor-safe)
+
+/// The worker half of Check all: one project's check and value match, and
+/// the shared secrets' values read once per sweep.
+///
+/// A plain `enum` (never instantiated) for the same off-main-actor reason as
+/// ``EnvReader``.
+enum ProjectChecker {
+    /// One project's result: its check, and its protected lines whose value
+    /// equals a shared secret's (key → shared ID).
+    struct Checked: Sendable {
+        /// The project's check against its `.env`.
+        let report: DriftReport
+        /// Key → the shared secret with the same value.
+        let matches: [String: String]
+    }
+
+    /// Decrypts every shared secret's value, by ID; one that cannot be read
+    /// is left out rather than failing the sweep — a match is a hint, never
+    /// a requirement.
+    static func sharedValues(_ ids: [String], vaultURL: URL, keyURL: URL) -> [String: String] {
+        guard let core = try? VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL) else { return [:] }
+        var values: [String: String] = [:]
+        for id in ids {
+            if let value = try? core.getSharedValue(id) {
+                values[id] = value
+            }
+        }
+        return values
+    }
+
+    /// Checks one project's `.env` against the vault and compares each of its
+    /// own protected values with `sharedValues`.
+    ///
+    /// A line already using a shared secret is not compared. With several
+    /// shared secrets of the same value, the first by ID is named.
+    static func check(
+        marker: ScopeMarker, vaultURL: URL, keyURL: URL, sharedValues: [String: String]
+    ) throws -> Checked {
+        let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
+        let report = try Materializer(vaultCore: core, vaultURL: vaultURL).heal(marker: marker)
+        guard !sharedValues.isEmpty else { return Checked(report: report, matches: [:]) }
+        var matches: [String: String] = [:]
+        for info in try core.inspect(marker.scope) where info.kind == .value {
+            let value = try core.getValue(info.key, inScope: marker.scope)
+            if let id = sharedID(matching: value, in: sharedValues) {
+                matches[info.key] = id
+            }
+        }
+        return Checked(report: report, matches: matches)
+    }
+
+    /// The shared secret whose value is `value`, or `nil`.
+    ///
+    /// The first by ID when several are. The one comparison Check all and
+    /// Protect share (ho-06.10 AT-05).
+    static func sharedID(matching value: String, in sharedValues: [String: String]) -> String? {
+        sharedValues.filter { $0.value == value }.keys.min()
     }
 }

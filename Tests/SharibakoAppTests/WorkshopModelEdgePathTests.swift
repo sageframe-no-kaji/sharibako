@@ -126,8 +126,16 @@ struct WorkshopModelEdgePathTests {
     func messageForAgeInvocationFailed() {
         let message = WorkshopModel.message(
             for: VaultError.ageInvocationFailed(exitCode: 2, stderr: "no identity matched"))
-        #expect(message.hasPrefix("Encryption failed:"))
-        #expect(message.contains("no identity matched"))
+        #expect(
+            message.hasPrefix("Encryption failed:") || message.hasPrefix("Decryption failed:")
+                || message == WorkshopModel.keyMismatchMessage)
+        #expect(
+            WorkshopModel.ageFailureMessage(stderr: "age: error: no identity matched any of the recipients")
+                == "These secrets were protected with a different key.")
+        #expect(
+            WorkshopModel.ageFailureMessage(stderr: "age: error: failed to decrypt").hasPrefix("Decryption failed:"))
+        #expect(WorkshopModel.ageFailureMessage(stderr: "age: error: bad recipient").hasPrefix("Encryption failed:"))
+        #expect(message.contains("different key"))
     }
 
     @Test("message truncates a long age stderr to 120 characters")

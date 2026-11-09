@@ -569,7 +569,7 @@ extension WorkshopModel {
     /// Resets every transient page field to its default and flips
     /// ``FirstRunState/mode`` to ``FirstRunMode/tour``; `WorkshopWindow`
     /// presents the sheet purely off `firstRun.mode == .tour` (the
-    /// `ingest.session`-driven sheet's precedent) — this intent is the only
+    /// `envPreview`-driven sheet's precedent) — this intent is the only
     /// way that flag becomes `true`.
     ///
     /// A no-op without an open vault: a machine with no vault yet already
@@ -594,7 +594,7 @@ extension WorkshopModel {
     /// Reached from the finish page's "Done" button and from the sheet's own
     /// system dismissal (`WorkshopWindow`'s binding `set:` closure) alike —
     /// every dismissal path funnels through this one intent, the
-    /// `cancelIngest()`/`dismissIngestChooser()` precedent.
+    /// `dismissEnvPreview()` precedent.
     func dismissWelcomeTour() {
         firstRun.mode = .firstRun
         firstRun.page = .prereq
