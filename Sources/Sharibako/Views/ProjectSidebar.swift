@@ -30,13 +30,31 @@ struct ProjectSidebar: View {
             if model.projectSections.isEmpty {
                 // One empty state for an entirely empty window (Decision 2):
                 // nothing in the vault and nothing found to protect.
-                ContentUnavailableView(
-                    "Nothing here yet",
-                    systemImage: "folder",
-                    description: Text("Rescan to find projects, or use New… to add one.")
-                )
+                VStack(spacing: 12) {
+                    ContentUnavailableView(
+                        "Nothing here yet",
+                        systemImage: "folder",
+                        description: Text(
+                            "Add a folder to scan and Sharibako finds every project with a .env beneath it.")
+                    )
+                    addScanFolderLink
+                }
                 .frame(maxHeight: .infinity)
             } else {
+                // The way in for an arbitrary tree, where the eye lands when
+                // Not protected is empty (ho-06.10 gate).
+                if let hint = model.notProtectedHint {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(hint)
+                            .font(.callout)
+                            .foregroundStyle(Color.inkSecondary)
+                        addScanFolderLink
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 4)
+                }
                 List(selection: $model.selection) {
                     ForEach(model.projectSections) { section in
                         Section {
@@ -124,6 +142,26 @@ struct ProjectSidebar: View {
             Spacer(minLength: 4)
         }
         .help(entry.glyphHelp)
+    }
+
+    // MARK: - Add a folder to scan
+
+    /// The link that adds a scan folder and rescans — the same act as New… ›
+    /// Add a folder to scan… and Scan folders… › Add….
+    private var addScanFolderLink: some View {
+        Button {
+            guard
+                let folder = ActionPanel.pickFolder(
+                    message: "Choose a folder; every project with a .env beneath it will be found",
+                    prompt: "Scan")
+            else { return }
+            Task { await model.addScanFolderAndRescan(folder) }
+        } label: {
+            Label(WorkshopModel.addScanFolderTitle, systemImage: "folder.badge.plus")
+        }
+        .buttonStyle(.link)
+        .font(.callout)
+        .disabled(model.activity != nil)
     }
 
     // MARK: - Footer

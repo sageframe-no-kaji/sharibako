@@ -198,14 +198,23 @@ struct ActionPanel: View {
             // The hand-picked path (ho-06.9 gate): a folder anywhere on disk,
             // registered as a scan root so it stays found, then protected.
             Button("Protect a folder…") {
-                let panel = NSOpenPanel()
-                panel.canChooseDirectories = true
-                panel.canChooseFiles = false
-                panel.allowsMultipleSelection = false
-                panel.message = "Choose a project folder with a .env to protect"
-                panel.prompt = "Protect"
-                guard panel.runModal() == .OK, let folder = panel.url else { return }
+                guard
+                    let folder = Self.pickFolder(
+                        message: "Choose a project folder with a .env to protect", prompt: "Protect")
+                else { return }
                 Task { await model.protectFolder(folder) }
+            }
+            .disabled(model.activity != nil)
+
+            // The arbitrary-tree path (ho-06.10 gate: the only way in was
+            // VAULT › Scan folders…, where the practitioner did not look).
+            Button(WorkshopModel.addScanFolderTitle) {
+                guard
+                    let folder = Self.pickFolder(
+                        message: "Choose a folder; every project with a .env beneath it will be found",
+                        prompt: "Scan")
+                else { return }
+                Task { await model.addScanFolderAndRescan(folder) }
             }
             .disabled(model.activity != nil)
         } label: {
@@ -244,6 +253,21 @@ struct ActionPanel: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 12)
+    }
+
+    // MARK: - Folder picker
+
+    /// One modal directory picker for the New… items that take a folder.
+    ///
+    /// Returns `nil` on cancel.
+    static func pickFolder(message: String, prompt: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.message = message
+        panel.prompt = prompt
+        return panel.runModal() == .OK ? panel.url : nil
     }
 
     // MARK: - Building blocks

@@ -106,6 +106,32 @@ extension WorkshopModel {
     /// The Scan folders… sheet's empty state.
     static let noScanFoldersText = "No folders are scanned yet. Add the folder where you keep your projects."
 
+    /// The sidebar's hint when nothing is waiting under Not protected
+    /// (ho-06.10 gate: "I still don't see how to add an arbitrary file
+    /// tree" — the way in was only under VAULT). `nil` while there are
+    /// folders to protect; otherwise names the situation so the "Add a
+    /// folder to scan…" link beside it reads as the next step.
+    var notProtectedHint: String? {
+        guard candidates.isEmpty else { return nil }
+        return scanRoots.isEmpty
+            ? "No folders are scanned yet."
+            : "Nothing waiting to be protected under your scan folders."
+    }
+
+    /// The title of the link beside ``notProtectedHint`` and of the New…
+    /// menu item that does the same thing.
+    static let addScanFolderTitle = "Add a folder to scan…"
+
+    /// Adds `folder` to the scan folders and rescans — the one-step form of
+    /// Scan folders… › Add… › Done, for the New… menu and the sidebar hint.
+    func addScanFolderAndRescan(_ folder: URL) async {
+        let before = scanRoots.map { $0.standardizedFileURL.path }
+        addScanFolder(folder)
+        let after = scanRoots.map { $0.standardizedFileURL.path }
+        guard before != after else { return }
+        await rescan()
+    }
+
     /// Opens the Scan folders… sheet, re-reading the list from `config.yaml`
     /// first (the file is truth — the same rule Rescan follows).
     func openScanFolders() {
