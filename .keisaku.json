@@ -1,5 +1,5 @@
 {
-  "keisaku": 1,
+  "keisaku": 2,
   "works": [
     {
       "id": "sharibako",
@@ -43,15 +43,8 @@
       },
       "availability": "shipped",
       "usage": "me",
-      "headline": "the practitioner's gate on ho-06.10: try to break the one project page and the new verbs against the sandbox (~/sharibako-dogfood, env via…",
-      "state": {
-        "stage": "dev",
-        "last": "**ho-06.9 CLOSED 2026-11-08** after the practitioner's gate (four in-ho gate fixes: forget-folder race, app-wide appearance, age error words, Protect a folder…). **ho-06.10 BUILT, gate open** (branch `project-first`, draft PR #19): AT-01 `SecretClassifier` + CLI `init` defaults; AT-02 project-lines model (vault keys ∪ `.env` lines, status per line, classifier defaults with session flips, Protect one/recommended/all behind one Touch ID, scope ID from the folder name, ingest sheet retired); AT-03 the one project page (red octagon + Protect N, secrets first, settings folded, `LineDetail` with the four plain-words choices, context menus, Protect all on the section header); AT-04 Unprotect, Use shared / Make shared after the fact, resilient Check all with value match against the shared pool (`VaultCore.getSharedValue`), Remote…, Scan folders… (06.6's core, pulled in), pane-local errors with a next step (`Conduit.removeRemote` added). 1076 tests, ~96.8% coverage, linters strict-clean. Signed build installed at `/Applications/Sharibako.app`, pointed at the sandbox.",
-        "next": "**the practitioner's gate on ho-06.10**: try to break the one project page and the new verbs against the sandbox (`~/sharibako-dogfood`, env via launchd; external folder `~/sharibako-dogfood-extra/side-project`; stray marker at `projects/stray2`). Unverified on screen: the settings `DisclosureGroup` inside the selectable list (fallback: a toggled section below the list). Then Reflect + close 06.10, mark PR #19 ready, and author **ho-06.11** (the words: dialog titles \"Drift detected…\" / \"Delete scope\" / \"Reconcile drifted scopes\", \"Materializing…\", Check-all lines; CLI rename with aliases; man pages; README vocabulary + GUI-first first session). 06.6 keeps only the per-vault vs per-Mac roots decision.",
-        "as_of": "2026-11-08"
-      },
       "_keisaku": {
-        "generated_at": "2026-11-16T10:49:44",
+        "generated_at": "2026-11-17T15:26:28",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
@@ -74,8 +67,7 @@
           "substantive_description": [
             "Secrets scatter — across the system keychain, .env files, shell config, and old chat transcripts — and the scatter is the problem Sharibako (舎利箱, a reliquary box) solves by giving them a storage shape that matches how work is actually organized. It holds API keys, environment variables, and service credentials as age-encrypted files in a git-backed vault, edited through a native Mac app or a cross-platform CLI. Two output verbs address different deployment contexts: `sharibako materialize` writes decrypted .env files for consumers that cannot be wrapped, and `sharibako run -- <cmd>` injects secrets into a child process's environment without ever touching disk. Secrets can be linked across projects, so rotating one propagates everywhere it is used. It is the secrets-governance layer of the Kṣetra-Ops suite, alongside Pālana and Forteller — power and responsibility over your own credentials, held in the open on your own machine rather than behind another black box.",
             "Swift 6 for macOS 14+ (Apple Silicon), using swift-argument-parser, swift-log, and Yams, built as a core library, a CLI binary, and a SwiftUI app; open-source under GPL-3.0. In active development toward v1."
-          ],
-          "headline": "the practitioner's gate on ho-06.10: try to break the one project page and the new verbs against the sandbox (~/sharibako-dogfood, env via…"
+          ]
         },
         "contract_issues": []
       }
