@@ -31,7 +31,7 @@
       ],
       "tech_stack": "Swift",
       "created": "2026-06-30",
-      "last_updated": "2026-07-25",
+      "last_updated": "2026-11-09",
       "conceived": "2026-06-30",
       "short_description": "A local, age-encrypted, git-backed vault for API keys and environment variables, organized the way work actually happens — by project and by machine.",
       "substantive_description": [
@@ -43,14 +43,15 @@
       },
       "availability": "shipped",
       "usage": "me",
+      "headline": "the practitioner's gate on ho-06.10: try to break the one project page and the new verbs against the sandbox (~/sharibako-dogfood, env via…",
       "state": {
         "stage": "dev",
-        "last": "**ho-06.3 (First-run, age-key generation, GUI ingest) EXECUTED, GATED, CLOSED 2026-07-25** on branch `first-run` (18 commits ahead of `main`, **unpushed, no PR**). The GUI's front door exists and works: a six-page first-run wizard (`WorkshopModel+FirstRun.swift`, `FirstRunWizard`) gated on `.noVault` — prereq probe, Keychain key generate-or-import through the injected `GUIKeychainStore` seam, verified backup, detected-and-suggested scan root, optional remote — creating `~/.sharibako/vault` with git and handing off into the first ingest; ingest as a real SwiftUI flow (`WorkshopModel+Ingest.swift`, `IngestSheet`, `IngestChooserSheet` with candidate chaining) committing through `acceptIngest` behind one Touch ID; orphan remediation's two verbs on unlinked-marker rows (`WorkshopModel+Orphans.swift`). Gate-fix round added: candidate walk reaching real project depths, Rescan re-reading `config.yaml` every time, values shown in the ingest sheet, a fixed setup-assistant window frame, a menu-triggered welcome tour that never touches the Keychain, and a re-rendered app icon. **Zero files under `Sources/SharibakoCore` or `Sources/SharibakoCLI` changed — the ho's own constraint held.** **953 tests (+80 this stretch)**, lines 96.67% / functions 93.33% / regions 92.94%, `-warnings-as-errors` and both linters strict-clean. **The practitioner's verdict: \"it's working as it is, but how it is is wrong.\"** Closed on function; the flow problem is the finding, not a defect list. Prior: ho-06.7 CLOSED + MERGED 2026-07-12 (PR #16), ho-06.5 (PR #15) merged the same day.",
-        "next": "**a K4 overview pass to place the UX arc, then its first ho: a Think naming the six project states and the GUI's vocabulary for them.** The six states (outside the roots / seen-but-not-imported / imported and present / marker without scope / scope without marker / imported but drifted) are all real in the model; only three have a home in the UI, and *seen-but-not-imported* lives solely inside a modal sheet — the structural cause of \"I can't tell what state I'm in.\" The arc that follows, in dependency order: (1) the state-model + vocabulary Think, possibly a K2 amendment since it touches domain language; (2) a projects surface + panel information architecture, superseding 06.3's Decision 6; (3) bulk import (defaults-then-review, one Touch ID — the CLI's `Import all N as scope-local? [Y/n]` precedent never crossed to the GUI); (4) **ho-06.6** multi-root scan management, now also carrying the per-vault-vs-global `scan_roots` decision. Do not assign numbers here — `ho-06.8` was informally claimed by commit `842e97f`; the overview pass places them.",
-        "as_of": "2026-07-25"
+        "last": "**ho-06.9 CLOSED 2026-11-08** after the practitioner's gate (four in-ho gate fixes: forget-folder race, app-wide appearance, age error words, Protect a folder…). **ho-06.10 BUILT, gate open** (branch `project-first`, draft PR #19): AT-01 `SecretClassifier` + CLI `init` defaults; AT-02 project-lines model (vault keys ∪ `.env` lines, status per line, classifier defaults with session flips, Protect one/recommended/all behind one Touch ID, scope ID from the folder name, ingest sheet retired); AT-03 the one project page (red octagon + Protect N, secrets first, settings folded, `LineDetail` with the four plain-words choices, context menus, Protect all on the section header); AT-04 Unprotect, Use shared / Make shared after the fact, resilient Check all with value match against the shared pool (`VaultCore.getSharedValue`), Remote…, Scan folders… (06.6's core, pulled in), pane-local errors with a next step (`Conduit.removeRemote` added). 1076 tests, ~96.8% coverage, linters strict-clean. Signed build installed at `/Applications/Sharibako.app`, pointed at the sandbox.",
+        "next": "**the practitioner's gate on ho-06.10**: try to break the one project page and the new verbs against the sandbox (`~/sharibako-dogfood`, env via launchd; external folder `~/sharibako-dogfood-extra/side-project`; stray marker at `projects/stray2`). Unverified on screen: the settings `DisclosureGroup` inside the selectable list (fallback: a toggled section below the list). Then Reflect + close 06.10, mark PR #19 ready, and author **ho-06.11** (the words: dialog titles \"Drift detected…\" / \"Delete scope\" / \"Reconcile drifted scopes\", \"Materializing…\", Check-all lines; CLI rename with aliases; man pages; README vocabulary + GUI-first first session). 06.6 keeps only the per-vault vs per-Mac roots decision.",
+        "as_of": "2026-11-08"
       },
       "_keisaku": {
-        "generated_at": "2026-07-19T11:32:57",
+        "generated_at": "2026-11-16T10:49:44",
         "generator_version": "1",
         "sources": {
           "readme": "README.md",
@@ -73,7 +74,8 @@
           "substantive_description": [
             "Secrets scatter — across the system keychain, .env files, shell config, and old chat transcripts — and the scatter is the problem Sharibako (舎利箱, a reliquary box) solves by giving them a storage shape that matches how work is actually organized. It holds API keys, environment variables, and service credentials as age-encrypted files in a git-backed vault, edited through a native Mac app or a cross-platform CLI. Two output verbs address different deployment contexts: `sharibako materialize` writes decrypted .env files for consumers that cannot be wrapped, and `sharibako run -- <cmd>` injects secrets into a child process's environment without ever touching disk. Secrets can be linked across projects, so rotating one propagates everywhere it is used. It is the secrets-governance layer of the Kṣetra-Ops suite, alongside Pālana and Forteller — power and responsibility over your own credentials, held in the open on your own machine rather than behind another black box.",
             "Swift 6 for macOS 14+ (Apple Silicon), using swift-argument-parser, swift-log, and Yams, built as a core library, a CLI binary, and a SwiftUI app; open-source under GPL-3.0. In active development toward v1."
-          ]
+          ],
+          "headline": "the practitioner's gate on ho-06.10: try to break the one project page and the new verbs against the sandbox (~/sharibako-dogfood, env via…"
         },
         "contract_issues": []
       }
