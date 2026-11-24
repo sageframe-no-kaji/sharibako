@@ -336,6 +336,7 @@ struct ErrorReporterMappingTests {
         let report = ErrorReporter.makeReport(for: CLIError.notInteractiveTerminal)
         #expect(report.code == .userError)
         #expect(report.message.contains("interactive"))
+        #expect(report.remediation?.contains("--yes") == true)
     }
 
     @Test("aborted maps to userAbort (130) — distinguishable from success and from failures (ho-04.11)")

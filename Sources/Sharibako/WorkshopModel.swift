@@ -38,10 +38,14 @@ final class WorkshopModel {
         /// A Check-drift sweep is decrypting and comparing every `live_here`
         /// scope against its materialized `.env` (ho-06.2 AT-02, Decision 3).
         case checkingDrift
-        /// An ingest commit is encrypting decided keys into a scope (ho-06.3
-        /// gate fix: the status surface said "Materializing…" while the sheet
-        /// button said "Importing…" — one operation must wear one name).
+        /// A Protect is encrypting a project's chosen lines into the vault
+        /// through `acceptIngest` (ho-06.3 gate fix: one operation must wear
+        /// one name). Its label is the user's verb, Protect (ho-06.9,
+        /// kamae-2.3 §2); the case keeps its engine name.
         case ingesting
+        /// An Unprotect is writing a project's values back into its `.env`
+        /// and removing it from the vault (ho-06.10 AT-04).
+        case unprotecting
 
         /// Progress text shown beside the indicator in the status surface.
         var label: String {
@@ -49,8 +53,9 @@ final class WorkshopModel {
             case .scanning: return "Scanning…"
             case .materializing: return "Materializing…"
             case .syncing: return "Syncing…"
-            case .checkingDrift: return "Checking drift…"
-            case .ingesting: return "Importing…"
+            case .checkingDrift: return "Checking every project…"
+            case .ingesting: return "Protecting…"
+            case .unprotecting: return "Unprotecting…"
             }
         }
     }
@@ -134,37 +139,230 @@ final class WorkshopModel {
     /// Every scope in the open vault, sorted by identity (as `listScopes` returns).
     private(set) var scopes: [ScopeMetadata] = []
 
-    /// Identity of the sidebar-selected scope, if any.
+    /// The sidebar's one selection — a project, a folder not yet protected, a
+    /// problem folder, or a shared secret (ho-06.9 Decision 1).
     ///
-    /// Setting this clears ``selectedSecretKey`` and ``revealedValue`` —
-    /// changing scope re-masks any revealed value (Decision 4).
-    var selectedScopeID: String? {
+    /// The single source of truth for "what is the window showing"; the
+    /// sidebar binds to it and the content column switches on its kind.
+    /// Changing it runs the cascade that used to live on `selectedScopeID`:
+    /// the selected line, any revealed value and notes, the secret and
+    /// history caches, the `.env` read behind the page's lines, and any
+    /// pane-local error all clear — moving away re-masks (ho-05 Decision 4),
+    /// and an error never outlives the page it was about (ho-06.10 AT-02).
+    /// Line-choice flips survive: they are keyed by folder, not by selection,
+    /// and last the session (Decision 7). Never persisted: the launch rule
+    /// (``initialSelection(sections:)``) picks the opening row each session.
+    var selection: Selection? {
         didSet {
-            if selectedScopeID != oldValue {
-                selectedSecretKey = nil
+            if selection != oldValue {
+                selectedLineKey = nil
                 revealedValue = nil
                 revealedNotes = nil
                 cachedSecrets = []
                 cachedHistory = []
+                envRead = nil
+                paneError = nil
+                lineShareForm = nil
+                loadedLinesSelection = nil
+                linesGeneration += 1
             }
         }
     }
 
+    /// Identity of the selected project's vault scope, or `nil` when the
+    /// selection is anything else (or nothing).
+    ///
+    /// A computed shim over ``selection`` (ho-06.9 Decision 1) so every
+    /// existing intent, view, and test that reads or writes a scope ID keeps
+    /// working unchanged: get returns the `.project` payload; set assigns
+    /// `.project(scopeID:)`, or clears the selection on `nil`. The cascade
+    /// runs on ``selection``'s `didSet`, so it fires through either door.
+    var selectedScopeID: String? {
+        get {
+            guard case .project(let scopeID) = selection else { return nil }
+            return scopeID
+        }
+        set { selection = newValue.map { .project(scopeID: $0) } }
+    }
+
+    /// `.env`-bearing folders under the scan roots with no claim file yet —
+    /// the "Not protected" section's rows (ho-06.9 Decision 3).
+    ///
+    /// Filled in the same worker hop as the marker scan (launch scan and
+    /// Rescan), pruned by a successful Protect, refilled by Forget. Never
+    /// persisted — the same posture as ``scanReport``: folders change
+    /// outside the app, and a persisted list would lie across sessions.
+    private(set) var candidates: [URL] = []
+
+    /// How many secrets and settings each ``candidates`` folder's `.env`
+    /// holds, keyed by standardized folder URL (ho-06.10 AT-05).
+    ///
+    /// Classified keylessly in the same worker hop as the candidate scan
+    /// (``EnvReader`` parses; nothing is decrypted), so the sidebar can say
+    /// "No secrets" for a folder holding only settings without reading it
+    /// on render. A folder that could not be read has no entry and keeps the
+    /// plain Not-protected status. A plain tuple (Core's own shape for
+    /// ``linkGraph``); read it through ``candidateSummary(for:)``.
+    private(set) var candidateSummaries: [URL: (secrets: Int, settings: Int)] = [:]
+
+    /// Shared-secret IDs in the vault, loaded with the scopes by
+    /// ``loadScopes()`` — the "Shared secrets" section's rows (ho-06.9).
+    private(set) var sharedIDs: [String] = []
+
+    /// Which projects use each shared secret, and under which key, loaded with
+    /// the scopes by ``loadScopes()`` from ``VaultCore/linkGraph()``.
+    ///
+    /// Keyless — it reads `.link` files, never decrypts. A plain tuple array
+    /// (Core's own shape): `@Observable` stores it without needing
+    /// `Equatable`, and it never leaves the main actor. Read it through
+    /// ``usedBy(sharedID:)``.
+    private(set) var linkGraph: [String: [(scopeID: String, key: String)]] = [:]
+
+    /// The keyless read of the selected page's `.env`, or `nil` (ho-06.10
+    /// AT-02, Decision 6).
+    ///
+    /// Filled by ``loadContent(for:)`` for a project with a folder, a folder
+    /// not yet protected, or a Problem folder, and cleared whenever
+    /// ``selection`` changes, so a read can never outlive its row.
+    /// ``projectLines`` merges it with ``secrets``. `internal` (not
+    /// `private(set)`): the protect intents in `WorkshopModel+Protect.swift`
+    /// reset it after a commit — the `Conduit`/`Conduit+Remote.swift`
+    /// cross-file-extension precedent. Views only ever read it.
+    var envRead: EnvRead?
+
+    /// The user's per-line choices that differ from the classifier's default,
+    /// keyed by ``lineChoiceKey(folder:key:)`` (ho-06.10 Decision 7).
+    ///
+    /// Remembered for the session across selection changes — the user can
+    /// leave a page and come back to the choices they made — and cleared for
+    /// a folder once it is protected. Never persisted (Do Not). `internal`
+    /// for the same cross-file reason as ``envRead``.
+    var lineChoiceFlips: [String: LineChoice] = [:]
+
+    /// The last failure of an action taken from the content pane, or `nil`
+    /// (ho-06.10 Decision 8: errors where the action was).
+    ///
+    /// Set alongside ``errorMessage`` (which keeps the status bar's one-line
+    /// echo) and cleared on every selection change and whenever
+    /// ``errorMessage`` clears (the next successful action), so the pane that
+    /// shows it is always the pane whose action failed. `internal` for the
+    /// same cross-file reason as ``envRead``.
+    var paneError: PaneError?
+
+    /// Projects the last Check all could not read, by scope ID, each with the
+    /// failure the pane shows when the project is selected (ho-06.10 AT-04).
+    ///
+    /// Replaced wholesale by every Check all; dropped for a project when it
+    /// is unprotected or deleted. Never persisted. `internal` for the same
+    /// cross-file reason as ``envRead`` — the sweep lives in
+    /// `WorkshopModel+Heal.swift`.
+    var unreadableProjects: [String: PaneError] = [:]
+
+    /// Protected lines whose own value equals a shared secret's, found by the
+    /// last Check all: scope ID → key → shared ID (ho-06.10 Decision 8).
+    ///
+    /// Rendered on the line's caption and offered as "Use shared secret ‹id›".
+    /// Replaced wholesale by every Check all; a key's entry drops once it
+    /// uses a shared secret. Never persisted. `internal` for the same reason
+    /// as ``unreadableProjects``.
+    var sharedMatches: [String: [String: String]] = [:]
+
+    /// A staged Unprotect awaiting the window's confirmation, or `nil`
+    /// (ho-06.10 AT-04). `internal`: its intents live in
+    /// `WorkshopModel+Verbs.swift`.
+    var pendingUnprotect: UnprotectPlan?
+
+    /// A staged switch of a protected line to a shared secret, awaiting the
+    /// window's confirmation (its own value is discarded), or `nil`.
+    /// `internal` for the same reason as ``pendingUnprotect``.
+    var pendingSharedLink: SharedLinkPlan?
+
+    /// The open shared-secret form on the selected protected line, or `nil`.
+    ///
+    /// "Use shared secret…" or "Make it a shared secret". Cleared when the
+    /// line or the selection changes. `internal` for the same reason as
+    /// ``pendingUnprotect``.
+    var lineShareForm: LineShareForm?
+
+    /// The Remote… sheet's draft and inline error while it is open, or `nil`
+    /// when it is closed. `internal` for the same reason as
+    /// ``pendingUnprotect``.
+    var remoteSheet: RemoteSheetState?
+
+    /// Whether the Scan folders… sheet is open. `internal` for the same
+    /// reason as ``pendingUnprotect``.
+    var isScanFoldersSheetPresented = false
+
+    /// The selection whose lines read has landed, or `nil` while a read is in
+    /// flight or none has run (ho-06.10 AT-03).
+    ///
+    /// Set by ``storeLinesRead(secrets:env:for:)`` and cleared on every
+    /// ``selection`` change, so the page can say it is reading instead of
+    /// flashing "No lines" before its read lands. Read through
+    /// ``areLinesLoaded``.
+    private(set) var loadedLinesSelection: Selection?
+
+    /// Bumped every time the selection change cascade clears the lines
+    /// (ho-06.10 AT-05: the blank-page finding).
+    ///
+    /// The window keys its lines load on ``linesLoadID`` — the selection
+    /// *and* this count — so a selection that leaves and comes back inside
+    /// one view update (a `List` re-asserting its binding through `nil`)
+    /// still reloads the lines it cleared, instead of leaving
+    /// ``areLinesLoaded`` false with nothing left to load them.
+    private(set) var linesGeneration = 0
+
+    /// Protects held back because a value already equals a shared secret's,
+    /// each awaiting the window's question, first in line first (ho-06.10
+    /// AT-05). `internal`: its intents live in
+    /// `WorkshopModel+SharedValues.swift`.
+    var pendingSharedValueMatches: [SharedValueMatches] = []
+
+    /// `true` once the launch selection rule has run (ho-06.9 Decision 4) —
+    /// it runs once per session, so a later launch-scan re-entry (the window's
+    /// `.task` firing again) never overrides where the user has gone since.
+    private var hasAppliedLaunchSelection = false
+
     /// Secrets in the selected scope, populated by ``loadSecrets()``.
     private(set) var cachedSecrets: [SecretInfo] = []
 
-    /// The key of the currently selected secret in the center column.
+    /// The key of the currently selected line on the project page — a
+    /// protected secret, a line not yet protected, or a setting (ho-06.10
+    /// AT-02).
     ///
     /// Setting this clears ``revealedValue`` and ``cachedHistory`` —
     /// changing selection re-masks the previous secret (Decision 4).
-    var selectedSecretKey: String? {
+    var selectedLineKey: String? {
         didSet {
-            if selectedSecretKey != oldValue {
+            if selectedLineKey != oldValue {
                 revealedValue = nil
                 revealedNotes = nil
                 cachedHistory = []
+                lineShareForm = nil
             }
         }
+    }
+
+    /// The selected line's key when it names a secret in the vault, else
+    /// `nil` — a computed shim over ``selectedLineKey`` so every intent and
+    /// view written against the vault-only secret list keeps working.
+    ///
+    /// Returns `nil` exactly when the selected key is a plaintext `.env` line
+    /// the vault does not hold (Not protected, or a setting), so
+    /// `SecretDetail`'s reveal, rotate, and delete paths can never fire for a
+    /// line that is not in the vault. A key with no derived line at all (the
+    /// lines not loaded yet) passes through unchanged — the vault is the
+    /// authority it is checked against downstream. Set writes
+    /// ``selectedLineKey``, running the same cascade.
+    var selectedSecretKey: String? {
+        get {
+            guard let key = selectedLineKey else { return nil }
+            let isPlaintextLine =
+                envRead?.lines.contains { $0.key == key } == true
+                && !cachedSecrets.contains { $0.key == key }
+            return isPlaintextLine ? nil : key
+        }
+        set { selectedLineKey = newValue }
     }
 
     /// The decrypted plaintext for the selected secret while it is revealed.
@@ -203,7 +401,16 @@ final class WorkshopModel {
 
     /// Human-readable description of the most recent failure, for the window
     /// to surface; `nil` when the last operation succeeded.
-    var errorMessage: String?
+    ///
+    /// Clearing it clears ``paneError`` too: a success after a failure means
+    /// the pane's error no longer describes the last action (ho-06.10 AT-04).
+    var errorMessage: String? {
+        didSet {
+            if errorMessage == nil {
+                paneError = nil
+            }
+        }
+    }
 
     /// File-based age key from `SHARIBAKO_AGE_KEY`; `nil` selects the Keychain path.
     ///
@@ -212,7 +419,12 @@ final class WorkshopModel {
     let devAgeKeyPath: URL?
 
     /// Holds a pending materialize diff that requires explicit confirmation to overwrite.
-    private(set) var pendingDiff: MaterializeDiff?
+    ///
+    /// `internal` (not `private(set)`): Unprotect (`WorkshopModel+Verbs.swift`)
+    /// stops on the same diff and raises the same confirmation, and Swift's
+    /// `private(set)` is file-scoped — the `Conduit`/`Conduit+Remote.swift`
+    /// cross-file-extension precedent. Views only ever read it.
+    var pendingDiff: MaterializeDiff?
 
     /// A pending Materialize-all-stale plan awaiting confirmation, or `nil`
     /// (ho-06.2 AT-02, Decision 3).
@@ -306,17 +518,6 @@ final class WorkshopModel {
     /// extension file.
     var firstRunCompleted = false
 
-    /// The GUI ingest flow's own state (ho-06.3 AT-02).
-    ///
-    /// A nested `@Observable` object (`WorkshopModel+Ingest.swift`) mirroring
-    /// ``firstRun``'s pattern: the scan proposal, per-key decisions, and
-    /// scope ID/type are cohesive to the ingest sheet alone and would
-    /// otherwise crowd this already-long class for a session that only
-    /// exists while the sheet is up. `let`, not `private(set) var` — the
-    /// ingest intents mutate the instance's own fields; `WorkshopModel`
-    /// never reassigns it.
-    let ingest = IngestState()
-
     /// The injected (or live) environment.
     ///
     /// Retained for ``WorkshopModel/completeFirstRun()``'s git-identity probe
@@ -371,7 +572,7 @@ extension WorkshopModel {
 
     /// Replaces the cached scan report.
     ///
-    /// The write seam `WorkshopModel+Ingest.swift`'s post-commit cache
+    /// The write seam `WorkshopModel+Protect.swift`'s post-commit cache
     /// refresh uses — `private(set)` is file-scoped (the same reason
     /// ``bindOpenedVault(at:)`` exists above); declared here, not a public
     /// setter, so nothing else can silently overwrite the cache outside a
@@ -380,10 +581,65 @@ extension WorkshopModel {
         scanReport = report
     }
 
-    /// Reloads the scope list from the open vault.
+    /// Adds `directory` to ``candidates`` when the scan did not find it.
+    ///
+    /// The seam Unprotect (`WorkshopModel+Verbs.swift`) uses for a folder outside
+    /// the scan roots, so the folder it just returned to plain text is still
+    /// listed under Not protected. Compared by standardized path.
+    func addCandidate(_ directory: URL) {
+        let target = directory.standardizedFileURL.path
+        guard !candidates.contains(where: { $0.standardizedFileURL.path == target }) else { return }
+        candidates.append(directory.standardizedFileURL)
+    }
+
+    /// Empties the scan caches — the seam the Scan folders… sheet uses when
+    /// the last folder is removed, since a scan over no roots never runs.
+    func clearScanCaches() {
+        scanReport = ScanReport(markers: [], failures: [])
+        candidates = []
+        candidateSummaries = [:]
+    }
+
+    /// Drops `directory` from ``candidates``.
+    ///
+    /// The seam a successful Protect (`WorkshopModel+Protect.swift`) uses to
+    /// move its row out of "Not protected". Compared by standardized path:
+    /// the scanner stores standardized URLs, and a hand-picked directory may
+    /// carry a trailing slash or a `..` the walk never produced.
+    func removeCandidate(_ directory: URL) {
+        let target = directory.standardizedFileURL.path
+        candidates.removeAll { $0.standardizedFileURL.path == target }
+        candidateSummaries.removeValue(forKey: directory.standardizedFileURL)
+    }
+
+    /// The secret and setting counts of the candidate folder `directory`,
+    /// or `nil` when it was not classified (not a candidate, or unreadable).
+    func candidateSummary(for directory: URL) -> (secrets: Int, settings: Int)? {
+        candidateSummaries[directory.standardizedFileURL]
+    }
+
+    /// Stores a finished lines read — the vault's keys and the folder's
+    /// `.env` — but only while `selection` is still the selection; the seam
+    /// ``loadContent(for:)`` (`WorkshopModel+Lines.swift`) writes through.
+    ///
+    /// The read's worker hops can finish after the user has moved on; a
+    /// result for a row no longer selected is dropped rather than left to
+    /// surface under a different selection. Declared here because
+    /// ``secrets``' backing store is `private(set)`, which is file-scoped.
+    func storeLinesRead(secrets: [SecretInfo], env: EnvRead?, for selection: Selection) {
+        guard self.selection == selection else { return }
+        cachedSecrets = secrets
+        envRead = env
+        loadedLinesSelection = selection
+    }
+
+    /// Reloads the scope list, the shared-secret IDs, and the link graph from
+    /// the open vault.
     ///
     /// A no-op in the `.noVault` state. Failures land in ``errorMessage``
     /// rather than throwing — the window stays up and says what went wrong.
+    /// The shared side loads in its own step (ho-06.9): a damaged `.link` or
+    /// shared entry must not blank the project list it has nothing to do with.
     func loadScopes() {
         guard case .open(let vaultURL) = vaultState else { return }
         do {
@@ -393,20 +649,28 @@ extension WorkshopModel {
             scopes = []
             errorMessage = Self.message(for: error)
         }
+        loadSharedSecrets()
     }
 
-    /// The sidebar's sections: one per `ScopeType` holding scopes, in fixed
-    /// display order, with empty sections omitted.
-    var scopeSections: [ScopeSection] {
-        Self.sectionOrder.compactMap { type in
-            let matching = scopes.filter { $0.type == type }
-            guard !matching.isEmpty else { return nil }
-            return ScopeSection(type: type, scopes: matching)
+    /// Reloads only the shared side — the shared-secret IDs and the link
+    /// graph — leaving ``scopes`` as they are.
+    ///
+    /// The refresh for a change that touched shared secrets and nothing else
+    /// (a failed Make it a shared secret whose shared entry was written
+    /// before its link failed). A no-op in the `.noVault` state; a failure
+    /// lands in ``errorMessage``.
+    func loadSharedSecrets() {
+        guard case .open(let vaultURL) = vaultState else { return }
+        do {
+            let core = try VaultCore(vaultURL: vaultURL)
+            sharedIDs = try core.listShared()
+            linkGraph = try core.linkGraph()
+        } catch {
+            sharedIDs = []
+            linkGraph = [:]
+            errorMessage = Self.message(for: error)
         }
     }
-
-    /// Fixed sidebar ordering of the five scope categories.
-    static let sectionOrder: [ScopeType] = [.projectDev, .projectProd, .service, .machine, .other]
 }
 
 // MARK: - Secret listing (AT-02)
@@ -471,7 +735,7 @@ extension WorkshopModel {
         do {
             handle = try provider.loadIdentity(reason: "Reveal \(key) from \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         defer { handle.release() }
@@ -484,7 +748,7 @@ extension WorkshopModel {
         } catch {
             revealedValue = nil
             revealedNotes = nil
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -572,27 +836,60 @@ extension WorkshopModel {
     /// have changed mid-session). Quiet on success for both — the user did not
     /// trigger this, so it sets no ``statusMessage``; failures still land in
     /// ``errorMessage``. Guards re-entry against ``activity`` like every long
-    /// intent. The scan walk runs through ``worker``.
+    /// intent. The scan walk — markers and Not-protected folders together
+    /// (ho-06.9 Decision 3) — runs through ``worker``.
+    ///
+    /// When it finishes, the launch selection rule runs once (Decision 4):
+    /// with nothing selected, the window opens on the first Not-protected
+    /// folder, else the first project. It also runs on the no-roots path —
+    /// a vault with projects but no scan root still opens on a project.
     func performLaunchScan() async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
         if remoteDescription == nil {
             resolveRemoteDescription(vaultURL: vaultURL)
         }
+        defer { applyLaunchSelectionOnce() }
         guard !scanRoots.isEmpty else { return }
         activity = .scanning
         defer { activity = nil }
-        let roots = scanRoots
         do {
-            let report = try await worker.run {
-                let core = try VaultCore(vaultURL: vaultURL)
-                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
-            }
-            scanReport = report
+            _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
             errorMessage = nil
         } catch {
             errorMessage = Self.message(for: error)
         }
+    }
+
+    /// Applies ``initialSelection(sections:)`` the first time a launch scan
+    /// finishes, and only when the user has not already picked a row.
+    private func applyLaunchSelectionOnce() {
+        guard !hasAppliedLaunchSelection else { return }
+        hasAppliedLaunchSelection = true
+        if selection == nil {
+            selection = Self.initialSelection(sections: projectSections)
+        }
+    }
+
+    /// The one scan hop launch scan, Rescan, and Forget share (ho-06.9
+    /// Decision 3).
+    ///
+    /// Walks `roots` for claim files and for unclaimed `.env`-bearing folders
+    /// in a single ``worker`` call, then stores both caches together so the
+    /// sidebar never shows one half of a scan. The same hop classifies each
+    /// folder's `.env` into ``candidateSummaries`` (ho-06.10 AT-05). Keyless.
+    /// Returns the report for callers that announce counts.
+    func scanMarkersAndCandidates(vaultURL: URL, roots: [URL]) async throws -> ScanReport {
+        let (report, found, summaries) = try await worker.run {
+            let core = try VaultCore(vaultURL: vaultURL)
+            let report = try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
+            let found = IngestCandidateScanner.findUnboundCandidates(under: roots)
+            return (report, found, EnvReader.summaries(of: found, vaultURL: vaultURL))
+        }
+        scanReport = report
+        candidates = found
+        candidateSummaries = summaries
+        return report
     }
 
     /// Resolves ``remoteDescription`` via ``Conduit/remoteURL()``.
@@ -602,8 +899,9 @@ extension WorkshopModel {
     /// use. A vault with no `.git/` or no `origin` and any `Conduit`
     /// construction failure both resolve to ``RemoteDescription/none`` rather
     /// than surfacing an error — the footer's job is to state the fact
-    /// plainly, not to treat "no remote" as a failure.
-    private func resolveRemoteDescription(vaultURL: URL) {
+    /// plainly, not to treat "no remote" as a failure. `internal`: the Remote…
+    /// sheet (`WorkshopModel+Verbs.swift`) re-resolves after a change.
+    func resolveRemoteDescription(vaultURL: URL) {
         guard let conduit = try? Conduit(vaultURL: vaultURL),
             let url = try? conduit.remoteURL()
         else {
@@ -635,9 +933,9 @@ extension WorkshopModel {
         let provider = makeAgeKeyProvider()
         let handle: AgeKeyHandle
         do {
-            handle = try provider.loadIdentity(reason: "Decrypt secrets for materialize")
+            handle = try provider.loadIdentity(reason: "Write .env for \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         do {
@@ -652,7 +950,7 @@ extension WorkshopModel {
             applyMaterializeResult(result)
         } catch {
             handle.release()
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 
@@ -742,7 +1040,7 @@ extension WorkshopModel {
                 return (commit, push)
             }
             if case .rejected(let reason) = pushResult {
-                errorMessage = "Push rejected: \(reason). Resolve remotely, then sync again."
+                errorMessage = "Push rejected: \(reason). \(Self.pushRejectedNextStep)"
                 return
             }
             statusMessage = Self.syncStatusMessage(commit: commitResult, push: pushResult)
@@ -793,7 +1091,9 @@ extension WorkshopModel {
     /// Async (Decision 1): the directory picker runs on the main actor (user
     /// interaction), then the tree walk hops to ``worker``. The report is stored
     /// in the ``scanReport`` cache (Decision 2) so materialize and the
-    /// jump-to-directory button read fresh markers after a Rescan.
+    /// jump-to-directory button read fresh markers after a Rescan; the same hop
+    /// refills ``candidates`` (ho-06.9 Decision 3), and the status line counts
+    /// both in the user's words (``rescanSummary(toProtect:alreadyProtected:)``).
     func rescan(openPanel: (() -> URL?)? = nil) async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
@@ -821,108 +1121,14 @@ extension WorkshopModel {
         }
         activity = .scanning
         defer { activity = nil }
-        let roots = scanRoots
         do {
-            let report = try await worker.run {
-                let core = try VaultCore(vaultURL: vaultURL)
-                return try Materializer(vaultCore: core, vaultURL: vaultURL).scan(roots: roots)
-            }
-            scanReport = report
-            let markerCount = report.markers.count
-            let rootCount = roots.count
-            statusMessage =
-                "Scan found \(markerCount) marker\(markerCount == 1 ? "" : "s") "
-                + "in \(rootCount) root\(rootCount == 1 ? "" : "s")."
+            _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
+            let protectedCount = scopes.filter { cachedMarker(forScope: $0.identity) != nil }.count
+            statusMessage = Self.rescanSummary(
+                toProtect: candidates.count, alreadyProtected: protectedCount)
             errorMessage = nil
         } catch {
             errorMessage = Self.message(for: error)
-        }
-    }
-}
-
-// MARK: - Age key provider and error messages
-
-extension WorkshopModel {
-    /// Builds the age-key provider for decrypt operations (used from AT-02 on).
-    ///
-    /// The file provider wins when `SHARIBAKO_AGE_KEY` is set (the dev bypass,
-    /// Decision 7); otherwise the GUI's own Keychain adapter (Decision 1).
-    func makeAgeKeyProvider() -> any GUIAgeKeyProvider {
-        if let devAgeKeyPath {
-            return GUIFileAgeKeyProvider(path: devAgeKeyPath)
-        }
-        return GUIKeychainAgeKeyProvider()
-    }
-
-    /// Renders an error as a user-facing sentence.
-    ///
-    /// Dispatches to `vaultErrorMessage` for known `VaultError` cases;
-    /// everything else falls through to a generic description.
-    static func message(for error: Error) -> String {
-        guard let vaultError = error as? VaultError else {
-            return "Unexpected error: \(error)"
-        }
-        return Self.vaultErrorMessage(for: vaultError)
-    }
-
-    /// Names the `VaultError` cases the model can surface; split from
-    /// `message(for:)` to keep cyclomatic complexity within the linter ceiling.
-    private static func vaultErrorMessage(for vaultError: VaultError) -> String {
-        switch vaultError {
-        case .vaultNotFound(let path):
-            return "No vault found at \(path.path)."
-        case .yamlDecodeError(let path, _):
-            return "Could not read \(path.lastPathComponent) — the file is not valid YAML."
-        case .fileSystemError(let path, _):
-            return "A filesystem operation failed at \(path.path)."
-        case .secretNotFound(let scope, let key):
-            return "Secret '\(key)' not found in scope '\(scope)'."
-        case .scopeNotFound(let id):
-            return "Scope '\(id)' not found."
-        case .scopeAlreadyExists(let id):
-            return "A scope named '\(id)' already exists."
-        case .sharedEntryExists(let id):
-            return "A shared entry named '\(id)' already exists."
-        case .sharedEntryNotFound(let id):
-            return "Shared entry '\(id)' not found."
-        case .markerNotFound:
-            return "No .sharibako marker found for this scope in the configured scan roots."
-        case .ageInvocationFailed(_, let stderr):
-            return "Encryption failed: \(stderr.prefix(120))"
-        case .gitInvocationFailed(_, let stderr):
-            return "Git error: \(stderr.prefix(120))"
-        default:
-            return "Vault error: \(vaultError)"
-        }
-    }
-}
-
-// MARK: - Sidebar section type
-
-/// One sidebar section: a scope category and its member scopes.
-struct ScopeSection: Equatable, Identifiable {
-    /// The category this section groups.
-    let type: ScopeType
-
-    /// Scopes of that category, in vault order (sorted by identity).
-    let scopes: [ScopeMetadata]
-
-    /// Stable identity for SwiftUI lists.
-    var id: String { type.rawValue }
-
-    /// The section header text.
-    var title: String {
-        switch type {
-        case .projectDev:
-            return "Projects — dev"
-        case .projectProd:
-            return "Projects — prod"
-        case .service:
-            return "Services"
-        case .machine:
-            return "Machines"
-        case .other:
-            return "Other"
         }
     }
 }

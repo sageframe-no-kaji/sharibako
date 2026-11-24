@@ -1,15 +1,16 @@
 import Foundation
 import SharibakoCore
 
-/// Orphan-remediation intents for the "Unlinked markers" section's
+/// Orphan-remediation intents for the "Needs attention" section's
 /// `.orphaned` rows (ho-06.3 Decision 7, AT-03) — the two verbs that turn
 /// surfacing into action once ho-06.2 stopped at naming the marker.
 ///
-/// **Create Scope from Marker** rides ``WorkshopModel/beginIngest(directory:)``
-/// unchanged (Do Not §4): the orphaned marker's own `.sharibako` file is
-/// exactly what that scan's reconcile detection loads, so pointing it at the
-/// marker's directory reproduces the marker's recorded scope ID as the
-/// session's seed with no new machinery.
+/// **Protect this folder** (``createScopeFromMarker(_:)``) protects the
+/// folder under the project its claim file names (ho-06.10 AT-02): the claim
+/// file already carries the scope ID the vault forgot, so the folder's lines
+/// are read and its recommended lines committed under that ID with no
+/// prompt — recreating the project under its own name is what heals the
+/// link.
 ///
 /// **Remove Stray Marker** follows the ho-06.7 pending-deletion trio
 /// (`WorkshopModel+Mutations.swift`) precisely: `requestRemoveStrayMarker` /
@@ -27,22 +28,23 @@ import SharibakoCore
 /// intents mutate — the `Conduit`/`Conduit+Remote.swift` split precedent
 /// applies again, this time by read/write rather than by feature.
 extension WorkshopModel {
-    // MARK: - Create Scope from Marker (Required Change 1)
+    // MARK: - Protect this folder as its claimed project (Required Change 1)
 
-    /// Seeds the ingest sheet with an orphaned marker's directory.
+    /// Protects an orphaned marker's folder as the project its claim file
+    /// names (ho-06.10 AT-02 Required Change 6).
     ///
-    /// The marker at `marker`'s recorded path already carries the scope name
-    /// the vault forgot; `beginIngest(directory:)`'s own marker-detection
-    /// (`IngestScanPlanner.plan`) loads that same `.sharibako` file and
-    /// reconciles under its scope unchanged — the vault side simply doesn't
-    /// have that scope yet, so every detected key comes back unowned and
-    /// `commitIngest()`'s `acceptIngest` creates the scope idempotently on
-    /// commit (recreating under the marker's own ID is what heals the link).
-    /// A no-op for `.failed` markers — scan-failure rows stay surfacing-only
-    /// (Do Not §3).
+    /// Selects the Problem row, reads its folder's lines
+    /// (``loadContent(for:)``), then commits them with
+    /// ``protectRecommended(scopeID:)`` under `marker`'s own scope ID:
+    /// `acceptIngest` creates the scope and rewrites the claim file, so the
+    /// row moves from Needs attention to Projects. A no-op for `.failed`
+    /// markers — scan-failure rows stay surfacing-only (Do Not §3).
     func createScopeFromMarker(_ marker: UnlinkedMarker) async {
-        guard case .orphaned(_, let markerURL) = marker else { return }
-        await beginIngest(directory: markerURL.deletingLastPathComponent())
+        guard case .orphaned(let scope, let markerURL) = marker else { return }
+        let problem = Selection.problem(markerPath: markerURL.path)
+        selection = problem
+        await loadContent(for: problem)
+        await protectRecommended(scopeID: scope)
     }
 
     // MARK: - Remove Stray Marker (Required Change 2)
@@ -75,24 +77,31 @@ extension WorkshopModel {
         pendingStrayMarkerRemoval = nil
     }
 
-    /// Deletes the staged marker file and drops it from the cached scan
-    /// report so the orphan row leaves the section immediately.
+    /// Deletes the staged marker file, drops it from the cached scan report so
+    /// the row leaves "Needs attention" immediately, then re-runs the scan
+    /// quietly (ho-06.9 Decision 3).
     ///
     /// Touches only ``StrayMarkerRemoval/markerURL`` — no git, no vault
     /// write, the vault and the project's `.env` are both untouched (the
-    /// inverted blast radius, Required Change 2). The cache update is a
-    /// local filter of the already-loaded ``WorkshopModel/scanReport``
-    /// rather than a fresh filesystem walk — deleting one known file cannot
-    /// surface any marker a re-scan would have found, so paying for another
-    /// walk through ``WorkshopModel/worker`` buys nothing here (contrast
-    /// `refreshScanCacheAfterIngestCommit()` in `WorkshopModel+Ingest.swift`,
-    /// which must re-walk because a commit can *add* a marker a stale cache
-    /// wouldn't know about). Failure — the file is already gone, or
-    /// permissions refuse the removal — announces via
+    /// inverted blast radius, Required Change 2). The local filter is what
+    /// makes the row leave at once; the quiet rescan exists because Forget
+    /// *adds* a row too: with its claim file gone, a folder that still holds
+    /// a `.env` is a Not-protected candidate again, and only the candidate
+    /// walk can say so. The rescan announces nothing of its own — the
+    /// removal's line stands — and is skipped with no scan roots or while
+    /// another activity runs. Failure of the removal — the file is already
+    /// gone, or permissions refuse it — announces via
     /// ``WorkshopModel/errorMessage`` and leaves every other field
     /// untouched, matching the ho-06.7 trio's own failure posture.
-    func confirmRemoveStrayMarker() {
-        guard let removal = pendingStrayMarkerRemoval else { return }
+    /// `removal` is passed in by the confirmation button, read synchronously
+    /// at the tap: SwiftUI dismisses a `confirmationDialog` through its
+    /// `isPresented` binding *before* the button's `Task` body runs, and that
+    /// dismissal clears ``pendingStrayMarkerRemoval`` — so a body that read
+    /// the pending value itself found `nil` and silently did nothing (the
+    /// ho-06.9 gate: "Forget this folder didn't remove it"). Falls back to
+    /// the pending value for callers that are not racing a dialog.
+    func confirmRemoveStrayMarker(_ removal: StrayMarkerRemoval? = nil) async {
+        guard let removal = removal ?? pendingStrayMarkerRemoval else { return }
         pendingStrayMarkerRemoval = nil
         do {
             try FileManager.default.removeItem(at: removal.markerURL)
@@ -112,5 +121,20 @@ extension WorkshopModel {
         statusMessage =
             "Removed stray marker for '\(removal.scope)' at \(removal.markerURL.path)."
         errorMessage = nil
+        await rescanQuietlyAfterForget()
+    }
+
+    /// The quiet half of Forget: one marker-and-candidate scan through the
+    /// shared hop, no status line, failures to ``WorkshopModel/errorMessage``.
+    private func rescanQuietlyAfterForget() async {
+        guard activity == nil, !scanRoots.isEmpty else { return }
+        guard case .open(let vaultURL) = vaultState else { return }
+        activity = .scanning
+        defer { activity = nil }
+        do {
+            _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
+        } catch {
+            errorMessage = Self.message(for: error)
+        }
     }
 }

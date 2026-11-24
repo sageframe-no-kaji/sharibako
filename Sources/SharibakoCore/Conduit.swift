@@ -97,6 +97,24 @@ public struct Conduit: Sendable {
         }
     }
 
+    /// Removes the `origin` remote, if one is configured.
+    ///
+    /// Probes with `git remote get-url origin` first; with no `origin` there is
+    /// nothing to remove and the call returns quietly, so "remove" is
+    /// idempotent. Otherwise runs `git remote remove origin`. After this,
+    /// ``remoteURL()`` reads `nil` and `push`/`pull` report no remote.
+    ///
+    /// - Throws: ``VaultError/gitInvocationFailed(exitCode:stderr:)`` if git
+    ///   exits non-zero removing an `origin` that exists.
+    public func removeRemote() throws {
+        let probe = try git(["remote", "get-url", "origin"])
+        guard probe.exitCode == 0 else { return }
+        let result = try git(["remote", "remove", "origin"])
+        guard result.exitCode == 0 else {
+            throw VaultError.gitInvocationFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+    }
+
     /// Transport allowlist for remote URLs (ho-04.9, defense-in-depth).
     ///
     /// git supports transport helpers (`ext::<command>`, `fd::<n>`) that turn

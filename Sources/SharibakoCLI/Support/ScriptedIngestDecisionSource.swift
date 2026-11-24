@@ -2,10 +2,11 @@ import SharibakoCore
 
 /// A deterministic ``IngestDecisionSource`` backed by a fixed decision map.
 ///
-/// Used by tests (to cover every ``KeyDecision`` branch without a real
-/// terminal) and by the deferred non-interactive `init` path (Decision 6 in
-/// ho-04.2). Lives in `Sources/` — not `Tests/` — so both call sites can
-/// reach it.
+/// Used by tests to cover every ``KeyDecision`` branch without a real
+/// terminal. Lives in `Sources/` — not `Tests/` — alongside the production
+/// sources it stands in for. The production non-interactive `init` path is
+/// ``ClassDefaultIngestDecisionSource`` (ho-06.10), which defaults each line
+/// from its class rather than from a fixed map.
 ///
 /// ## Usage
 ///
@@ -54,7 +55,8 @@ struct ScriptedIngestDecisionSource: IngestDecisionSource {
 
     /// Returns a source that imports every detected key as scope-local.
     ///
-    /// Convenience for the deferred `--import-all` non-interactive path.
+    /// Test convenience: drives `init` past the decision step with every key
+    /// written, regardless of class.
     static func allImportLocal() -> Self {
         Self(decisions: [:]) { .importAsLocal(key: $0) }
     }

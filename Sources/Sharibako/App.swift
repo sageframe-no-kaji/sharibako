@@ -34,7 +34,10 @@ struct SharibakoApp: App {
         WindowGroup("Sharibako") {
             WorkshopWindow()
                 .environment(model)
-                .preferredColorScheme(appearance.colorScheme)
+                // App-wide AppKit appearance, not `.preferredColorScheme`
+                // (see `AppAppearance.nsAppearance` for why).
+                .onAppear { appearance.apply() }
+                .onChange(of: appearance) { _, newValue in newValue.apply() }
                 // The one interactive color drives selection and every
                 // `.borderedProminent` CTA (ho-06.4 Decision 4); set on each
                 // scene root since scenes don't inherit environment from siblings.

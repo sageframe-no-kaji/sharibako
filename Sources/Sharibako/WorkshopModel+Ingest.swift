@@ -1,407 +1,85 @@
 import Foundation
 import SharibakoCore
 
-/// The GUI ingest flow's state machine and intents (ho-06.3 Decision 6) —
-/// bringing a `.env`-bearing project directory into the vault as a scope.
-/// `IngestSheet` (`Views/IngestSheet.swift`) reads ``WorkshopModel/ingest``
-/// and calls the intents below; no branching logic lives in the view
-/// (Required Change 4, Do Not §4).
+/// Choosing a folder to protect, and the first-run finish page's folder walk
+/// (ho-06.3 Decision 6, reshaped by ho-06.10 Decision 6).
 ///
-/// Three entry points share this one surface (Decision 6): the action
-/// panel's **Ingest Project…** verb, the first-run wizard's finish hand-off
-/// (``offerFirstRunIngestInvite(under:)``), and — AT-03 — orphaned-marker
-/// rows. Every semantic here mirrors `SharibakoCLI`'s `InitCommand` /
-/// `Materializer+Ingest.swift` without importing CLI code (Do Not §1): the
-/// reconcile filter, the nothing-to-import rejection, and the scope-ID
-/// collision confirmation are re-derived from the same `SharibakoCore`
-/// primitives the CLI walks.
+/// ho-06.10 retired the Protect sheet and its session: the project page is
+/// the review (Decision 6), so "begin protecting this folder" is now simply
+/// "select this folder" — its page lists every `.env` line with a choice, and
+/// the protect intents (`WorkshopModel+Protect.swift`) commit from there.
+/// What stays here is the hand-picked-folder path, which registers a scan
+/// root before selecting, and the keyless candidate walk every scan and the
+/// first-run finish page share.
 ///
 /// Split out the way every other feature's intents are
 /// (`WorkshopModel+Mutations.swift`, `+Heal.swift`, `+FirstRun.swift`) — the
 /// `Conduit`/`Conduit+Remote.swift` precedent.
 extension WorkshopModel {
-    // MARK: - Nested state
+    // MARK: - Choosing a folder
 
-    /// The active ingest session: one scan's proposal plus the operator's
-    /// per-key decisions and scope choice, live until commit or cancel.
-    struct IngestSession: Equatable {
-        /// The directory scanned.
-        let directory: URL
-
-        /// The (possibly reconcile-filtered) proposal from
-        /// ``IngestScanPlanner/plan(materializer:vault:directory:)``.
-        let proposal: ProposedScope
-
-        /// Per-key routing decision, keyed by ``DetectedKey/key``.
-        ///
-        /// Populated with `.importAsLocal` for every detected key when the
-        /// session opens (Required Change 1's default);
-        /// ``WorkshopModel/setIngestDecision(_:forKey:)`` overrides
-        /// individual entries.
-        var decisions: [String: KeyDecision]
-
-        /// The scope ID the commit will use — the suggestion on a fresh
-        /// ingest, the marker's own scope (fixed) on reconcile.
-        var scopeID: String
-
-        /// The scope type the commit will use.
-        ///
-        /// Fixed on reconcile, mirroring the CLI (`InitCommand._run`'s
-        /// reconcile branch never prompts for type either).
-        var scopeType: ScopeType
-
-        /// `true` when `directory` already carried a `.sharibako` marker at
-        /// scan time — reconcile mode: the scope ID/type fields are fixed,
-        /// only unowned keys are listed (Required Change 1).
-        let isReconcile: Bool
-
-        /// Existing shared-entry IDs, for the link-to-shared verdict's
-        /// picker (Required Change 2 — link is offered only when non-empty).
-        let sharedIDs: [String]
-
-        /// Vault scope identities that existed at scan time, for the
-        /// scope-ID collision banner (Required Change 1).
-        let existingScopeIDs: Set<String>
-
-        /// `true` when a successful commit should re-present the chooser.
-        ///
-        /// Set for sessions opened from the candidate chooser or the wizard
-        /// hand-off — the chooser returns with the remaining candidates, so
-        /// a whole scan root can be imported in one sitting (gate-fix round:
-        /// only the first candidate used to be reachable). Sessions from the
-        /// orphan rows or any future direct entry point do not chain.
-        let chainOnCommit: Bool
-
-        /// `true` when the (possibly user-edited) ``scopeID`` names a scope
-        /// that already exists — the CLI's collision confirmation (Decision 6).
-        ///
-        /// Rendered inline instead of a blocking prompt. Never fires on
-        /// reconcile, where the ID always already names the marker's own
-        /// scope by construction.
-        var isScopeCollision: Bool {
-            !isReconcile && existingScopeIDs.contains(scopeID)
-        }
-    }
-
-    /// The ingest sheet's own observable state — a nested `@Observable`
-    /// object (the ``WorkshopModel/firstRun`` precedent) rather than more
-    /// top-level `WorkshopModel` properties.
-    @Observable
-    @MainActor
-    final class IngestState {
-        // `internal var`, not `private(set)`: the mutating intents live in
-        // `extension WorkshopModel` below — a different TYPE from
-        // `IngestState` even though declared in this same file, so Swift's
-        // `private`/`private(set)` can't reach across (the identical reason
-        // `FirstRunState`'s fields are plain `var`). Views only ever read
-        // these; the intents are the only writers by convention.
-
-        /// The active session, or `nil` when the sheet is not presented.
-        var session: IngestSession?
-
-        /// Human-facing failure from the last ``WorkshopModel/commitIngest()``
-        /// attempt, or `nil`.
-        ///
-        /// Kept separate from ``WorkshopModel/errorMessage`` so a failed
-        /// commit's message renders inside the still-open sheet rather than
-        /// the main window's status surface (Acceptance: "commit failure
-        /// keeps the session").
-        var errorMessage: String?
-
-        /// The candidate chooser's list, or `nil` when it is not presented.
-        ///
-        /// Holds the `.env`-bearing directories under the scan roots not
-        /// yet bound to the vault (gate-fix round). An empty non-nil array
-        /// presents the chooser in its "nothing new found" state, with
-        /// Choose Other… still available.
-        var candidates: [URL]?
-
-        init() {}
-    }
-
-    // MARK: - Begin (Required Change 1)
-
-    /// Scans `directory` for ingestible secrets and opens the ingest sheet
-    /// when there is real work to do.
+    /// Selects a folder the user picked by hand, wherever it sits.
     ///
-    /// Keyless — the scan only parses `.env`-family files and reads the
-    /// vault's filesystem, so this hops to ``worker`` for the tree walk
-    /// without ever touching the age key. Three outcomes, mirroring
-    /// `InitCommand`'s own three gates:
-    /// - Nothing importable (no `.env`-family file, or every detected key
-    ///   already reconciled) announces plainly through
-    ///   ``WorkshopModel/statusMessage`` — never an empty scope, never a sheet.
-    /// - An existing marker with nothing new to reconcile announces the same way.
-    /// - Otherwise a session opens, every key defaulted to `.importAsLocal`.
-    ///
-    /// A no-op while another activity is in flight or the vault is closed
-    /// (the panel button is already disabled in that state — this is the
-    /// defensive guard, the `materializeSelectedScope`/`sync` precedent).
-    ///
-    /// - Parameters:
-    ///   - directory: The project directory to scan.
-    ///   - chainOnCommit: `true` when the caller is the candidate chooser or
-    ///     the wizard hand-off — see ``IngestSession/chainOnCommit``.
-    func beginIngest(directory: URL, chainOnCommit: Bool = false) async {
+    /// The ho-06.9 gate found the hand-picked path gone: Choose Other… left
+    /// with the chooser and nothing replaced it. When no scan root already
+    /// contains `directory`, the folder itself is registered as a root first —
+    /// so its claim file survives the next launch's scan, closing the ho-06.3
+    /// trap where a hand-picked project vanished on relaunch — then the roots
+    /// are reloaded and re-scanned quietly, and the folder is selected
+    /// (``beginIngest(directory:)``): its page is where it is protected.
+    /// Registering the folder (not its parent) adds nothing the user did not
+    /// point at.
+    func protectFolder(_ directory: URL) async {
         guard activity == nil else { return }
         guard case .open(let vaultURL) = vaultState else { return }
-        statusMessage = nil
-        activity = .scanning
-        defer { activity = nil }
-        do {
-            let outcome = try await worker.run {
-                let core = try VaultCore(vaultURL: vaultURL)
-                let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-                return try IngestScanPlanner.plan(
-                    materializer: materializer, vault: core, directory: directory)
-            }
-            applyIngestScanOutcome(outcome, directory: directory, chainOnCommit: chainOnCommit)
-            errorMessage = nil
-        } catch {
-            errorMessage = Self.message(for: error)
+        let folder = directory.standardizedFileURL
+        let covered = scanRoots.contains { root in
+            let rootPath = root.standardizedFileURL.path
+            return folder.path == rootPath || folder.path.hasPrefix(rootPath + "/")
         }
-    }
-
-    /// Applies a completed scan's outcome to published state (main-actor).
-    ///
-    /// Split from ``beginIngest(directory:)`` so the awaited worker call
-    /// stays a single expression (the `applyMaterializeResult` precedent).
-    private func applyIngestScanOutcome(
-        _ outcome: IngestScanPlanner.Outcome, directory: URL, chainOnCommit: Bool
-    ) {
-        switch outcome {
-        case .nothingToImport:
-            statusMessage = "No secrets found to import in \(directory.lastPathComponent)."
-        case .alreadyReconciled(let scopeID):
-            statusMessage = "Directory already initialized as scope '\(scopeID)'. No new secrets to reconcile."
-        case .session(let payload):
-            var decisions: [String: KeyDecision] = [:]
-            for key in payload.proposal.detectedKeys {
-                decisions[key.key] = .importAsLocal(key: key.key)
-            }
-            ingest.session = IngestSession(
-                directory: directory,
-                proposal: payload.proposal,
-                decisions: decisions,
-                scopeID: payload.scopeID,
-                scopeType: payload.scopeType,
-                isReconcile: payload.isReconcile,
-                sharedIDs: payload.sharedIDs,
-                existingScopeIDs: payload.existingScopeIDs,
-                chainOnCommit: chainOnCommit
-            )
-            ingest.errorMessage = nil
-        }
-    }
-
-    // MARK: - Decision + scope editing (Required Change 2)
-
-    /// Sets the routing decision for `key` in the active session.
-    ///
-    /// A no-op when no session is open — defensive, the sheet that calls
-    /// this only exists while ``IngestState/session`` is non-nil.
-    func setIngestDecision(_ decision: KeyDecision, forKey key: String) {
-        ingest.session?.decisions[key] = decision
-    }
-
-    /// Updates the session's scope ID.
-    ///
-    /// Grammar validation (`VaultCore.isValidIdentifier`) and the collision
-    /// banner both read the live value from ``IngestSession/scopeID`` — this
-    /// just records the text; ``commitIngest()`` re-validates at the gate.
-    func setIngestScopeID(_ scopeID: String) {
-        ingest.session?.scopeID = scopeID
-    }
-
-    /// Updates the session's scope type.
-    func setIngestScopeType(_ scopeType: ScopeType) {
-        ingest.session?.scopeType = scopeType
-    }
-
-    // MARK: - Cancel
-
-    /// Discards the active session without writing anything (Required
-    /// Change 3 — Cancel discards).
-    func cancelIngest() {
-        ingest.session = nil
-        ingest.errorMessage = nil
-    }
-
-    // MARK: - Commit (Required Change 3)
-
-    /// Commits the active session through `Materializer.acceptIngest`
-    /// behind one Touch ID.
-    ///
-    /// The age key is acquired on the main actor first (user interaction,
-    /// not CPU work — every other mutating intent's rule), then only its
-    /// `Sendable` handle URL crosses into ``worker``. On success: reloads
-    /// scopes, refreshes the scan cache when roots are configured (06.2's
-    /// glyphs must be right immediately — the marker `acceptIngest` just
-    /// wrote needs a fresh scan to be found), selects the new/reconciled
-    /// scope in the sidebar, closes the sheet, and announces the CLI's
-    /// summary shape. On failure the session stays open with every decision
-    /// intact (Acceptance: "commit failure keeps the session"); Cancel
-    /// discards, this never does.
-    func commitIngest() async {
-        guard activity == nil else { return }
-        guard case .open(let vaultURL) = vaultState,
-            let session = ingest.session
-        else { return }
-        guard VaultCore.isValidIdentifier(session.scopeID) else {
-            ingest.errorMessage = "Invalid scope ID — use letters, digits, and ._- (no path separators)."
-            return
-        }
-        ingest.errorMessage = nil
-        activity = .ingesting
-        defer { activity = nil }
-        let provider = makeAgeKeyProvider()
-        let handle: AgeKeyHandle
-        do {
-            handle = try provider.loadIdentity(reason: "Encrypt secrets during ingest")
-        } catch {
-            ingest.errorMessage = "Could not load age key: \(error)"
-            return
-        }
-        let keyURL = handle.url
-        let decisions = Array(session.decisions.values)
-        let proposal = session.proposal
-        let scopeID = session.scopeID
-        let scopeType = session.scopeType
-        do {
-            try await worker.run {
-                let core = try VaultCore(vaultURL: vaultURL, ageKeyURL: keyURL)
-                let materializer = Materializer(vaultCore: core, vaultURL: vaultURL)
-                try materializer.acceptIngest(
-                    proposal, decisions: decisions, scopeID: scopeID, scopeType: scopeType)
-            }
-            handle.release()
-            let markerFileURL = proposal.directory.appendingPathComponent(".sharibako")
-            await spliceIngestMarkerIntoScanCache(markerURL: markerFileURL)
-            loadScopes()
-            selectedScopeID = scopeID
-            ingest.session = nil
-            ingest.errorMessage = nil
-            let markerURL = proposal.directory.appendingPathComponent(".sharibako")
-            statusMessage = Self.ingestSummary(decisions: decisions, markerURL: markerURL)
-            errorMessage = nil
-            // Chaining (gate-fix round): a chooser- or wizard-initiated
-            // import re-presents the chooser with whatever is left. The
-            // marker just written excludes this directory from the walk by
-            // construction, so the list shrinks by itself.
-            if session.chainOnCommit {
-                let roots = scanRoots
-                let remaining = await worker.run {
-                    IngestCandidateScanner.findUnboundCandidates(under: roots)
-                }
-                if !remaining.isEmpty {
-                    ingest.candidates = remaining
-                }
-            }
-        } catch {
-            handle.release()
-            ingest.errorMessage = Self.message(for: error)
-        }
-    }
-
-    /// Splices the marker a commit just wrote into the cached scan report so
-    /// the sidebar glyphs are right immediately (Required Change 3; reworked
-    /// at the gate).
-    ///
-    /// The first shape of this re-ran `Materializer.scan` over every root
-    /// after each commit — an unbounded walk through `.git`/`node_modules`
-    /// forests that made every chained import cost a full tree-walk of the
-    /// whole dev vault ("why is import SO SLOW"). The marker's path is known;
-    /// one file read replaces the walk — the orphan-removal side's
-    /// local-cache-filtering precedent, in reverse. Failures are swallowed:
-    /// the ingest already succeeded and the next Rescan or launch scan
-    /// self-corrects the cache.
-    private func spliceIngestMarkerIntoScanCache(markerURL: URL) async {
-        guard case .open(let vaultURL) = vaultState else { return }
-        let marker = try? await worker.run {
-            let core = try VaultCore(vaultURL: vaultURL)
-            return try Materializer(vaultCore: core, vaultURL: vaultURL).loadMarker(at: markerURL)
-        }
-        guard let marker else { return }
-        let existing = scanReport ?? ScanReport(markers: [], failures: [])
-        var markers = existing.markers.filter {
-            $0.markerURL.standardizedFileURL.path != markerURL.standardizedFileURL.path
-        }
-        markers.append(marker)
-        updateScanReport(ScanReport(markers: markers, failures: existing.failures))
-    }
-
-    /// Mirrors `InitCommand.reportResult`'s summary line without importing
-    /// it — "imported N, linked N, moved N, left alone N, skipped N".
-    private static func ingestSummary(decisions: [KeyDecision], markerURL: URL) -> String {
-        var imported = 0
-        var linked = 0
-        var moved = 0
-        var leftAlone = 0
-        var skipped = 0
-        for decision in decisions {
-            switch decision {
-            case .importAsLocal: imported += 1
-            case .linkToShared: linked += 1
-            case .moveToShared: moved += 1
-            case .leaveAlone: leftAlone += 1
-            case .skip: skipped += 1
+        if !covered {
+            do {
+                try WorkshopConfig.persistScanRoot(folder, configURL: configURL)
+                scanRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
+                activity = .scanning
+                _ = try await scanMarkersAndCandidates(vaultURL: vaultURL, roots: scanRoots)
+                activity = nil
+            } catch {
+                activity = nil
+                errorMessage = Self.message(for: error)
+                return
             }
         }
-        return
-            "Imported \(imported), linked \(linked), moved \(moved), "
-            + "left alone \(leftAlone), skipped \(skipped) — marker at \(markerURL.path)"
+        beginIngest(directory: folder)
     }
 
-    // MARK: - Candidate chooser (gate-fix round)
-
-    /// Walks every configured scan root for `.env`-bearing directories not
-    /// yet bound to the vault and presents the chooser
-    /// (`IngestChooserSheet`) — the panel's **Ingest Project…** entry point.
+    /// Selects a folder's row, with no sheet (ho-06.10 Decision 6).
     ///
-    /// Replaces the bare directory picker the verb first shipped with: at
-    /// the gate only the wizard's first candidate was reachable without
-    /// hand-picking every remaining project one folder at a time. Keyless
-    /// (a `.env` walk plus a `.sharibako` existence check per hit), so the
-    /// walk hops to ``worker`` like every scan. Found none → the chooser
-    /// still presents, in its "nothing new" state, with Choose Other…
-    /// available.
-    func presentIngestChooser() async {
-        guard activity == nil else { return }
+    /// The row is the project its claim file names when the vault has it, the
+    /// Problem row when the vault does not, else the folder as not yet
+    /// protected.
+    ///
+    /// Reads the scan cache only; nothing is walked, read, or decrypted here —
+    /// the page's own ``loadContent(for:)`` reads the lines. A candidate is
+    /// selected by the URL ``candidates`` already holds when it holds one, so
+    /// the selection equals the sidebar row's tag even when `directory`
+    /// carries a trailing slash or a `..`. A no-op with no vault open.
+    func beginIngest(directory: URL) {
         guard case .open = vaultState else { return }
-        activity = .scanning
-        defer { activity = nil }
-        // Same live-config read as `rescan()` (ho-06.3 gate fix): a
-        // config.yaml edited while the app runs must reach the chooser
-        // without a relaunch. Injected test roots win only when the config
-        // file has none.
-        let configRoots = WorkshopConfig.loadScanRoots(configURL: configURL)
-        if !configRoots.isEmpty {
-            scanRoots = configRoots
+        let folder = directory.standardizedFileURL
+        let marker = scanReport?.markers.first {
+            $0.markerURL.deletingLastPathComponent().standardizedFileURL.path == folder.path
         }
-        let roots = scanRoots
-        ingest.candidates = await worker.run {
-            IngestCandidateScanner.findUnboundCandidates(under: roots)
+        if let marker {
+            let known = scopes.contains { $0.identity == marker.scope }
+            selection = known ? .project(scopeID: marker.scope) : .problem(markerPath: marker.markerURL.path)
+            return
         }
+        let candidate = candidates.first { $0.standardizedFileURL.path == folder.path }
+        selection = .candidate(directory: candidate ?? folder)
     }
 
-    /// Closes the candidate chooser without importing anything.
-    func dismissIngestChooser() {
-        ingest.candidates = nil
-    }
-
-    /// Imports one chooser candidate: closes the chooser and opens the
-    /// ingest session on `directory`, chaining back to the chooser after a
-    /// successful commit (``IngestSession/chainOnCommit``).
-    ///
-    /// Also the path Choose Other… takes with a hand-picked directory — a
-    /// deliberate chain there too, so "pick one manually, then keep going"
-    /// stays one sitting.
-    func selectIngestCandidate(_ directory: URL) async {
-        ingest.candidates = nil
-        await beginIngest(directory: directory, chainOnCommit: true)
-    }
-
-    // MARK: - Wizard hand-off (Required Change 5)
+    // MARK: - Wizard hand-off
 
     /// Worker-routed shallow walk of `root` for `.env`-bearing directories —
     /// the finish page's own read of the seam AT-01 left (``firstRunCompleted``).
@@ -416,166 +94,18 @@ extension WorkshopModel {
     func findFirstRunIngestCandidates(under root: URL) async -> [URL] {
         await worker.run { IngestCandidateScanner.findCandidates(under: root) }
     }
-
-    /// Invites the first import(s) after the wizard finishes: one candidate
-    /// opens the ingest sheet directly; several present the candidate
-    /// chooser; none does nothing (Decision 1 step 6, Required Change 5,
-    /// revised at the gate — only the first candidate used to be offered).
-    ///
-    /// Called from `FirstRunWizard`'s "Create Vault" flow once
-    /// ``completeFirstRun()`` has flipped ``vaultState`` to `.open` — by
-    /// design the wizard's own view may already be off-screen by the time
-    /// this resolves (the vault-state flip mid-`completeFirstRun()` swaps
-    /// `WorkshopWindow` to its `.open` arm before this async chain finishes),
-    /// so the result lands on ``ingest`` — model state `WorkshopWindow`
-    /// reads reliably regardless of that timing — rather than on any
-    /// `FirstRunWizard`-local `@State`. Every import from here chains
-    /// (``IngestSession/chainOnCommit``) until the candidate list runs dry.
-    func offerFirstRunIngestInvite(under root: URL) async {
-        let candidates = await worker.run {
-            IngestCandidateScanner.findUnboundCandidates(under: [root])
-        }
-        guard !candidates.isEmpty else { return }
-        if candidates.count == 1, let only = candidates.first {
-            await beginIngest(directory: only, chainOnCommit: true)
-        } else {
-            ingest.candidates = candidates
-        }
-    }
-}
-
-// MARK: - Scan planning (pure, off-main-actor-safe)
-
-/// Pure planning logic for a keyless ingest scan.
-///
-/// A plain `enum` (never instantiated), NOT a `WorkshopModel` static method:
-/// ``WorkshopModel/beginIngest(directory:)`` calls this from inside
-/// `VaultWorker.run`'s `@Sendable` closure, off the main actor — a method on
-/// the `@MainActor`-isolated `WorkshopModel` type would carry that isolation
-/// into the closure and fight `@Sendable`. Mirrors `InitCommand`'s
-/// `filterProposal` gate (Required Change 1) without importing CLI code (Do
-/// Not §1) — re-derived from the same `SharibakoCore` primitives the CLI
-/// walks (`Materializer.ingest`, `VaultCore.inspect`).
-enum IngestScanPlanner {
-    /// The payload for `Outcome.session` — bundled into one `Sendable` type
-    /// rather than a six-way associated-value case (SwiftLint's
-    /// `enum_case_associated_values_count` ceiling).
-    struct SessionOutcome: Sendable, Equatable {
-        /// The (possibly reconcile-filtered) proposal.
-        let proposal: ProposedScope
-        /// The suggestion on a fresh ingest, the marker's own scope (fixed) on reconcile.
-        let scopeID: String
-        /// Fixed on reconcile, mirroring the CLI.
-        let scopeType: ScopeType
-        /// `true` when `directory` already carried a `.sharibako` marker at scan time.
-        let isReconcile: Bool
-        /// Existing shared-entry IDs, for the link-to-shared verdict's picker.
-        let sharedIDs: [String]
-        /// Vault scope identities that existed at scan time, for the collision banner.
-        let existingScopeIDs: Set<String>
-    }
-
-    /// The scan's outcome — `Sendable` so it can cross back to the main
-    /// actor from `VaultWorker.run`.
-    enum Outcome: Sendable, Equatable {
-        /// A session should open, keys defaulted to `.importAsLocal`.
-        case session(SessionOutcome)
-        /// An existing marker's scope already owns every key the scan found.
-        case alreadyReconciled(scopeID: String)
-        /// No `.env`-family file, or nothing in it worth importing.
-        case nothingToImport
-    }
-
-    /// Scans `directory`, applies the reconcile filter when a `.sharibako`
-    /// marker already binds it to a scope, and classifies the result.
-    static func plan(
-        materializer: Materializer,
-        vault: VaultCore,
-        directory: URL
-    ) throws -> Outcome {
-        let markerURL = directory.appendingPathComponent(".sharibako")
-        let existingMarker = try loadExistingMarker(at: markerURL, materializer: materializer)
-        let fullProposal = try materializer.ingest(directory: directory)
-
-        let proposal: ProposedScope
-        let isReconcile: Bool
-        if let marker = existingMarker {
-            proposal = filterProposal(fullProposal, existingScope: marker.scope, vault: vault)
-            isReconcile = true
-        } else {
-            proposal = fullProposal
-            isReconcile = false
-        }
-
-        guard !proposal.detectedKeys.isEmpty else {
-            if let marker = existingMarker {
-                return .alreadyReconciled(scopeID: marker.scope)
-            }
-            return .nothingToImport
-        }
-
-        let sharedIDs = try vault.listShared()
-        let existingScopeIDs = Set(try vault.listScopes().map(\.identity))
-        let scopeID = existingMarker?.scope ?? proposal.suggestedScopeID
-        return .session(
-            SessionOutcome(
-                proposal: proposal,
-                scopeID: scopeID,
-                scopeType: proposal.suggestedScopeType,
-                isReconcile: isReconcile,
-                sharedIDs: sharedIDs,
-                existingScopeIDs: existingScopeIDs
-            )
-        )
-    }
-
-    /// Loads the `.sharibako` marker at `markerURL`, or `nil` when none
-    /// exists — direct `fileExists` detection, the CLI's own approach
-    /// (`InitCommand.loadExistingMarker`, Decision 7 there).
-    private static func loadExistingMarker(
-        at markerURL: URL, materializer: Materializer
-    ) throws -> ScopeMarker? {
-        guard FileManager.default.fileExists(atPath: markerURL.path) else { return nil }
-        return try materializer.loadMarker(at: markerURL)
-    }
-
-    /// Mirrors `InitCommand.filterProposal` — only keys the scope does not
-    /// yet own are presented on reconcile.
-    ///
-    /// Already-owned keys are silently excluded. A vault read failure
-    /// (orphaned marker naming a scope the vault has lost) falls back to
-    /// treating nothing as owned, so the operator can re-ingest everything
-    /// rather than being stuck.
-    private static func filterProposal(
-        _ full: ProposedScope,
-        existingScope: String,
-        vault: VaultCore
-    ) -> ProposedScope {
-        let ownedKeys: Set<String>
-        if let infos = try? vault.inspect(existingScope) {
-            ownedKeys = Set(infos.map(\.key))
-        } else {
-            ownedKeys = []
-        }
-        let newKeys = full.detectedKeys.filter { !ownedKeys.contains($0.key) }
-        return ProposedScope(
-            directory: full.directory,
-            suggestedScopeID: existingScope,
-            suggestedScopeType: full.suggestedScopeType,
-            detectedKeys: newKeys,
-            suggestedKeysNeedingValues: full.suggestedKeysNeedingValues,
-            parseWarnings: full.parseWarnings
-        )
-    }
 }
 
 // MARK: - Candidate scanning (pure, off-main-actor-safe)
 
-/// Pure directory-walk logic for the first-run finish page's ingest invite
-/// (Required Change 5).
+/// Pure directory-walk logic for `.env`-bearing folders: the first-run finish
+/// page's preview (Required Change 5) and, since ho-06.9, the "Not protected"
+/// half of every scan (``WorkshopModel/scanMarkersAndCandidates(vaultURL:roots:)``).
 ///
-/// A plain `enum` for the same off-main-actor-safety reason as
-/// ``IngestScanPlanner`` — called from inside `VaultWorker.run`.
+/// A plain `enum` (never instantiated), not a `WorkshopModel` static method:
+/// it is called from inside `VaultWorker.run`'s `@Sendable` closure, off the
+/// main actor, and a method on the `@MainActor` model would carry that
+/// isolation into the closure.
 enum IngestCandidateScanner {
     /// Maximum depth below `root` to walk (`root` itself is depth 0).
     ///
@@ -611,7 +141,7 @@ enum IngestCandidateScanner {
     /// projects not yet in the vault.
     ///
     /// "Not yet in the vault" means no `.sharibako` marker in the directory
-    /// (the chooser's population; gate-fix round). Deduplicated by
+    /// (the "Not protected" section's population). Deduplicated by
     /// standardized path (overlapping roots would list a project twice),
     /// sorted for stable display.
     static func findUnboundCandidates(under roots: [URL]) -> [URL] {

@@ -104,7 +104,7 @@ struct WorkshopModelConcurrencyTests {
 
             await model.rescan()
             #expect(model.cachedMarker(forScope: "beta") != nil)
-            #expect(model.statusMessage?.hasPrefix("Scan found 2 marker") == true)
+            #expect(model.statusMessage == "Found no projects to protect; 2 already protected.")
         }
     }
 
@@ -277,7 +277,7 @@ struct WorkshopModelConcurrencyTests {
             _ = await hold.value
             await first.value
             #expect(model.activity == nil)
-            #expect(model.statusMessage?.hasPrefix("Scan found") == true)
+            #expect(model.statusMessage?.hasPrefix("Found") == true)
         }
     }
 
@@ -286,9 +286,9 @@ struct WorkshopModelConcurrencyTests {
         #expect(WorkshopModel.Activity.scanning.label == "Scanning…")
         #expect(WorkshopModel.Activity.materializing.label == "Materializing…")
         #expect(WorkshopModel.Activity.syncing.label == "Syncing…")
-        // ho-06.3 gate fix: the ingest commit must not borrow "Materializing…"
-        // — the status surface and the sheet button wear the same name.
-        #expect(WorkshopModel.Activity.ingesting.label == "Importing…")
+        // ho-06.3 gate fix: the ingest commit must not borrow "Materializing…";
+        // ho-06.9 names it with the user's verb, Protect.
+        #expect(WorkshopModel.Activity.ingesting.label == "Protecting…")
     }
 
     @Test("sync clears activity on the error path")

@@ -8,8 +8,31 @@ import Testing
 
 private let envURL = URL(fileURLWithPath: "/tmp/.env")
 
-private func makeKey(_ name: String, matchedSharedID: String? = nil) -> DetectedKey {
-    DetectedKey(key: name, value: "v", sourceFile: envURL, nameMatchedSharedID: matchedSharedID)
+/// Default value is secret-shaped (rule 5 fallback: `+` is no setting shape),
+/// so a bare `makeKey("A")` classes as a secret and defaults to import.
+private func makeKey(
+    _ name: String,
+    value: String = "s3cr3t+value",
+    matchedSharedID: String? = nil
+) -> DetectedKey {
+    DetectedKey(key: name, value: value, sourceFile: envURL, nameMatchedSharedID: matchedSharedID)
+}
+
+/// Runs the prompt against canned answers and returns its decisions plus
+/// every line it printed.
+private func runPrompt(
+    _ keys: [DetectedKey],
+    answers: [String],
+    sharedIDs: [String] = []
+) throws -> (decisions: [KeyDecision], output: [String]) {
+    var queue = answers
+    var captured: [String] = []
+    var prompt = PlainIngestPrompt()
+    prompt.lineReader = { queue.isEmpty ? nil : queue.removeFirst() }
+    prompt.print = { captured.append($0) }
+    prompt.isInteractive = { true }
+    let decisions = try prompt.decisions(for: makeProposal(keys), sharedIDs: sharedIDs)
+    return (decisions, captured)
 }
 
 private func makeProposal(
@@ -45,11 +68,11 @@ private func makePrompt(
     return prompt
 }
 
-// MARK: - Import-all (dominant case)
+// MARK: - Accept the class defaults (dominant case)
 
-@Suite("PlainIngestPrompt — import all")
+@Suite("PlainIngestPrompt — accept defaults")
 struct PlainIngestPromptImportAllTests {
-    @Test("empty answer imports every key")
+    @Test("empty answer imports every secret")
     func emptyImportsAll() throws {
         var out: [String] = []
         let prompt = makePrompt(lines: [""], output: &out)
@@ -57,12 +80,111 @@ struct PlainIngestPromptImportAllTests {
         #expect(result == [.importAsLocal(key: "A"), .importAsLocal(key: "B")])
     }
 
-    @Test("'y' imports every key")
+    @Test("'y' imports every secret")
     func yesImportsAll() throws {
         var out: [String] = []
         let prompt = makePrompt(lines: ["y"], output: &out)
         let result = try prompt.decisions(for: makeProposal([makeKey("A")]), sharedIDs: [])
         #expect(result == [.importAsLocal(key: "A")])
+    }
+}
+
+// MARK: - Classes and wording
+
+@Suite("PlainIngestPrompt — classes")
+struct PlainIngestPromptClassTests {
+    private let mixed = [
+        makeKey("OPENAI_API_KEY", value: "sk-proj-abc"),
+        makeKey("PORT", value: "3000"),
+        makeKey("JWT_SECRET", value: "x"),
+        makeKey("NODE_ENV", value: "development"),
+    ]
+
+    @Test("accepting protects the secrets and leaves the settings alone")
+    func acceptAppliesClassDefaults() throws {
+        let run = try runPrompt(mixed, answers: [""])
+        #expect(
+            run.decisions == [
+                .importAsLocal(key: "OPENAI_API_KEY"), .leaveAlone(key: "PORT"),
+                .importAsLocal(key: "JWT_SECRET"), .leaveAlone(key: "NODE_ENV"),
+            ]
+        )
+        #expect(run.output.contains("Protect 2 secrets and leave 2 settings alone? [Y/n]"))
+    }
+
+    @Test("the key list shows each line's class and reason")
+    func keyListShowsClasses() throws {
+        let run = try runPrompt(mixed, answers: [""])
+        #expect(run.output.contains(" 1  OPENAI_API_KEY  [secret] (key ends in KEY)"))
+        #expect(run.output.contains(" 2  PORT  [setting] (looks like a number)"))
+        #expect(run.output.contains(" 4  NODE_ENV  [setting] (looks like a plain word)"))
+    }
+
+    @Test("the header counts secrets and settings")
+    func headerCounts() throws {
+        let run = try runPrompt(mixed, answers: [""])
+        #expect(run.output.first == "Scope: test-scope  ·  2 secrets, 2 settings")
+    }
+
+    @Test("the bulk question is zero-aware and singular-aware")
+    func bulkQuestionForms() {
+        #expect(
+            PlainIngestPrompt.bulkQuestion(secrets: 3, settings: 2)
+                == "Protect 3 secrets and leave 2 settings alone? [Y/n]"
+        )
+        #expect(
+            PlainIngestPrompt.bulkQuestion(secrets: 1, settings: 1)
+                == "Protect 1 secret and leave 1 setting alone? [Y/n]"
+        )
+        #expect(PlainIngestPrompt.bulkQuestion(secrets: 3, settings: 0) == "Protect 3 secrets? [Y/n]")
+        #expect(PlainIngestPrompt.bulkQuestion(secrets: 1, settings: 0) == "Protect 1 secret? [Y/n]")
+        #expect(PlainIngestPrompt.bulkQuestion(secrets: 0, settings: 2) == "Leave all 2 settings alone? [Y/n]")
+        #expect(PlainIngestPrompt.bulkQuestion(secrets: 0, settings: 1) == "Leave 1 setting alone? [Y/n]")
+    }
+
+    @Test("settings only: accepting leaves every line alone")
+    func settingsOnly() throws {
+        let run = try runPrompt([makeKey("DEBUG", value: "true"), makeKey("PORT", value: "80")], answers: ["y"])
+        #expect(run.decisions == [.leaveAlone(key: "DEBUG"), .leaveAlone(key: "PORT")])
+        #expect(run.output.contains("Leave all 2 settings alone? [Y/n]"))
+    }
+
+    @Test("declining then blank keeps every class default")
+    func declineThenBlankKeepsDefaults() throws {
+        let run = try runPrompt(mixed, answers: ["n", ""])
+        #expect(
+            run.decisions == [
+                .importAsLocal(key: "OPENAI_API_KEY"), .leaveAlone(key: "PORT"),
+                .importAsLocal(key: "JWT_SECRET"), .leaveAlone(key: "NODE_ENV"),
+            ]
+        )
+    }
+
+    @Test("per-key: Enter keeps the class default, and the prompt names it")
+    func perKeyEnterKeepsDefault() throws {
+        let run = try runPrompt(mixed, answers: ["n", "1,2", "", ""])
+        #expect(run.decisions[0] == .importAsLocal(key: "OPENAI_API_KEY"))
+        #expect(run.decisions[1] == .leaveAlone(key: "PORT"))
+        #expect(
+            run.output.contains {
+                $0.hasPrefix("PORT  [setting] (looks like a number)") && $0.hasSuffix("Enter = leave:")
+            }
+        )
+        #expect(run.output.contains { $0.hasPrefix("OPENAI_API_KEY  [secret]") && $0.hasSuffix("Enter = import:") })
+    }
+
+    @Test("per-key: a setting can be flipped to import, a secret to leave")
+    func perKeyFlips() throws {
+        let run = try runPrompt(mixed, answers: ["n", "1,2", "x", "i"])
+        #expect(run.decisions[0] == .leaveAlone(key: "OPENAI_API_KEY"))
+        #expect(run.decisions[1] == .importAsLocal(key: "PORT"))
+    }
+
+    @Test("an empty proposal asks nothing and decides nothing")
+    func emptyProposal() throws {
+        let run = try runPrompt([], answers: [])
+        #expect(run.decisions.isEmpty)
+        #expect(!run.output.contains { $0.contains("[Y/n]") })
     }
 }
 

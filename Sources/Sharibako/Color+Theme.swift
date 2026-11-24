@@ -158,3 +158,77 @@ extension Color {
     /// The cooler data surface — the panel ho's primary surface.
     static var panelGround: Color { Theme.panelGround.color }
 }
+
+// MARK: - Status glyph tints (ho-06.9 Decision 8)
+
+extension WorkshopModel.ProjectStatus {
+    /// The palette token the status glyph wears (Decision 8).
+    ///
+    /// Shape carries the status and the token only reinforces it: Not
+    /// protected is quiet `inkSecondary`, Protected the affirmative `inSync`,
+    /// Out of date and Problem the rust alarm, No folder here and No secrets
+    /// the faintest `inkTertiary`. Returned as a ``Palette`` rather than a `Color` so the
+    /// mapping is unit-tested by value — two dynamic `Color`s never compare
+    /// equal.
+    var glyphPalette: Palette {
+        switch self {
+        case .notProtected: return Theme.inkSecondary
+        case .protected: return Theme.inSync
+        case .outOfDate, .problem: return Theme.alarm
+        case .noFolderHere, .noSecrets: return Theme.inkTertiary
+        }
+    }
+}
+
+extension WorkshopModel.ProjectEntry {
+    /// The row glyph's palette: its status's token, or `inkSecondary` for a
+    /// shared secret, whose placeholder status must not color it.
+    var glyphPalette: Palette {
+        isShared ? Theme.inkSecondary : status.glyphPalette
+    }
+}
+
+// MARK: - Project page tints (ho-06.10 Decision 6, AT-03)
+
+extension WorkshopModel.LineStatus {
+    /// The palette token a line's status mark wears: the affirmative
+    /// `inSync` in the vault, the rust alarm in plain text, the faintest
+    /// `inkTertiary` for a vault line missing from `.env` and for a setting.
+    var rowPalette: Palette {
+        switch self {
+        case .protected: return Theme.inSync
+        case .notProtected: return Theme.alarm
+        case .missingFromEnv, .setting: return Theme.inkTertiary
+        }
+    }
+
+    /// The key's ink: full `ink` for a secret, quieter `inkSecondary` for a
+    /// setting (the settings read dimmer, Decision 6).
+    var keyPalette: Palette {
+        self == .setting ? Theme.inkSecondary : Theme.ink
+    }
+
+    /// The caption's ink: `inkSecondary` for a secret, `inkTertiary` for a
+    /// setting.
+    var captionPalette: Palette {
+        self == .setting ? Theme.inkTertiary : Theme.inkSecondary
+    }
+}
+
+extension WorkshopModel.ProjectHeaderState {
+    /// The header mark's token: the rust alarm while anything is exposed,
+    /// `inSync` once nothing is, `inkTertiary` for a project with no lines
+    /// or nothing to protect.
+    var markPalette: Palette {
+        switch self {
+        case .notProtected, .unprotected: return Theme.alarm
+        case .protected: return Theme.inSync
+        case .nothingToProtect, .empty: return Theme.inkTertiary
+        }
+    }
+
+    /// The header label's ink: `ink`, or quiet `inkTertiary` for "No lines".
+    var labelPalette: Palette {
+        self == .empty ? Theme.inkTertiary : Theme.ink
+    }
+}

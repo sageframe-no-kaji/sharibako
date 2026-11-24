@@ -249,10 +249,8 @@ struct WorkshopModelTests {
             #expect(model.errorMessage == nil)
             #expect(model.scopes.map(\.identity) == ["glassroom", "kanyo", "m4bmaker"])
 
-            let sections = model.scopeSections
-            #expect(sections.map(\.type) == [.projectDev, .service])
-            #expect(sections[0].scopes.map(\.identity) == ["glassroom", "m4bmaker"])
-            #expect(sections[1].scopes.map(\.identity) == ["kanyo"])
+            #expect(model.projectSections.map(\.id) == [.projects])
+            #expect(model.projectSections.first?.entries.map(\.scopeID) == ["glassroom", "kanyo", "m4bmaker"])
         }
     }
 
@@ -370,30 +368,6 @@ struct WorkshopModelTests {
             )
             #expect(model.devAgeKeyPath == nil)
             #expect(model.makeAgeKeyProvider() is GUIKeychainAgeKeyProvider)
-        }
-    }
-
-    @Test("All five scope types render sections in the fixed order")
-    func allSectionsInOrder() throws {
-        try WorkshopTestSupport.withTempVault { vault in
-            try WorkshopTestSupport.writeScope("e-other", type: .other, in: vault)
-            try WorkshopTestSupport.writeScope("d-machine", type: .machine, in: vault)
-            try WorkshopTestSupport.writeScope("c-service", type: .service, in: vault)
-            try WorkshopTestSupport.writeScope("b-prod", type: .projectProd, in: vault)
-            try WorkshopTestSupport.writeScope("a-dev", type: .projectDev, in: vault)
-
-            let model = WorkshopModel(
-                environment: ["SHARIBAKO_VAULT": vault.path],
-                home: URL(fileURLWithPath: "/Users/nobody")
-            )
-
-            let sections = model.scopeSections
-            #expect(sections.map(\.type) == WorkshopModel.sectionOrder)
-            #expect(
-                sections.map(\.title) == [
-                    "Projects — dev", "Projects — prod", "Services", "Machines", "Other",
-                ])
-            #expect(sections.map(\.id) == sections.map(\.type.rawValue))
         }
     }
 

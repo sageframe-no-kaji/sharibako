@@ -15,6 +15,13 @@ import Testing
 /// dogfood gate.
 @Suite("App Appearance")
 struct AppAppearanceTests {
+    @Test("nsAppearance maps system → nil, light → aqua, dark → darkAqua")
+    func nsAppearanceMapping() {
+        #expect(AppAppearance.system.nsAppearance == nil)
+        #expect(AppAppearance.light.nsAppearance?.name == .aqua)
+        #expect(AppAppearance.dark.nsAppearance?.name == .darkAqua)
+    }
+
     @Test("colorScheme maps system → nil, light → .light, dark → .dark")
     func colorSchemeMapping() {
         #expect(AppAppearance.system.colorScheme == nil)

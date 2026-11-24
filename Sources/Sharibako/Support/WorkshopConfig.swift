@@ -112,8 +112,19 @@ enum WorkshopConfig {
     /// no other keys because none exist yet. Revisit when ho-06's first-run
     /// flow adds fields.
     static func persistScanRoot(_ root: URL, configURL: URL) throws {
-        var paths = loadScanRoots(configURL: configURL).map(\.path)
-        if !paths.contains(root.path) {
+        let roots = loadScanRoots(configURL: configURL)
+        try persistScanRoots(roots + [root], configURL: configURL)
+    }
+
+    /// Replaces the config file's `scan_roots` with `roots`, in order,
+    /// creating the file and its parent directory when absent (ho-06.10
+    /// AT-04: the Workshop's Scan folders… sheet writes the whole list).
+    ///
+    /// Duplicate paths keep their first position; an empty list writes an
+    /// empty `scan_roots`, which ``loadScanRoots(configURL:)`` reads as none.
+    static func persistScanRoots(_ roots: [URL], configURL: URL) throws {
+        var paths: [String] = []
+        for root in roots where !paths.contains(root.path) {
             paths.append(root.path)
         }
         let encoded = try YAMLEncoder().encode(ConfigFile(scanRoots: paths))
@@ -122,6 +133,16 @@ enum WorkshopConfig {
             withIntermediateDirectories: true
         )
         try encoded.write(to: configURL, atomically: true, encoding: .utf8)
+    }
+
+    /// Drops `root` from the config file's `scan_roots`, compared by
+    /// standardized path; a root that is not listed leaves the file as it was.
+    static func removeScanRoot(_ root: URL, configURL: URL) throws {
+        let target = root.standardizedFileURL.path
+        let roots = loadScanRoots(configURL: configURL)
+        let kept = roots.filter { $0.standardizedFileURL.path != target }
+        guard kept.count != roots.count else { return }
+        try persistScanRoots(kept, configURL: configURL)
     }
 }
 

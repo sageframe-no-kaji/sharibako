@@ -123,18 +123,9 @@ struct WorkshopModelHealTests {
         #expect(WorkshopModel.driftKey(.fileLineCorrupted(key: "K")) == "K")
     }
 
-    @Test("DriftBadge carries a shape-distinct symbol and a naming tooltip per state")
-    func driftBadgePresentation() {
-        let clean = WorkshopModel.DriftBadge.clean
-        let drifted = WorkshopModel.DriftBadge.drifted(keyCount: 2)
-        #expect(clean.symbolName != drifted.symbolName)
-        #expect(!clean.helpText.isEmpty)
-        #expect(drifted.helpText.contains("2"))
-    }
-
     // MARK: - Cache reads before a check
 
-    @Test("driftBadge and driftReport are nil before any check has run")
+    @Test("no drift report and no Out-of-date status before any check has run")
     func cacheEmptyBeforeCheck() throws {
         try WorkshopTestSupport.withTempVault { vault in
             try WorkshopTestSupport.writeScope("kanyo-dev", type: .projectDev, in: vault)
@@ -142,7 +133,7 @@ struct WorkshopModelHealTests {
                 environment: ["SHARIBAKO_VAULT": vault.path],
                 home: URL(fileURLWithPath: "/Users/nobody")
             )
-            #expect(model.driftBadge(forScope: "kanyo-dev") == nil)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .noFolderHere)
             #expect(model.driftReport(forScope: "kanyo-dev") == nil)
             #expect(model.driftReports.isEmpty)
         }
@@ -166,7 +157,7 @@ struct WorkshopModelHealTests {
             model.scanRoots = [root]
             await model.performLaunchScan()
             await model.checkDrift()
-            #expect(model.statusMessage == "No materialized scopes to check for drift.")
+            #expect(model.statusMessage == "No protected projects with a folder on this Mac to check.")
             #expect(model.driftReports.isEmpty)
             #expect(model.activity == nil)
         }
@@ -177,8 +168,8 @@ struct WorkshopModelHealTests {
         try await Self.withMaterializedScope { model, _, _ in
             await model.checkDrift()
             #expect(model.driftReports["kanyo-dev"] != nil)
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
-            #expect(model.statusMessage == "Checked 1 scope — 0 drifted.")
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
+            #expect(model.statusMessage == "1 checked · 0 out of date")
             #expect(model.errorMessage == nil)
             #expect(model.activity == nil)
         }
@@ -196,8 +187,8 @@ struct WorkshopModelHealTests {
                 return
             }
             #expect(WorkshopModel.isDrifted(report))
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .drifted(keyCount: 1))
-            #expect(model.statusMessage == "Checked 1 scope — 1 drifted.")
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .outOfDate(keyCount: 1))
+            #expect(model.statusMessage == "1 checked · 1 out of date")
         }
     }
 
@@ -208,7 +199,7 @@ struct WorkshopModelHealTests {
         try await Self.withMaterializedScope { model, _, envURL in
             try "DB=postgres://tampered\n".write(to: envURL, atomically: true, encoding: .utf8)
             await model.checkDrift()
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .drifted(keyCount: 1))
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .outOfDate(keyCount: 1))
 
             // Reconcile: the UI routes Reconcile → materializeSelectedScope()
             // → drift confirmation → materializeSelectedScope(force: true).
@@ -226,7 +217,7 @@ struct WorkshopModelHealTests {
                 return
             }
             #expect(WorkshopModel.isDrifted(report) == false)
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
         }
     }
 
@@ -277,7 +268,7 @@ struct WorkshopModelHealTests {
             let contents = try String(contentsOf: envURL, encoding: .utf8)
             #expect(contents.contains("DB=postgres://vault"))
             // Refreshed to clean, not cleared (same gate finding as reconcile).
-            #expect(model.driftBadge(forScope: "kanyo-dev") == .clean)
+            #expect(model.projectStatus(forScope: "kanyo-dev") == .protected)
             #expect(model.statusMessage == "Reconciled 1 of 1 drifted scope.")
         }
     }
@@ -306,5 +297,86 @@ struct WorkshopModelHealTests {
         #expect(
             WorkshopModel.isKeyDrifted(.fileValueDiffers(key: "A", vaultSha256: "x", fileSha256: "y")))
         #expect(WorkshopModel.isKeyDrifted(.fileLineCorrupted(key: "A")))
+    }
+}
+
+/// ho-06.10 AT-04 tests: Check all keeps going past projects this key cannot
+/// read, reports per project, and notices a protected value equal to a
+/// shared secret's.
+@MainActor
+@Suite("WorkshopModel Check all")
+struct WorkshopModelCheckAllTests {
+    @Test("Check all's announce: checked and out of date always, the rest only when there are some")
+    func checkAllSummary() {
+        #expect(
+            WorkshopModel.checkAllSummary(checked: 4, outOfDate: 1, unreadable: 2, matches: 0)
+                == "4 checked · 1 out of date · 2 could not be read")
+        #expect(
+            WorkshopModel.checkAllSummary(checked: 1, outOfDate: 0, unreadable: 0, matches: 0)
+                == "1 checked · 0 out of date")
+        #expect(
+            WorkshopModel.checkAllSummary(checked: 2, outOfDate: 0, unreadable: 0, matches: 1)
+                == "2 checked · 0 out of date · 1 line matches a shared secret")
+        #expect(
+            WorkshopModel.checkAllSummary(checked: 2, outOfDate: 0, unreadable: 1, matches: 3)
+                == "2 checked · 0 out of date · 1 could not be read · 3 lines match a shared secret")
+    }
+
+    @Test("Check all with two unreadable projects still checks the rest and reports all three counts")
+    func checkAllContinuesPastUnreadable() async throws {
+        try await AppAgeKeyFixture.withEphemeralKey { fixture in
+            try await AppAgeKeyFixture.withEphemeralKey { other in
+                try await WorkshopTestSupport.withTempVault { vault in
+                    let root = try ProjectsTestSupport.makeRoot(near: vault)
+                    defer { try? FileManager.default.removeItem(at: root) }
+                    let mine = try VaultCore(vaultURL: vault, ageKeyURL: fixture.privateKeyURL)
+                    let theirs = try VaultCore(vaultURL: vault, ageKeyURL: other.privateKeyURL)
+                    for (scope, core) in [("bento", mine), ("ghost", theirs), ("relic", theirs)] {
+                        try WorkshopTestSupport.writeScope(scope, type: .projectDev, in: vault)
+                        try core.addSecret("DB", value: "postgres://\(scope)", inScope: scope)
+                        let folder = try ProjectsTestSupport.seedMarker(scope: scope, under: root, named: scope)
+                        try ProjectsTestSupport.writeEnv("DB=postgres://\(scope)\n", in: folder)
+                    }
+                    let model = ProjectsTestSupport.model(vault: vault, ageKey: fixture.privateKeyURL)
+                    model.scanRoots = [root]
+                    await model.performLaunchScan()
+
+                    await model.checkDrift()
+                    #expect(model.statusMessage == "1 checked · 0 out of date · 2 could not be read")
+                    #expect(Set(model.driftReports.keys) == ["bento"])
+                    #expect(Set(model.unreadableProjects.keys) == ["ghost", "relic"])
+                    #expect(model.errorMessage == nil)
+                    #expect(model.activity == nil)
+
+                    model.selection = .project(scopeID: "ghost")
+                    let error = try #require(model.paneError(in: .page))
+                    #expect(error.message == WorkshopModel.keyMismatchMessage)
+                    #expect(error.nextStep == WorkshopModel.keyMismatchNextStep)
+                    model.selection = .project(scopeID: "bento")
+                    #expect(model.paneError(in: .page) == nil)
+                }
+            }
+        }
+    }
+
+    @Test("a protected value equal to a shared secret's is noticed; an unreadable shared secret is skipped")
+    func checkAllValueMatch() async throws {
+        try await AppAgeKeyFixture.withEphemeralKey { other in
+            try await VerbsTestSupport.withProtectedProject(
+                env: "DB=postgres://vault\nAPI_KEY=sk-live\n", shared: ["openai": "sk-live", "pg": "postgres://x"]
+            ) { model, vault, _, _ in
+                // A shared secret this key cannot read is left out, not fatal.
+                try VaultCore(vaultURL: vault, ageKeyURL: other.privateKeyURL).addSharedEntry(
+                    "theirs", value: "sk-live")
+                model.loadScopes()
+                await model.checkDrift()
+                #expect(model.sharedMatches == ["bento": ["API_KEY": "openai"]])
+                #expect(model.statusMessage == "1 checked · 0 out of date · 1 line matches a shared secret")
+
+                model.forgetCheckResults(forScope: "bento")
+                #expect(model.sharedMatches.isEmpty)
+                #expect(model.driftReports.isEmpty)
+            }
+        }
     }
 }

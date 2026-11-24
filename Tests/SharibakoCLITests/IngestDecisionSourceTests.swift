@@ -96,6 +96,57 @@ struct ScriptedIngestDecisionSourceTests {
     }
 }
 
+// MARK: - ClassDefaultIngestDecisionSource tests
+
+@Suite("ClassDefaultIngestDecisionSource")
+struct ClassDefaultIngestDecisionSourceTests {
+    private func detected(_ key: String, _ value: String, shared: String? = nil) -> DetectedKey {
+        DetectedKey(key: key, value: value, sourceFile: envURL, nameMatchedSharedID: shared)
+    }
+
+    @Test("protects secrets, leaves settings, and prints one class line per key in order")
+    func appliesDefaultsAndPrintsClasses() throws {
+        var printed: [String] = []
+        var source = ClassDefaultIngestDecisionSource()
+        source.print = { printed.append($0) }
+        let proposal = makeProposal([
+            detected("OPENAI_API_KEY", "sk-proj-abc"),
+            detected("PORT", "3000"),
+            detected("ANTHROPIC", "x", shared: "ANTHROPIC"),
+            detected("CLOUDFLARE_ACCOUNT_ID", "0123456789abcdef0123456789abcdef"),
+        ])
+        let result = try source.decisions(for: proposal, sharedIDs: ["ANTHROPIC"])
+        #expect(
+            result == [
+                .importAsLocal(key: "OPENAI_API_KEY"), .leaveAlone(key: "PORT"),
+                .importAsLocal(key: "ANTHROPIC"), .importAsLocal(key: "CLOUDFLARE_ACCOUNT_ID"),
+            ]
+        )
+        #expect(
+            printed == [
+                "PROTECT  OPENAI_API_KEY  (key ends in KEY)",
+                "LEAVE    PORT  (looks like a number)",
+                "PROTECT  ANTHROPIC  (key matches a shared entry in the vault)",
+                "PROTECT  CLOUDFLARE_ACCOUNT_ID  (not recognised as a plain setting)",
+            ]
+        )
+    }
+
+    @Test("an empty proposal prints nothing")
+    func emptyProposalPrintsNothing() throws {
+        var printed: [String] = []
+        var source = ClassDefaultIngestDecisionSource()
+        source.print = { printed.append($0) }
+        #expect(try source.decisions(for: makeProposal([]), sharedIDs: []).isEmpty)
+        #expect(printed.isEmpty)
+    }
+
+    @Test("the default print sink executes harmlessly")
+    func defaultPrintExecutes() {
+        ClassDefaultIngestDecisionSource().print("sharibako-test: default print probe")
+    }
+}
+
 // MARK: - KeyDecisionField tests
 
 @Suite("KeyDecisionField")

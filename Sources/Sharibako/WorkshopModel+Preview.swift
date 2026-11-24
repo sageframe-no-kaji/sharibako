@@ -36,7 +36,7 @@ extension WorkshopModel {
         do {
             handle = try provider.loadIdentity(reason: "Preview .env for \(scopeID)")
         } catch {
-            errorMessage = "Could not load age key: \(error)"
+            reportKeyLoadFailure(error)
             return
         }
         do {
@@ -53,7 +53,7 @@ extension WorkshopModel {
             errorMessage = nil
         } catch {
             handle.release()
-            errorMessage = Self.message(for: error)
+            reportPaneError(for: error)
         }
     }
 

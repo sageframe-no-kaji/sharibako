@@ -79,6 +79,15 @@ extension WorkshopModel {
         return scanRoots.map(\.path).joined(separator: "\n")
     }
 
+    /// The path of `url`, abbreviated against the model's injected `home`.
+    ///
+    /// A leading `~` stands for home — the footer's form, shared with the
+    /// project header and the status pages (ho-06.9 AT-02) so every path in
+    /// the window reads the same way.
+    func abbreviatedPath(_ url: URL) -> String {
+        Self.abbreviate(url, against: home)
+    }
+
     /// Abbreviates `url` against `home` with a leading `~`, or returns the
     /// full path unchanged when `url` does not fall under `home`.
     ///
